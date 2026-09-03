@@ -517,3 +517,152 @@ The following questions remain intentionally unresolved:
 - Future support for multiple sessions of the same client role.
 - Whether later versions should add an optional cloud journal and WebSocket
   notification layer while retaining the same entry protocol.
+
+## 16. Review addenda
+
+This section is a crude, hand-maintained stand-in for the Sideband journal
+itself. Each reviewer appends an entry below in the journal entry shape. Entries
+are never edited after they are appended; a response is a new entry with
+`reply_to` set. This lets the requirements be reviewed using the same
+methodology the tool is meant to provide.
+
+<!-- sideband:v0
+{"id":"rev-0001","created_at":"2026-09-02T21:45:00-05:00","from":"claude","model":"claude-fable-5-1","via":"claude","to":["codex","human:james"],"type":"request","route":"broadcast","reply_to":null,"caused_by":"human:james review request","expects_reply":true}
+-->
+
+### Claude Fable 5.1 → Codex + James (via Claude)
+
+Review of sections 1 through 15 as committed in `f5f0ad7`, plus decisions James
+made in discussion afterward. Items are numbered so a response can reference
+them individually.
+
+#### 16.1 Parent wake path is a hard constraint, not an option
+
+Sections 10.2 and 10.3 say each integration "may use" a background facility to
+deliver entries into the parent conversation. Everything in the design depends
+on this capability existing in both hosts without hooks, a daemon, or headless
+CLI invocations. It should be stated as a hard requirement, and the first
+deliverable of any implementation should be a spike that proves the path in
+both directions: an append in Claude wakes the Codex parent, and an append in
+Codex wakes the Claude parent. If either host cannot do this, that is a design
+blocker to surface, not a reason to add a proxy or headless fallback.
+
+#### 16.2 Human capture is unenforceable without a hook
+
+Section 2 names the journal the authoritative record, but section 10.5 makes
+hooks optional. Skill-only capture depends on the model remembering to journal
+every prompt and parse the first token correctly, so it will be lossy. Where a
+host offers a prompt-submit hook, the requirement should be to use it for
+capture and directive parsing, since both then become deterministic. Where no
+such hook exists, the document should say plainly that human capture is best
+effort for that host rather than authoritative.
+
+#### 16.3 One instance per role in version one; per-instance identity later
+
+Section 5.1 wants every worktree to share one journal, and scenario 14.8 tests
+it. Multiple worktrees are exactly the situation that produces two sessions of
+the same role on one repository, which section 13 declares a non-goal.
+
+Decision from discussion: version one supports at most one Claude Code instance
+and one Codex instance per repository. Activating a second instance of a role
+must be refused with a clear message rather than silently sharing or replacing
+the first instance's cursor.
+
+Noted for a later version: each instance becomes its own participant with a
+two-level identity such as `claude:<instance>`, where the instance name is
+human-readable and stable across restarts (a worktree or branch name is a good
+default). Role-level addressing such as `@claude` fans out to every live
+instance of that role; `reply_to` targets the specific instance that asked.
+Cursors move from per-role to per-instance. An instance registry with a
+retired state is needed so that backlog addressed to a deleted worktree is
+reported as orphaned rather than pending forever. The section 13 non-goal on
+session-specific routing and presence would be relaxed at that point. The
+version-one format should keep `from` and `to` as plain role names so this can
+be added compatibly.
+
+#### 16.4 Agent-to-human entries need an addressing model
+
+Section 4 lists agent-to-human entries as in scope, but section 6.2 defines
+`to` as an array of client roles, and the human is not one. Section 8.1 has no
+directive for addressing the human.
+
+Proposed: the human is a valid recipient in `to`, using the same identifier
+form as `from` (for example `human:james`). Delivery to the human is satisfied
+by the authoring client's own visible turn; no listener forwards it. Other
+clients treat a human-addressed entry as informational context. Because the
+entry has an ID, the human can later answer it from either client using
+`reply_to`. An agent may use this to request input or to report completion.
+
+#### 16.5 Loop prevention covers republishing but not conversation loops
+
+Section 8.3 prevents an entry from being republished. Nothing prevents Claude
+and Codex from exchanging actionable replies indefinitely under the live
+`auto` policy.
+
+Proposed, in three parts:
+
+- Convention: when an agent judges its part complete, it addresses the human
+  (per 16.4) rather than the other agent. This is the normal terminal state
+  and is equivalent to stopping.
+- Rule: an agent-to-agent entry with `expects_reply: true` must trace back to
+  a human-authored entry through its `caused_by` chain. Agents cannot
+  originate work between themselves.
+- Backstop: a maximum number of consecutive agent-to-agent hops since the last
+  human-authored entry in the chain. The chain is already in the metadata, so
+  the check is cheap. An entry exceeding the cap is journaled but delivered
+  under the `confirm` policy regardless of its live policy.
+
+#### 16.6 The entry format must be unambiguous for arbitrary bodies
+
+Section 6.1 uses a literal closing marker. A body that itself contains that
+marker, for example a message quoting the journal format, would terminate the
+entry early. The requirement should state that the format must parse correctly
+for any body, and leave the mechanism (a byte length, an escaped marker, or a
+per-entry delimiter) to the implementation.
+
+#### 16.7 Whether undirected human prompts are journaled
+
+Section 7.1 records every direct human prompt while Sideband is active, which
+includes prompts like "fix the typo" that have nothing to do with the shared
+conversation. Section 15 raises this question for agent responses but not for
+human prompts. The same question should be listed for human prompts, with the
+tradeoff stated: completeness of the record versus journal noise and exposure
+of prompts that were never meant for the other participant.
+
+#### 16.8 A sender may block waiting for a reply
+
+The document does not say whether an agent that sends a request may wait for
+the answer within its current turn. A one-shot blocking wait run as a shell
+command consumes no model tokens while blocked, which makes "ask Codex for a
+review and wait for the result" a supported workflow rather than an
+anti-pattern. This should be stated explicitly, together with the requirement
+that such a wait has a timeout and that a timeout leaves the request pending
+rather than failed.
+
+#### 16.9 "Successful delivery" should be defined as handoff
+
+Sections 9.2 and 11.3 advance recipient state on "successful delivery into the
+parent conversation." A transport worker cannot observe whether the parent
+model actually read an entry. Delivery should be defined as successful handoff
+to the host's native mechanism for waking the parent. Whatever happens after
+that is the parent's responsibility and is covered by ID deduplication.
+
+#### 16.10 The `control` type has no defined semantics
+
+Section 6.2 lists `control` as a valid type but nothing describes when it is
+used or how a recipient treats it. Either define it or drop it from version
+one.
+
+#### 16.11 Implementation language remains open; Python is not a given
+
+Section 15 leaves the helper's language and packaging open. James has stated
+that Python was never the intent. The constraints that actually matter are
+that the helper runs as a one-shot command from both a Claude Code skill and a
+Codex skill, provides atomic file locking and JSON handling, and is present or
+trivially installable on any machine that has both clients. Node satisfies
+these and is guaranteed present wherever Claude Code runs. A compiled binary
+satisfies them but is awkward to ship inside a skill bundle. Shell alone
+should be ruled out because atomic locking and JSON parsing are exactly what it
+does badly. This remains an open decision for James.
+
+<!-- /sideband -->
