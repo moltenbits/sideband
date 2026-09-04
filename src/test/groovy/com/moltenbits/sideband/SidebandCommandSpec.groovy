@@ -1,30 +1,36 @@
 package com.moltenbits.sideband
 
-import io.micronaut.configuration.picocli.PicocliRunner
+import com.moltenbits.sideband.command.ExitCode
 import io.micronaut.context.ApplicationContext
-import io.micronaut.context.env.Environment
-
+import picocli.CommandLine
 import spock.lang.AutoCleanup
 import spock.lang.Shared
 import spock.lang.Specification
 
-import java.io.ByteArrayOutputStream
-import java.io.PrintStream
-
 class SidebandCommandSpec extends Specification {
 
-    @Shared @AutoCleanup ApplicationContext ctx = ApplicationContext.run(Environment.CLI, Environment.TEST)
+    @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
-    void "test sideband with command line option"() {
+    void "running without a subcommand prints usage and fails as invalid input"() {
         given:
-        ByteArrayOutputStream baos = new ByteArrayOutputStream()
-        System.setOut(new PrintStream(baos))
-
-        String[] args = ['-v'] as String[]
-        PicocliRunner.run(SidebandCommand, ctx, args)
+        StringWriter err = new StringWriter()
+        CommandLine cli = SidebandCommand.commandLine(context)
+        cli.err = new PrintWriter(err)
 
         expect:
-        baos.toString().contains('Hi!')
+        cli.execute() == ExitCode.INVALID_INPUT
+        err.toString().contains("Usage: sideband")
+    }
+
+    void "help lists the append and wait subcommands"() {
+        given:
+        StringWriter out = new StringWriter()
+        CommandLine cli = SidebandCommand.commandLine(context)
+        cli.out = new PrintWriter(out)
+
+        expect:
+        cli.execute("--help") == ExitCode.OK
+        out.toString().contains("append")
+        out.toString().contains("wait")
     }
 }
-
