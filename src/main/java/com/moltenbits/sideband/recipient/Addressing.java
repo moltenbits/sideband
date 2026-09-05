@@ -10,9 +10,17 @@ public final class Addressing {
     private Addressing() {
     }
 
-    /** Addressed to the role and not authored by it. */
+    /**
+     * Addressed to the role, not authored by it, and not a human turn typed into it. The
+     * client a human typed into acts on that turn directly, so it is never open for that
+     * client regardless of cursor state; this keeps a listener from seeing the entry in
+     * the instant between its append and its originating-turn resolution.
+     */
     public static boolean concerns(EntryMetadata metadata, Role role) {
         ParticipantId self = ParticipantId.of(role);
+        if (metadata.from().isHuman() && metadata.via() == role) {
+            return false;
+        }
         return metadata.addresses(self) && !metadata.from().equals(self);
     }
 

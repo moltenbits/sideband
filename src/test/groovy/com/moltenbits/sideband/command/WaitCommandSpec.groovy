@@ -89,6 +89,18 @@ class WaitCommandSpec extends CommandSpec {
         json().end == Files.size(journalFile)
     }
 
+    void "a human turn typed into the role is not delivered back to it, whatever the cursor says"() {
+        given:
+        append(Fixtures.humanDraft("typed into codex", [Fixtures.CODEX], com.moltenbits.sideband.protocol.Role.CODEX))
+
+        when:
+        int code = run("wait", "--repo", repo.toString(), "--role", "codex", "--from", "0", "--timeout", "0")
+
+        then:
+        code == ExitCode.TIMED_OUT
+        json().entries == []
+    }
+
     void "with a role and nothing open, the timeout result still reports how far it scanned"() {
         given:
         append(Fixtures.humanDraft("@claude only", [Fixtures.CLAUDE]))

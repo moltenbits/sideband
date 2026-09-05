@@ -218,6 +218,17 @@ class FileRecipientStateSpec extends Specification {
         state.isOpen(state.load(dir, Role.CLAUDE), fromCodex)
     }
 
+    void "a human turn typed into the role is never open for it, even before the originating-turn resolution lands"() {
+        given:
+        Entry ownTurn = human("fix the typo", Role.CODEX, Role.CODEX)
+        Entry broadcastFromCodex = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
+
+        expect:
+        !state.isOpen(state.load(dir, Role.CODEX), ownTurn)
+        !state.isOpen(state.load(dir, Role.CODEX), broadcastFromCodex)
+        state.isOpen(state.load(dir, Role.CLAUDE), broadcastFromCodex)
+    }
+
     void "outgoing requests are registered, correlated with replies through reply_to chains, and resolved by the parent"() {
         given:
         Entry h = human("@claude do it", Role.CLAUDE)

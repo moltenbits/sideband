@@ -135,16 +135,14 @@ exit $(cat "''' + exitFile + '''")
         !Files.exists(log)
     }
 
-    void "a broadcast pushes to each client recipient other than the author"() {
+    void "a broadcast pushes to each client recipient except the one the human typed into"() {
         given:
         recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
-        Entry all = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
+        Entry viaClaude = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
+        Entry viaCodex = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
 
-        when:
-        List<PushResult> results = pushes.deliver(state, all)
-
-        then:
-        results*.role() == [Role.CLAUDE, Role.CODEX]
-        results*.outcome() == [PushOutcome.LISTENER_DELIVERS, PushOutcome.PUSHED]
+        expect:
+        pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]
+        pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, null)]
     }
 }
