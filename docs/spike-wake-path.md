@@ -379,8 +379,10 @@ closed, with no further waits or automatic probes scheduled.
 
 Experiment `sideband-codex-handshake.8q2bV3`, authorized by James through the
 relayed bounded handshake instructions. This is an actual Claude–Codex adapter
-test, not another detached-writer stand-in. Outcome is pending until the
-exchange below is observed; listener readiness alone is not success.
+test, not another detached-writer stand-in. **Outcome: passed**, with both
+parent conversations participating and Codex's listener stopped after the
+human-only summary. Intermediate checkpoints below retain their original scope;
+listener readiness alone was not counted as success.
 
 ### Setup and bounds (2026-09-05 UTC)
 
@@ -453,3 +455,83 @@ cursor access. All substantive message handling remains in the parent.
 At this setup checkpoint, Codex has sent zero requests and zero replies. It
 is waiting for the one authorized Claude ping; no handshake success is yet
 claimed. Subsequent observations will be appended here after parent delivery.
+
+2. Claude request received: `db3787df-6b6e-4f7b-9886-4f67f0140cb7`, created
+   `2026-09-05T00:31:12-05:00`, `caused_by: H`, `expects_reply: true`,
+   native range 2022–2455. Its body was the authorized ping. The helper queued
+   the native wait JSON at `2026-09-05T05:31:12.557Z` (host queue ID
+   `01a0700c-a719-7a31-9167-12979f1b330c`) while the parent was finishing setup.
+   It arrived as the next parent turn's user-role input, beginning exactly
+   `[Sideband message]` followed by the JSON. The parent presented it as
+   Claude-authored context with its original ID; no capture-human call was
+   made for that turn. First verification in the delivered turn: 05:31:57 UTC.
+3. Codex receipt: `6d8af889-21f0-44fb-a1d2-ef699922f284`, created
+   `2026-09-05T00:32:13-05:00`, `to: [claude]`, `type: reply`,
+   `reply_to: db3787df-6b6e-4f7b-9886-4f67f0140cb7`, `expects_reply: false`,
+   native range 2456–2914. Body is one line confirming receipt through the
+   journal in the parent. This is Codex's first reply, not another request.
+4. Codex return ping: `6b42cd07-876e-4a1f-9f12-50b2329b59e1`, created
+   `2026-09-05T00:32:24-05:00`, `to: [claude]`, `type: request`,
+   `caused_by: H`, `expects_reply: true`, native range 2915–3349. Body is
+   the authorized ping with a trailing newline. H directly initiated this
+   second test direction; it is not a new delegation of Claude's request.
+
+At the intermediate checkpoint Codex had sent its single permitted request and
+one of its two replies. The remaining permitted reply was the human-only summary
+after Claude answered that exact request. The parent returned control instead
+of waiting on it, leaving response delivery to the original listener. This first
+delivery also exercises queue acceptance during an active parent turn and delivery at the next turn,
+not just the previous spike's idle-parent case.
+
+5. Claude's return-ping receipt: `a0702d37-6a89-4ab0-86c3-15dcf3a4d000`,
+   created `2026-09-05T00:33:17-05:00`, `to: [codex]`, `type: reply`,
+   `reply_to: 6b42cd07-876e-4a1f-9f12-50b2329b59e1`, `expects_reply: false`,
+   native range 3350–3813. Body:
+   `Received your ping through the Sideband journal in the Claude Code parent conversation.`
+   Queue acceptance was `05:33:17.923Z`, host queue ID
+   `01a0700e-90d2-7860-960d-c569cb9127e5`. The parent had finished its prior
+   turn at `05:33:06.564Z`; the host started the delivered turn at
+   `05:33:22.313Z` (turn `01a0700e-a206-73c2-bcc0-114434f739f3`). This was
+   an idle-parent wake without a human check-in. The envelope again appeared
+   as user-role input with the exact preamble and native JSON. The parent
+   treated the non-actionable reply as the answer to its existing authorized
+   request, not permission for another peer task, and did not capture it.
+6. Codex's final human-only summary: `8e47ead7-a1bf-497f-9cb8-5938e8e94c2e`,
+   created `2026-09-05T00:33:57-05:00`, `to: [human:james]`, `type: reply`,
+   `reply_to: H`, `expects_reply: false`, native range 4853–5809. It reports
+   the completed bounded exchange and explicitly distinguishes it from full
+   lifecycle integration. No further actionable message was sent.
+
+### Final observations and cleanup
+
+- The first queue delivery followed setup turn completion at
+  `05:31:48.467Z`, starting a new turn at `05:31:48.477Z`
+  (`01a0700d-3373-7823-abbf-741981f537b2`). Together with the second delivery,
+  this exercises both queued-during-active and idle-parent arrival in an
+  actual exchange. Both messages reached this existing parent, not a worker.
+- Native output gained additive `effective_live` and `lineage_problem` entry
+  fields during the exchange. The helper preserved them without modification.
+  The installed binary hash at the final append was
+  `f116492738ef37326176db450f45a54b91c1666d30eb04f47ce42bd4e71beb27`, still
+  reporting protocol v1, different from the initial append's hash. This is
+  an observed concurrent executable update, not a production upgrade/lifecycle
+  compatibility guarantee.
+- Claude's human-only summary `45c5a091-7c19-48fb-b034-0e8f50512dbe` advanced
+  the listener from 3814 to 4853 without a queue call. Codex's own summary
+  similarly advanced to 5810 without waking itself. Neither human-only body
+  was injected into the Codex parent by the listener.
+- Interrupted `/root/sideband_handshake_listener`, verified helper PID
+  `40744`, and sent that process SIGTERM. The helper logged
+  `2026-09-05T05:34:10.417Z`, `reason: cancelled`, `offset: 5810`,
+  `deliveries: 2`. Process inspection confirmed both that helper and its last
+  native child PID `42978` were gone. No listener or observation timer remains
+  scheduled by Codex for this experiment; journal entries and evidence remain.
+- A final scan **through the executable** returned nine protocol entries and
+  `end: 5810`. Assertions verified exactly one Codex request, two Codex replies,
+  one Codex status, correct reply correlation and human-only final recipients,
+  and zero `human:james` entries captured `via: codex`. Both actionable pings
+  use H as their direct cause; the replies link their immediate answered IDs.
+- All twelve Codex adapter tests passed again against the updated installed
+  native executable. No hook was installed. The bounded handshake is complete;
+  full integration remains for the human-supervised session, with the scope
+  limitations above unchanged.
