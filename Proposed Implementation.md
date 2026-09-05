@@ -394,9 +394,22 @@ sideband mark-delivered --role codex <id>...
 sideband resolve --role codex --as acted|dismissed|presented|originating-turn <id>...
 sideband resolve-outgoing --role codex --as answered|dismissed <id>...
 sideband pending --role codex
+sideband skill                          # the calling client's adapter instructions
+sideband hook prompt                    # prompt-submit hook, payload on stdin
 sideband version
 sideband doctor
 ```
+
+No command needs to be told which client it runs inside: each recognizes the
+client from the environment the client gives its subprocesses, so the `--role`
+and `--via` flags shown above are overrides for tests, not something a skill
+passes. `hook prompt` works the same way. It is the one capture hook for both
+clients, registered by `init` under the same command line in each client's
+hook configuration; it identifies the calling client (environment first, the
+payload's `hook_event_name` and session identifier as fallback), parses that
+client's payload, journals the prompt for that client's cursor, and answers in
+that client's response shape. Codex registration waits on the verification in
+requirements section 17.2.
 
 Message bodies enter through files or stdin, never interpolated into shell
 source or passed as a single command-line argument. This avoids quote expansion,
@@ -598,9 +611,9 @@ The Claude skill is installed as a Claude-compatible `SKILL.md` and invoked as
 - use a supported native background facility to own journal following and wake
   the existing parent;
 - have the worker run only `sideband wait`, parent delivery, and state commands;
-- use a supported prompt-submit hook, where provided, to pass the exact human
-  body to `capture-human` before model processing; otherwise explicitly report
-  best-effort skill-based capture;
+- rely on the shared `sideband hook prompt` hook, registered by `init` in the
+  repository's `.claude/settings.json`, to journal the exact human body before
+  model processing; the hook recognizes Claude Code as the caller itself;
 - deliver entries to the original parent conversation, never answer them in the
   worker; and
 - report a stopped background task so the parent can restart it from the durable
@@ -632,9 +645,13 @@ proposed adapter, subject to the uncompleted feasibility spike, should:
 - reuse/restart the same listener identity instead of creating a worker per
   message.
 
-Use a supported prompt-submit hook for capture if the target host provides one;
-otherwise report best-effort skill capture during activation and diagnostics.
-Do not infer supported hook or parent-wake capabilities from another client.
+Capture uses the same `sideband hook prompt` entry point as Claude Code once
+Codex's hook contract is verified against its official documentation and
+`init` registers that command in Codex's hook configuration (requirements
+section 17.2); the hook recognizes Codex as the caller itself, so nothing on
+the registered command line differs between clients. Until then, report
+best-effort skill capture during activation and diagnostics. Do not infer
+supported hook or parent-wake capabilities from another client.
 
 This design uses the existing interactive subagent channel documented by
 [OpenAI's Codex subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)

@@ -221,6 +221,21 @@ integration must:
 - state during activation that capture is best effort for that host; and
 - expose the current capture guarantee through diagnostics.
 
+The hook is one entry point in the shared executable, `sideband hook prompt`,
+with no client named on its command line. Like every other command, it
+recognizes the calling client from the environment the client gives its
+subprocesses (`CODEX_THREAD_ID` for Codex; `CLAUDECODE` or
+`CLAUDE_CODE_SESSION_ID` for Claude Code), with the payload's own
+`hook_event_name` and session identifier as the fallback when a host does not
+carry those variables into hook shells. It then reads that client's payload
+shape, journals the prompt against that client's cursor, and answers in that
+client's response format. `sideband init` registers the same command line in
+each client's hook configuration that the executable recognizes, so the
+installed hook is identical everywhere and updating the executable updates
+both. Registration for a client is added only once that client's hook
+contract has been verified against its official documentation
+(section 17.2).
+
 Each captured prompt is recorded with:
 
 - The human as `from`.
@@ -593,6 +608,9 @@ tested and do not wake an idle parent; they must not be used for delivery.
 The pushed envelope arrives as user-role input and must be handled under
 section 7.4.
 
+Codex prompt capture is best effort through the skill until the client-aware
+hook of section 7.1 is registered for Codex (section 17.2).
+
 ### 10.4 Lifecycle
 
 - The listener exists only while its client session is running.
@@ -876,6 +894,11 @@ the hook records every human prompt and resolves its first-token directive
 before model processing. Given a host without such a hook, activation and
 diagnostics identify capture as best effort rather than claiming authoritative
 capture.
+
+Given the hook command is registered in both clients, when either client
+invokes it, the executable identifies the invoking client without a flag,
+parses that client's payload, and records the prompt with that client as
+`via`; the command line registered in each client is the same.
 
 ### 14.17 Shared executable
 
@@ -1232,6 +1255,27 @@ one request and two replies per agent. Both records are in
 [docs/overnight-handshake.md](docs/overnight-handshake.md) (Claude side) and
 [docs/spike-wake-path.md](docs/spike-wake-path.md) (Codex side). The full
 integration with James present remains the next step.
+
+### 17.2 Client-aware capture hook
+
+Status (2026-09-05): the Claude Code hook is implemented and installed by
+`sideband init` into the repository's `.claude/settings.json`; it identifies
+the session from the payload's `session_id`. Codex capture is best effort.
+Making the same entry point serve Codex needs two facts verified before code
+is written:
+
+1. Codex's prompt-submit hook contract, from OpenAI's official hooks
+   documentation rather than third-party reproductions: the event name, the
+   registration file (`~/.codex/hooks.json` or `[hooks]` in `config.toml`),
+   the stdin payload field names, and the stdout shape for injecting context.
+   Third-party writeups say the hooks are modeled on Claude Code's and that a
+   `UserPromptSubmit` event landed in March 2026; that is not yet confirmed.
+2. Whether each client carries its marker environment variables into the
+   shell it spawns for hooks. The Claude hook has not needed them because the
+   payload carries `session_id`. If a host does not, the payload-based
+   recognition in section 7.1 is the primary path for that host.
+
+Neither is a release blocker for the Claude Code path.
 
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.
