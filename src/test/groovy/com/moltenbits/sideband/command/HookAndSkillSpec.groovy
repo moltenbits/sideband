@@ -282,10 +282,34 @@ class HookAndSkillSpec extends CommandSpec {
         stderr.toString().contains("capture failed")
     }
 
+    void "a cleared conversation in the same host process keeps its session and captures under the new id"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        detectedPid = ProcessHandle.current().pid()
+        run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "before-clear",
+                "--parent-pid", detectedPid.toString())
+        stdout = new StringWriter()
+        def before = context.getBean(RecipientState).load(repo.resolve(".git/sideband"), Role.CLAUDE).session()
+
+        when:
+        int code = hook("first prompt after /clear", "after-clear")
+        def after = context.getBean(RecipientState).load(repo.resolve(".git/sideband"), Role.CLAUDE).session()
+
+        then:
+        code == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband journaled this prompt")
+        Files.readString(journalFile).contains("first prompt after /clear")
+        after.id() == "after-clear"
+        after.parentPid() == detectedPid
+        after.startedAt() == before.startedAt()
+        after.watermarkEnd() == before.watermarkEnd()
+    }
+
     void "a caller from a second session of an active role is told another session owns Sideband"() {
         given:
         detectedAgent = Role.CODEX
-        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
+        detectedPid = ProcessHandle.current().pid()
+        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "1")
         stdout = new StringWriter()
 
         expect:

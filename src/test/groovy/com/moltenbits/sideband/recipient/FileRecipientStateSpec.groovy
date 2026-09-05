@@ -178,10 +178,31 @@ class FileRecipientStateSpec extends Specification {
         active | oldLive | sessionId | callerLive | suppliedPid | outcome
         false  | false   | "s1"      | true       | null        | "NOT_ACTIVE"
         true   | false   | "other"   | true       | null        | "SESSION_MISMATCH"
-        true   | true    | "other"   | true       | null        | "SESSION_MISMATCH"
         true   | false   | "s1"      | false      | null        | "CALLER_UNAVAILABLE"
         true   | false   | "s1"      | false      | 999999998L  | "CALLER_UNAVAILABLE"
         true   | true    | "s1"      | false      | 999999998L  | "READY"
+    }
+
+    void "the same host process presenting a new conversation id keeps its session under the new id"() {
+        given: "Claude Code after /clear: same process, new session id"
+        Long pid = ProcessHandle.current().pid()
+        state.activate(dir, Role.CODEX, "before-clear", pid, false)
+        Session before = state.load(dir, Role.CODEX).session()
+
+        when:
+        SessionRefresh outcome = state.refreshSession(dir, Role.CODEX, "after-clear", pid)
+        Session after = state.load(dir, Role.CODEX).session()
+
+        then:
+        outcome == SessionRefresh.REFRESHED
+        after.id() == "after-clear"
+        after.parentPid() == pid
+        after.startedAt() == before.startedAt()
+        after.watermarkId() == before.watermarkId()
+        after.watermarkEnd() == before.watermarkEnd()
+
+        and: "a different process with a new id is still another conversation"
+        state.refreshSession(dir, Role.CODEX, "elsewhere", 999999998L) == SessionRefresh.SESSION_MISMATCH
     }
 
     void "resolved entries drop out of backlog and pending; dismissal never touches the journal"() {

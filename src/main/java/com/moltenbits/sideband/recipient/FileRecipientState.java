@@ -107,6 +107,13 @@ class FileRecipientState implements RecipientState {
                 return SessionRefresh.NOT_ACTIVE;
             }
             if (!existing.id().equals(sessionId)) {
+                // The same host process presenting a new conversation id (Claude Code after
+                // /clear) is this session continuing, not a second session: carry the state over.
+                if (parentPid != null && parentPid.equals(existing.parentPid())) {
+                    save(stateDirectory, cursor.withSession(new Session(sessionId, existing.startedAt(), parentPid,
+                            existing.watermarkId(), existing.watermarkEnd())));
+                    return SessionRefresh.REFRESHED;
+                }
                 return SessionRefresh.SESSION_MISMATCH;
             }
             if (existing.isLive()) {
