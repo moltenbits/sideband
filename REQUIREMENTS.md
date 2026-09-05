@@ -1041,5 +1041,12 @@ If either direction fails, the requirements must be revisited; an MCP server,
 intermediary daemon, hosted runtime service, or headless peer invocation is not
 an authorized fallback.
 
+Status (2026-09-04): the Claude Code direction passed. A background
+`sideband wait` task woke the idle parent conversation when a detached process
+appended an entry. The Codex direction has not been run. The procedure,
+observed output, and mechanism are recorded in
+[docs/spike-wake-path.md](docs/spike-wake-path.md); the Codex test to run is in
+`skills/sideband-codex/SKILL.md`.
+
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.
