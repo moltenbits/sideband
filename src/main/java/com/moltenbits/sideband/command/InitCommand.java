@@ -22,8 +22,8 @@ import java.util.concurrent.Callable;
 
 /**
  * Everything a repository needs before the first session: the private state directory and
- * configuration, both client skills installed from the executable, and the Claude Code
- * prompt hook registered in the repository's settings. Safe to rerun.
+ * configuration, both client skills installed from the executable, and the shared prompt
+ * hook registered in both clients' project settings. Host trust is still required. Safe to rerun.
  */
 @Command(name = "init", description = "Set up this repository: private state, configuration, both client skills, and the capture hook", mixinStandardHelpOptions = true)
 @Prototype

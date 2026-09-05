@@ -16,6 +16,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -31,6 +32,8 @@ class ResourceInstaller implements Installer {
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
     private static final String SETTINGS = ".claude/settings.json";
+    private static final String CODEX_SETTINGS = ".codex/hooks.json";
+    private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
 
     private final ObjectMapper json;
     private final String hookCommand;
@@ -65,7 +68,8 @@ class ResourceInstaller implements Installer {
         for (String source : List.of("sideband-claude", "sideband-codex")) {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
-        return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS)));
+        return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS), "claude-prompt-hook"),
+                installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook"));
     }
 
     @Override
@@ -76,7 +80,9 @@ class ResourceInstaller implements Installer {
             skills.add(new InstallReport.Item(client(source), target.toString(), skillState(source, target)));
         }
         Path settings = projectDir.resolve(SETTINGS);
-        return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings)));
+        Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
+        return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings)),
+                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings)));
     }
 
     private InstallReport.Item installSkill(String source, Path target) {
@@ -142,7 +148,7 @@ class ResourceInstaller implements Installer {
     }
 
     @SuppressWarnings("unchecked")
-    private InstallReport.Item installHook(Path settings) {
+    private InstallReport.Item installHook(Path settings, String name) {
         try {
             Map<String, Object> root = readSettings(settings);
             Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
@@ -157,11 +163,12 @@ class ResourceInstaller implements Installer {
                     continue;
                 }
                 for (Object command : commands) {
-                    if (command instanceof Map<?, ?> c && String.valueOf(c.get("command")).contains("sideband")) {
-                        if (hookCommand.equals(c.get("command"))) {
-                            return new InstallReport.Item("claude-prompt-hook", settings.toString(), "unchanged");
+                    if (command instanceof Map<?, ?> c && isSidebandHook(String.valueOf(c.get("command")))) {
+                        String replacement = hookCommand + agentOverride(String.valueOf(c.get("command")));
+                        if (replacement.equals(c.get("command"))) {
+                            return new InstallReport.Item(name, settings.toString(), "unchanged");
                         }
-                        ((Map<String, Object>) c).put("command", hookCommand);
+                        ((Map<String, Object>) c).put("command", replacement);
                         state = "updated";
                     }
                 }
@@ -176,10 +183,22 @@ class ResourceInstaller implements Installer {
             }
             Files.createDirectories(settings.getParent());
             Files.writeString(settings, PrettyJson.render(root) + "\n", UTF_8);
-            return new InstallReport.Item("claude-prompt-hook", settings.toString(), state);
+            return new InstallReport.Item(name, settings.toString(), state);
         } catch (IOException e) {
             throw new UncheckedIOException("could not update " + settings, e);
         }
+    }
+
+    private boolean isSidebandHook(String command) {
+        command = AGENT_OVERRIDE.matcher(command).replaceFirst("");
+        return command.equals(hookCommand)
+                || command.matches("[\\\"']?(?:[^\\r\\n]*[/\\\\])?sideband(?:\\.exe)?[\\\"']?\\s+hook\\s+prompt")
+                || command.endsWith("/skills/sideband-claude/hooks/prompt.sh");
+    }
+
+    private static String agentOverride(String command) {
+        var match = AGENT_OVERRIDE.matcher(command);
+        return match.find() ? " --agent " + match.group(1) : "";
     }
 
     private String hookState(Path settings) {
@@ -190,6 +209,11 @@ class ResourceInstaller implements Installer {
             String text = Files.readString(settings, UTF_8);
             if (text.contains(PrettyJson.quote(hookCommand))) {
                 return "installed";
+            }
+            for (Role role : Role.values()) {
+                if (text.contains(PrettyJson.quote(hookCommand + " --agent " + role.id()))) {
+                    return "installed";
+                }
             }
             return text.contains("sideband") ? "stale" : "missing";
         } catch (IOException e) {

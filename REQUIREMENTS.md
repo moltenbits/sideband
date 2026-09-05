@@ -223,12 +223,15 @@ integration must:
 - expose the current capture guarantee through diagnostics.
 
 The hook is one entry point in the shared executable, `sideband hook prompt`,
-with no client named on its command line. Like every other command, it
+with no client required on its command line. Like every other command, it
 recognizes the calling client from the environment the client gives its
 subprocesses (`CODEX_THREAD_ID` for Codex; `CLAUDECODE` or
-`CLAUDE_CODE_SESSION_ID` for Claude Code), with the payload's own
-`hook_event_name` and session identifier as the fallback when a host does not
-carry those variables into hook shells. It then reads that client's payload
+`CLAUDE_CODE_SESSION_ID` for Claude Code), with a unique match between the
+payload's session identifier and an active role's recorded session as the
+fallback when hook shells omit those variables. Both clients use
+`UserPromptSubmit`, so the event name alone cannot distinguish them.
+An optional `--agent codex|claude` overrides detection when needed, but never
+bypasses the session ownership check. It then reads that client's payload
 shape, journals the prompt against that client's cursor, and answers in that
 client's response format. `sideband init` registers the same command line in
 each client's hook configuration that the executable recognizes, so the
@@ -676,7 +679,8 @@ The pushed envelope arrives as user-role input and must be handled under
 section 7.4.
 
 Codex prompt capture is best effort through the skill until the client-aware
-hook of section 7.1 is registered for Codex (section 17.2).
+hook of section 7.1 is loaded, trusted and running in Codex (section 17.2).
+Registration on disk alone does not establish that guarantee.
 
 ### 10.4 Lifecycle
 
@@ -966,6 +970,9 @@ Given the hook command is registered in both clients, when either client
 invokes it, the executable identifies the invoking client without a flag,
 parses that client's payload, and records the prompt with that client as
 `via`; the command line registered in each client is the same.
+Given an explicit `--agent` override, the named role is used only when the
+payload session owns that role. An ambiguous automatic fallback or a
+mismatched session records nothing.
 
 ### 14.17a Acknowledgement and overdue notice
 
@@ -1343,22 +1350,20 @@ integration with James present remains the next step.
 
 ### 17.2 Client-aware capture hook
 
-Status (2026-09-05): the Claude Code hook is implemented and installed by
-`sideband init` into the repository's `.claude/settings.json`; it identifies
-the session from the payload's `session_id`. Codex capture is best effort.
-Making the same entry point serve Codex needs two facts verified before code
-is written:
+Status (2026-09-05): the shared hook supports both clients and `sideband init`
+registers it in `.claude/settings.json` and `.codex/hooks.json`. James approved
+automatic detection plus an optional `--agent` override. The official
+[Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
+confirms the event, stdin prompt/session fields and stdout context shape.
 
-1. Codex's prompt-submit hook contract, from OpenAI's official hooks
-   documentation rather than third-party reproductions: the event name, the
-   registration file (`~/.codex/hooks.json` or `[hooks]` in `config.toml`),
-   the stdin payload field names, and the stdout shape for injecting context.
-   Third-party writeups say the hooks are modeled on Claude Code's and that a
-   `UserPromptSubmit` event landed in March 2026; that is not yet confirmed.
-2. Whether each client carries its marker environment variables into the
-   shell it spawns for hooks. The Claude hook has not needed them because the
-   payload carries `session_id`. If a host does not, the payload-based
-   recognition in section 7.1 is the primary path for that host.
+The remaining verification is a live Codex invocation after the user reviews
+and trusts the registration through `/hooks`: verify verbatim capture once,
+`via: codex`, no re-capture of queued Sideband envelopes, and capture of human
+input submitted during an active turn. Marker inheritance into the actual
+hook shell remains unobserved; unique session matching and the explicit
+override are implemented fallback paths, not claims about host inheritance.
+Until the live test passes, do not equate installed configuration with
+deterministic capture. See [Codex hook verification](docs/codex-prompt-hook.md).
 
 Neither is a release blocker for the Claude Code path.
 

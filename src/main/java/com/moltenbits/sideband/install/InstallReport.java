@@ -7,7 +7,7 @@ import java.util.List;
 
 /** What is installed where. States: installed, updated, unchanged, missing, stale, conflict. */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record InstallReport(List<Item> skills, Item hook) {
+public record InstallReport(List<Item> skills, Item hook, Item codexHook) {
 
     @Serdeable(naming = SnakeCaseStrategy.class)
     public record Item(String name, String path, String state) {

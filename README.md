@@ -165,8 +165,13 @@ sideband doctor       # paths, versions, journal health, sessions, skill links
 
 `init` records the human's identifier from `git config user.name`, installs the
 skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers the prompt hook in the repository's `.claude/settings.json`.
-Rerunning it is safe.
+and registers the same `sideband hook prompt` command in the repository's
+`.claude/settings.json` and `.codex/hooks.json`. Rerunning it is safe.
+In Codex, review and trust the new hook through `/hooks`; a registered command
+is not necessarily enabled or trusted by the host. Until it runs, Codex's
+skill captures prompts on a best-effort basis. Caller detection is automatic;
+`sideband hook prompt --agent codex` (or `--agent claude`) is an optional
+override, still subject to the active session ownership check.
 
 ## Use
 

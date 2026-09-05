@@ -37,6 +37,8 @@ class ResourceInstallerSpec extends Specification {
         report.skills()*.state() == ["installed", "installed"]
         report.skills()*.name() == ["claude", "codex"]
         report.hook().state() == "added"
+        report.codexHook().state() == "added"
+        report.codexHook().name() == "codex-prompt-hook"
         Files.readString(home.resolve(".claude/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-claude/SKILL.md"))
         Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-codex/SKILL.md"))
         Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
@@ -46,6 +48,7 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"UserPromptSubmit": [')
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt"')
         settings.startsWith("{\n  \"hooks\": {")
+        Files.readString(project.resolve(".codex/hooks.json")) == settings
     }
 
     void "reinstalling is idempotent and inspect agrees"() {
@@ -61,12 +64,70 @@ class ResourceInstallerSpec extends Specification {
         again.hook().state() == "unchanged"
         inspected.skills()*.state() == ["unchanged", "unchanged"]
         inspected.hook().state() == "installed"
+        again.codexHook().state() == "unchanged"
+        inspected.codexHook().state() == "installed"
+    }
+
+    void "Codex registers the same native command once and preserves unrelated configuration"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"description":"my hooks","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"echo sideband audit"}]}],"Stop":[{"hooks":[{"type":"command","command":"echo done"}]}]}}''')
+
+        when:
+        installer.install(home, project)
+        String first = Files.readString(hooksFile)
+        installer.install(home, project)
+        String second = Files.readString(hooksFile)
+
+        then:
+        first == second
+        second.count("hook prompt") == 1
+        second.contains('"command": "\\\"/opt/sideband/bin/sideband\\\" hook prompt"')
+        second.contains("echo sideband audit")
+        second.contains("echo done")
+        second.contains("my hooks")
+    }
+
+    void "invalid Codex hook configuration is not overwritten"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, "not JSON")
+
+        when:
+        installer.install(home, project)
+
+        then:
+        thrown(UncheckedIOException)
+        Files.readString(hooksFile) == "not JSON"
+    }
+
+    void "reinstall preserves an explicit agent override while updating an old executable path"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"/old/sideband hook prompt --agent codex"}]}]}}''')
+
+        when:
+        installer.install(home, project)
+        String first = Files.readString(hooksFile)
+        InstallReport again = installer.install(home, project)
+
+        then:
+        Files.readString(hooksFile) == first
+        first.count("hook prompt") == 1
+        first.contains("hook prompt --agent codex")
+        !first.contains("/old/")
+        again.codexHook().state() == "unchanged"
+        installer.inspect(home, project).codexHook().state() == "installed"
     }
 
     void "inspect on a clean machine reports everything missing"() {
         expect:
         installer.inspect(home, project).skills()*.state() == ["missing", "missing"]
         installer.inspect(home, project).hook().state() == "missing"
+        installer.inspect(home, project).codexHook().state() == "missing"
     }
 
     void "a development symlink is replaced by a real copy and an edited copy is refreshed"() {

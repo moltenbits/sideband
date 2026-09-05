@@ -420,10 +420,16 @@ and `--via` flags shown above are overrides for tests, not something a skill
 passes. `hook prompt` works the same way. It is the one capture hook for both
 clients, registered by `init` under the same command line in each client's
 hook configuration; it identifies the calling client (environment first, the
-payload's `hook_event_name` and session identifier as fallback), parses that
+payload's unique active-session match as fallback), parses that
 client's payload, journals the prompt for that client's cursor, and answers in
-that client's response shape. Codex registration waits on the verification in
-requirements section 17.2.
+that client's response shape. `--agent codex|claude` is an optional override,
+not a bypass of session ownership. Both hosts use `UserPromptSubmit`; that
+event name is validated when supplied, not used as a client discriminator.
+`init` registers `.codex/hooks.json` alongside `.claude/settings.json`.
+Codex still requires the user's hook trust review; the remaining live checks
+are recorded in requirements section 17.2. The install/doctor report retains
+`clients.hook` for Claude and adds `clients.codex_hook` for Codex. These report
+registration, not host trust or successful execution.
 
 Message bodies enter through files or stdin, never interpolated into shell
 source or passed as a single command-line argument. This avoids quote expansion,
@@ -682,13 +688,14 @@ proposed adapter, subject to the uncompleted feasibility spike, should:
 - reuse/restart the same listener identity instead of creating a worker per
   message.
 
-Capture uses the same `sideband hook prompt` entry point as Claude Code once
-Codex's hook contract is verified against its official documentation and
-`init` registers that command in Codex's hook configuration (requirements
-section 17.2); the hook recognizes Codex as the caller itself, so nothing on
-the registered command line differs between clients. Until then, report
-best-effort skill capture during activation and diagnostics. Do not infer
-supported hook or parent-wake capabilities from another client.
+Capture uses the same `sideband hook prompt` entry point as Claude Code,
+registered by `init` in `.codex/hooks.json` after verifying the official
+contract. Automatic detection is preferred; `--agent codex` is an optional
+override. The skill avoids duplicate capture when the hook confirms it has
+journaled the current prompt, and otherwise reports best-effort capture.
+The user must review and trust the hook through `/hooks`; installation alone
+does not prove execution. Live verification remains in requirements section
+17.2. Do not infer host behavior from another client.
 
 This design uses the existing interactive subagent channel documented by
 [OpenAI's Codex subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
@@ -1181,5 +1188,32 @@ the distinction between discovery and workflow, and preservation of recorded
 authorship. This is a documentation clarification, not a change to emitted
 JSON, delivery behavior, or the separate prompt-capture and queue-timeout
 findings. No earlier review entry has been rewritten.
+
+<!-- /sideband -->
+
+<!-- sideband:v0
+{"id":"impl-0006","created_at":"2026-09-05T19:58:16Z","from":"codex","via":"codex","to":["claude","human:james"],"type":"status","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":false}
+-->
+
+### Codex → Claude + James: shared Codex capture hook implemented
+
+James explicitly requested implementation, then approved automatic caller
+detection plus an optional `--agent codex|claude` override. I implemented that
+in the existing shared `sideband hook prompt`, not a separate adapter script.
+My implementation choice is to fall back to a unique live session match when
+environment markers are absent; the shared event name cannot identify a host.
+An override does not bypass session ownership. Capture still goes through
+the existing capture component and the journal's public interface.
+
+`init` now registers Codex alongside Claude, preserving unrelated hooks and
+explicit overrides. The Codex skill recognizes successful hook capture and
+does not repeat it. Requirements section 7.1 and this proposal now record the
+optional flag; section 17.2 retains the unverified live-host checks.
+
+The 255-case JVM suite, native build and native smoke checks passed. Native
+fixture success is not interactive-host success: James must review the hook
+through `/hooks`, and live human/queued/mid-turn input still needs observation.
+The detailed record is [docs/codex-prompt-hook.md](docs/codex-prompt-hook.md).
+No trust record was changed and no previous review entry was rewritten.
 
 <!-- /sideband -->

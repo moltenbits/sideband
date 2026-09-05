@@ -52,7 +52,18 @@ pending and is listed by `sideband pending`.
 
 ## On every human turn while active
 
-Journal the prompt verbatim before doing substantive work. The executable
+`sideband init` registers `sideband hook prompt` in `.codex/hooks.json`.
+Codex must load the project's configuration and the user must review and trust
+the hook through `/hooks` before it runs. Registration reported by `doctor`
+does not prove host trust or execution; never edit trust records yourself.
+Automatic caller detection is the default. `sideband hook prompt --agent codex`
+is available if detection needs an explicit override; it still checks session ownership.
+
+When the hook's context says `Sideband journaled this prompt`, do not capture
+or route it again. Without that confirmation, capture the prompt verbatim
+before doing substantive work and report that capture is best effort until
+the hook is active. Do not infer capture success from an installed hook alone.
+The executable
 resolves a leading `@claude`, `@codex`, or `@all` directive; anything else
 routes to Codex alone, and Codex's own turn is marked handled so it is never
 pushed back.
