@@ -17,6 +17,19 @@ out, 7 another live session already owns the role. Bodies travel through
 repository from the current directory and the calling client from its shell
 environment, so no command needs to be told which client it runs inside.
 
+## Arguments
+
+The text after `/sideband` selects what to do. With no argument, activate as
+described below.
+
+| Argument | What to do |
+| --- | --- |
+| `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. |
+| `status` | Run `sideband doctor` and summarize it: both roles' sessions and whether they are live, pending counts, journal health, skill links. Do not activate. |
+| `pending` | Run `sideband pending` and show the user their open incoming entries (backlog and live, actionable first) and unanswered outgoing requests, then offer the same choices as for backlog. |
+| `off` | Stop the listener (TaskStop on the Monitor) and tell the user the session stays recorded, so a later `/sideband` resumes with backlog confirmation. |
+| anything else | Treat it as a message: capture it with `capture-human` exactly as a human turn, so `/sideband @codex look at this` routes to Codex. |
+
 ## Activate
 
 1. Start the session. The executable recognizes Claude Code from its shell
