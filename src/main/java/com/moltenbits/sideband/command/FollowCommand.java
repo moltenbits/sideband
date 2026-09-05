@@ -1,0 +1,97 @@
+package com.moltenbits.sideband.command;
+
+import com.moltenbits.sideband.handoff.Batch;
+import com.moltenbits.sideband.handoff.Handoffs;
+import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.journal.Entry;
+import com.moltenbits.sideband.journal.Journal;
+import com.moltenbits.sideband.journal.Read;
+import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.recipient.Cursor;
+import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.waiting.JournalWatcher;
+import com.moltenbits.sideband.waiting.Waited;
+import io.micronaut.context.annotation.Prototype;
+import io.micronaut.serde.ObjectMapper;
+import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
+import picocli.CommandLine.Spec;
+import picocli.CommandLine.Model.CommandSpec;
+
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.concurrent.Callable;
+import java.util.function.Predicate;
+
+/**
+ * A listener that never needs re-arming: streams one JSON batch per line, forever, for
+ * every set of open entries addressed to the role. Meant to be attached to a host facility
+ * that turns each output line into a notification, such as Claude Code's Monitor.
+ * Idle waiting happens inside this process and costs no model tokens.
+ */
+@Command(name = "follow", description = "Stream one JSON batch per line as open entries for a role arrive; never exits on its own")
+@Prototype
+public class FollowCommand implements Callable<Integer> {
+
+    /** Re-check the cursor this often so entries resolved elsewhere stop being re-reported. */
+    static final Duration CURSOR_REFRESH = Duration.ofSeconds(30);
+
+    @Spec
+    CommandSpec spec;
+
+    @Mixin
+    Repository repository;
+
+    @Option(names = "--from", required = true, description = "Byte offset to start from, normally the session's watermark_end")
+    long from;
+
+    @Option(names = "--role", required = true, description = "Stream only open entries addressed to this role: claude or codex")
+    Role role;
+
+    @Option(names = "--max-batches", hidden = true, description = "Stop after this many batches (for tests)")
+    Integer maxBatches;
+
+    private final SidebandHome home;
+    private final JournalWatcher watcher;
+    private final RecipientState recipients;
+    private final Handoffs handoffs;
+    private final ObjectMapper json;
+
+    FollowCommand(SidebandHome home, JournalWatcher watcher, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
+        this.home = home;
+        this.watcher = watcher;
+        this.recipients = recipients;
+        this.handoffs = handoffs;
+        this.json = json;
+    }
+
+    @Override
+    public Integer call() throws IOException {
+        if (from < 0) {
+            throw new IllegalArgumentException("--from must not be negative");
+        }
+        Path stateDirectory = home.locate(repository.directory);
+        Path file = stateDirectory.resolve(Journal.FILE_NAME);
+        PrintWriter out = spec.commandLine().getOut();
+        long offset = from;
+        int batches = 0;
+        while (maxBatches == null || batches < maxBatches) {
+            Cursor cursor = recipients.load(stateDirectory, role);
+            Predicate<Entry> open = entry -> recipients.isOpen(cursor, entry);
+            Waited waited = watcher.await(file, offset, CURSOR_REFRESH, open);
+            Read read = waited.read();
+            offset = read.end();
+            if (waited.timedOut()) {
+                continue;
+            }
+            out.println(json.writeValueAsString(
+                    new Batch(read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), false)));
+            out.flush();
+            batches++;
+        }
+        return ExitCode.OK;
+    }
+}

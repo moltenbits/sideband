@@ -387,7 +387,8 @@ sideband append-agent --from codex --to claude --type reply \
   --reply-to <id> --expects-reply false --body-file <path>
 sideband activate --role codex --session-id <id>
 sideband backlog --role codex --session-id <id>
-sideband wait --role codex --session-id <id>
+sideband wait --role <role> --from <offset> [--timeout s]     # one batch, then exit
+sideband follow --role <role> --from <offset>                # one JSON batch per line, forever
 sideband mark-seen --role codex <id>...
 sideband mark-delivered --role codex <id>...
 sideband resolve --role codex --as acted|dismissed|presented|originating-turn <id>...
@@ -611,11 +612,11 @@ proposed adapter, subject to the uncompleted feasibility spike, should:
 - spawn a dedicated background subagent named for the Sideband listener;
 - pass the parent task/thread identity and the generated Sideband session ID to
   that worker;
-- have the worker block in `sideband wait` and, for each returned batch, run
-  `codex queue --thread <parent thread id> --message <envelope>` against the
-  parent thread (the parent reads `CODEX_THREAD_ID` from its shell and passes it
-  to the worker), mark successful delivery, and loop; subagent messaging and
-  subagent completion do not wake an idle parent and are not delivery paths;
+- run no listener: `sideband activate --role codex` records `CODEX_THREAD_ID`
+  as the session id, and every writer's `append` pushes entries addressed to
+  Codex with `codex queue --thread <thread id> --message <envelope>` and marks
+  them delivered (the `push` component in the executable); subagent messaging
+  and subagent completion do not wake an idle parent and are not delivery paths;
 - keep all interpretation and project work in the parent; and
 - reuse/restart the same listener identity instead of creating a worker per
   message.

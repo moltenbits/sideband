@@ -12,6 +12,7 @@ import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.protocol.Route;
 import com.moltenbits.sideband.recipient.Addressing;
 import com.moltenbits.sideband.recipient.RecipientState;
@@ -76,13 +77,16 @@ public class AppendAgentCommand implements Callable<Integer> {
     private final Journal journal;
     private final Ancestry ancestry;
     private final RecipientState recipients;
+    private final Pushes pushes;
     private final ObjectMapper json;
 
-    AppendAgentCommand(SidebandHome home, Journal journal, Ancestry ancestry, RecipientState recipients, ObjectMapper json) {
+    AppendAgentCommand(SidebandHome home, Journal journal, Ancestry ancestry, RecipientState recipients,
+                       Pushes pushes, ObjectMapper json) {
         this.home = home;
         this.journal = journal;
         this.ancestry = ancestry;
         this.recipients = recipients;
+        this.pushes = pushes;
         this.json = json;
     }
 
@@ -102,7 +106,7 @@ public class AppendAgentCommand implements Callable<Integer> {
         if (Addressing.isOutgoingRequest(entry.metadata(), from)) {
             recipients.registerOutgoing(stateDirectory, from, entry.metadata().id());
         }
-        Output.print(spec, json, entry);
+        Output.print(spec, json, Appended.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
 

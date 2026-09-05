@@ -40,6 +40,7 @@ class AppendAgentCommandSpec extends CommandSpec {
             reply_to == null
             expects_reply == true
         }
+        json().pushes*.outcome == ["no-session"]
     }
 
     void "a reply defaults to non-actionable and may address the human"() {

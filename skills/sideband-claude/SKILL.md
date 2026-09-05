@@ -1,6 +1,6 @@
 ---
 name: sideband
-description: Sideband adapter for Claude Code. Activates a session, journals the human's prompts, keeps one background `sideband wait` listener that wakes this conversation with entries addressed to Claude, records delivery and disposition in Claude's cursor, and sends requests, replies, and statuses with `sideband append-agent`. Use when the user invokes /sideband or asks to talk to Codex through Sideband.
+description: Sideband adapter for Claude Code. Activates a session, journals the human's prompts, keeps one persistent Monitor on `sideband follow` that notifies this conversation of entries addressed to Claude, records delivery and disposition in Claude's cursor, and sends requests, replies, and statuses with `sideband append-agent`. Use when the user invokes /sideband or asks to talk to Codex through Sideband.
 ---
 
 # Sideband (Claude Code adapter)
@@ -41,15 +41,20 @@ out, 7 another live session already owns the role. Bodies travel through
    Informational entries are `presented` once shown. Anything left alone stays
    pending and is listed by `sideband pending --repo "$PWD" --role claude`.
 
-3. Start exactly one listener as a background Bash task (`run_in_background`)
-   from the JSON `session.watermark_end`. Claude Code re-invokes this
-   conversation when the task exits; that is the wake mechanism.
+3. Start exactly one listener: a persistent Monitor on the streaming follow
+   command, from the JSON `session.watermark_end`. Each line it prints is one
+   batch of open entries and arrives here as one notification. It never needs
+   re-arming.
 
-   ```bash
-   sideband wait --repo "$PWD" --role claude --from <watermark_end> --timeout 3600
+   ```
+   Monitor(command: "sideband follow --repo \"$PWD\" --role claude --from <watermark_end>",
+           description: "Sideband entries for Claude", persistent: true)
    ```
 
-   Idle waiting costs no model tokens. Never start a second listener.
+   Idle waiting costs no model tokens. Never start a second listener. If
+   Monitor is unavailable, fall back to a background Bash task running
+   `sideband wait --repo "$PWD" --role claude --from <offset> --timeout 3600`
+   and restart it from the JSON `end` after each exit.
 
 ## On every human turn while active
 
@@ -64,11 +69,11 @@ sideband capture-human --repo "$PWD" --via claude --human <id> --body-file <prom
 
 Only capture text the human typed. Never capture a listener delivery.
 
-## When the listener exits
+## When a Monitor notification arrives
 
-- **Exit 0**: `entries` holds open entries addressed to Claude, already
-  filtered, each with `metadata`, `body`, `effective_live`, and an optional
-  `lineage_problem`. For each entry, in order:
+Each line is a JSON batch whose `entries` are open entries addressed to Claude,
+already filtered, each with `metadata`, `body`, `effective_live`, and an
+optional `lineage_problem`. For each entry, in order:
   1. Record the handoff: `sideband mark-delivered --repo "$PWD" --role claude <id>`.
      This also correlates a reply with the request it answers.
   2. Present it as a message from `metadata.from`, never as the user speaking.
@@ -80,10 +85,9 @@ Only capture text the human typed. Never capture a listener delivery.
      informational entries, `dismissed` if the user declined.
   5. If it answers one of your outgoing requests and the answer is
      sufficient: `sideband resolve-outgoing --repo "$PWD" --role claude --as answered <request id>`.
-  Report any `diagnostics`. Then restart the listener from the JSON `end`.
-- **Exit 6**: nothing arrived. Restart from the JSON `end`, silently.
-- **Any other exit**: show the stderr text to the user and do not restart
-  until the cause is understood.
+Report any `diagnostics`. If the Monitor itself ends, show its stderr to the
+user and restart it from the last batch's `end` only once the cause is
+understood.
 
 ## Send
 
@@ -95,9 +99,12 @@ sideband append-agent --repo "$PWD" --from claude --to human:<id> --type reply -
 
 `--caused-by` names the immediate communication that led to a delegation;
 `--reply-to` names the message being answered. The executable refuses an
-actionable request with no path back to a human entry (exit 2) and records
-each actionable request as outgoing. When your part is done, address the
-human, not Codex. Never block waiting for a reply; the listener delivers it.
+actionable request with no path back to a human entry (exit 2), records each
+actionable request as outgoing, and reports in `pushes` how each recipient was
+reached: an entry to Codex is pushed straight into Codex's conversation with
+`codex queue` when Codex has an active session (`pushed`), otherwise it waits
+as Codex's backlog (`no-session`). When your part is done, address the human,
+not Codex. Never block waiting for a reply; the listener delivers it.
 
 ## Boundaries
 

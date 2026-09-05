@@ -1,0 +1,150 @@
+package com.moltenbits.sideband.push
+
+import com.moltenbits.sideband.Fixtures
+import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.journal.Entry
+import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.recipient.RecipientState
+import io.micronaut.context.ApplicationContext
+import spock.lang.AutoCleanup
+import spock.lang.Shared
+import spock.lang.Specification
+
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermission
+
+/** Runs the real push component against a fake `codex` executable that records its arguments. */
+class HostPushesSpec extends Specification {
+
+    @Shared Path fakeBin = Files.createTempDirectory("fake-codex")
+    @Shared Path log = fakeBin.resolve("calls.log")
+    @Shared Path exitFile = fakeBin.resolve("exit-code")
+    @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run(
+            ["sideband.codex.executable": fakeBin.resolve("codex").toString()])
+
+    Journal journal = context.getBean(Journal)
+    RecipientState recipients = context.getBean(RecipientState)
+    Pushes pushes = context.getBean(Pushes)
+    Path repo = TempRepo.init()
+    Path state = Files.createDirectories(repo.resolve(".git/sideband"))
+    Path file = state.resolve(Journal.FILE_NAME)
+
+    def setupSpec() {
+        Path script = fakeBin.resolve("codex")
+        Files.writeString(script, '''#!/bin/sh
+printf '%s\\n' "$@" >> "''' + log + '''"
+printf 'Queued message fake for thread %s.\\n' "$3"
+exit $(cat "''' + exitFile + '''")
+''')
+        Files.setPosixFilePermissions(script, EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE))
+    }
+
+    def setup() {
+        Files.writeString(exitFile, "0")
+        Files.deleteIfExists(log)
+    }
+
+    Entry toCodex(String body = "@codex hello") {
+        journal.append(file, Fixtures.humanDraft(body, [Fixtures.CODEX]))
+    }
+
+    void "the component is exposed only through its interface"() {
+        expect:
+        pushes instanceof HostPushes
+        context.getBeansOfType(HostPusher)*.role() == [Role.CODEX]
+    }
+
+    void "without a Codex session the entry is left for backlog and codex is never run"() {
+        when:
+        List<PushResult> results = pushes.deliver(state, toCodex())
+
+        then:
+        results == [new PushResult(Role.CODEX, PushOutcome.NO_SESSION, null)]
+        !Files.exists(log)
+    }
+
+    void "with a live Codex session the envelope is queued to its thread and the entry is marked delivered"() {
+        given:
+        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        Entry entry = toCodex("@codex please look")
+
+        when:
+        List<PushResult> results = pushes.deliver(state, entry)
+
+        then:
+        results*.outcome() == [PushOutcome.PUSHED]
+        results[0].detail().contains("thread-123")
+        List<String> argv = Files.readAllLines(log)
+        argv[0..3] == ["queue", "--thread", "thread-123", "--message"]
+        String message = argv[4..-1].join("\n")
+        message.startsWith("[Sideband message]\n{")
+        message.contains('"body":"@codex please look"')
+        message.contains('"effective_live":"auto"')
+        recipients.load(state, Role.CODEX).stateOf(entry.metadata().id()).deliveredAt() != null
+        !recipients.load(state, Role.CODEX).isResolved(entry.metadata().id())
+    }
+
+    void "a dead Codex session is reported and nothing is queued"() {
+        given:
+        recipients.activate(state, Role.CODEX, "thread-old", 999999999L, false)
+
+        when:
+        List<PushResult> results = pushes.deliver(state, toCodex())
+
+        then:
+        results*.outcome() == [PushOutcome.SESSION_DEAD]
+        !Files.exists(log)
+    }
+
+    void "a failing codex queue leaves the entry pending with the reason"() {
+        given:
+        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        Files.writeString(exitFile, "3")
+        Entry entry = toCodex()
+
+        when:
+        List<PushResult> results = pushes.deliver(state, entry)
+
+        then:
+        results*.outcome() == [PushOutcome.FAILED]
+        results[0].detail().contains("exited 3")
+        recipients.load(state, Role.CODEX).stateOf(entry.metadata().id()).deliveredAt() == null
+    }
+
+    void "Claude has no push command, so its own listener delivers"() {
+        when:
+        List<PushResult> results = pushes.deliver(state, journal.append(file, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
+
+        then:
+        results == [new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, null)]
+    }
+
+    void "an agent's own role and human recipients are never pushed to"() {
+        given:
+        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.JAMES],
+                type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "note to self"))
+        Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.JAMES],
+                type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "done"))
+
+        expect:
+        pushes.deliver(state, own).isEmpty()
+        pushes.deliver(state, toHuman).isEmpty()
+        !Files.exists(log)
+    }
+
+    void "a broadcast pushes to each client recipient other than the author"() {
+        given:
+        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        Entry all = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
+
+        when:
+        List<PushResult> results = pushes.deliver(state, all)
+
+        then:
+        results*.role() == [Role.CLAUDE, Role.CODEX]
+        results*.outcome() == [PushOutcome.LISTENER_DELIVERS, PushOutcome.PUSHED]
+    }
+}

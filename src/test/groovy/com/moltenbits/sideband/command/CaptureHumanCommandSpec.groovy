@@ -33,6 +33,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
             metadata.body_bytes == 12
             body == "fix the typo"
             start == 0
+            pushes == []
         }
         Files.readString(journalFile).contains("\n## James → Claude (via Claude)\n\nfix the typo\n<!-- /sideband -->\n")
     }
@@ -45,6 +46,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
         then:
         json().metadata.to == ["codex"]
         json().body == "@codex review the locking behavior."
+        json().pushes == [[role: "codex", outcome: "no-session", detail: null]]
     }
 
     void "@all is one broadcast entry naming both clients and the originating client"() {
@@ -57,6 +59,15 @@ class CaptureHumanCommandSpec extends CommandSpec {
         json().metadata.route == "broadcast"
         json().metadata.via == "codex"
         context.getBean(Journal).readCompleteFrom(journalFile, 0).entries().size() == 1
+    }
+
+    void "the originating client's own turn is never pushed to it"() {
+        when:
+        run("capture-human", "--repo", repo.toString(), "--via", "codex", "--human", "james",
+                "--body-file", body("just for codex").toString())
+
+        then:
+        json().pushes == []
     }
 
     void "the via option is case-insensitive and validated"() {

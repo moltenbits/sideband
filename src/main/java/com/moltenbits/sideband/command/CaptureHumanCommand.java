@@ -7,6 +7,7 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.recipient.RecipientState;
 import com.moltenbits.sideband.recipient.Resolution;
 import com.moltenbits.sideband.routing.Destination;
@@ -52,15 +53,17 @@ public class CaptureHumanCommand implements Callable<Integer> {
     private final Routing routing;
     private final RecipientState recipients;
     private final Configs configs;
+    private final Pushes pushes;
     private final ObjectMapper json;
 
     CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, RecipientState recipients,
-                        Configs configs, ObjectMapper json) {
+                        Configs configs, Pushes pushes, ObjectMapper json) {
         this.home = home;
         this.journal = journal;
         this.routing = routing;
         this.recipients = recipients;
         this.configs = configs;
+        this.pushes = pushes;
         this.json = json;
     }
 
@@ -76,7 +79,7 @@ public class CaptureHumanCommand implements Callable<Integer> {
             // The client the human typed into acts on this turn directly; it must never redeliver it.
             recipients.resolve(stateDirectory, via, List.of(entry.metadata().id()), Resolution.ORIGINATING_TURN);
         }
-        Output.print(spec, json, entry);
+        Output.print(spec, json, Appended.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
 }

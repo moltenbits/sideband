@@ -525,33 +525,45 @@ Each client-specific Sideband skill must, through the shared tool:
     described in sections 9.6 and 9.7 while leaving the parent available to the
     human.
 
-The background processor is a transport worker. It should forward messages to
-the parent client rather than independently answering substantive project
+Delivery is performed by whichever side can wake the recipient's host natively.
+When a host offers a command that starts a new turn in an existing session,
+the writer of an entry invokes it immediately after the append, for each
+client recipient with a live registered session, and records the handoff in
+that recipient's cursor. The recipient then runs no listener at all. When a
+host offers no such command, the recipient's own background listener delivers.
+Either way the journal remains the only coupling between clients: a push that
+fails or finds no live session leaves the entry pending, and it surfaces as
+backlog at the recipient's next activation.
+
+Any background listener is a transport worker. It forwards messages to the
+parent client rather than independently answering substantive project
 questions with stale or incomplete parent context.
 
 ### 10.2 Claude Code
 
-The Claude integration must use a supported native background facility to
-watch the journal and wake the existing parent conversation. The proven
-mechanism ([docs/spike-wake-path.md](docs/spike-wake-path.md)) is a background
-task blocked on the journal-follow command; Claude Code re-invokes the parent
-when that task exits, with the task's output as the delivery envelope. Monitor
-is an acceptable alternative. Monitor events must prompt a scan from Claude's last
+Claude Code has no command that starts a turn in a running session from
+outside, so Claude is delivered to by its own listener. The listener is one
+persistent Monitor attached to the streaming journal-follow command
+(`sideband follow --role claude`), started once at activation; each line the
+command emits is one batch of open entries and becomes one notification to
+the parent. The listener is never re-armed per message. A one-shot background
+task blocked on `sideband wait` is the fallback where Monitor is unavailable,
+as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a scan from Claude's last
 recorded cursor rather than be treated as exactly one message. The worker must
 not answer the message itself.
 
 ### 10.3 Codex
 
-The Codex integration must maintain a supported native background worker that
-follows the journal and wakes the existing parent conversation when an
-addressed entry arrives. The proven mechanism
-([docs/spike-wake-path.md](docs/spike-wake-path.md)) is a background subagent
-blocked on the journal-follow command that, when it returns, runs
-`codex queue --thread <parent thread id> --message <envelope>` against the
-parent's own thread, identified from `CODEX_THREAD_ID` in the parent's shell.
-Subagent messaging and subagent completion were tested and do not wake an idle
-parent; they must not be used for delivery. The worker must not answer the
-message itself.
+Codex offers `codex queue --thread <thread id> --message <text>`, which
+starts a new turn in an existing idle session
+([docs/spike-wake-path.md](docs/spike-wake-path.md)). Codex therefore runs no
+listener. At activation, `sideband activate --role codex` records the
+session's thread id from `CODEX_THREAD_ID`; from then on every writer that
+appends an entry addressed to Codex pushes the envelope with `codex queue`
+and marks it delivered. Subagent messaging and subagent completion were
+tested and do not wake an idle parent; they must not be used for delivery.
+The pushed envelope arrives as user-role input and must be handled under
+section 7.4.
 
 ### 10.4 Lifecycle
 
@@ -821,7 +833,13 @@ actionable work.
 Given both clients are live and their parent conversations are idle, an entry
 appended through Claude wakes the existing Codex parent, and an entry appended
 through Codex wakes the existing Claude parent. Each delivery is recorded when
-the host accepts the parent handoff; neither transport worker answers the entry.
+the host accepts the parent handoff; no transport worker answers the entry.
+
+Given Codex has activated with its thread id, when any process appends an
+entry addressed to Codex, the writer's `codex queue` push starts a turn in
+Codex without Codex running any listener, and the entry is marked delivered
+for Codex. Given Codex has not activated, the push reports no session and the
+entry waits as backlog.
 
 ### 14.16 Human capture guarantee
 

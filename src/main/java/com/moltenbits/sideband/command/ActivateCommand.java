@@ -33,7 +33,7 @@ public class ActivateCommand implements Callable<Integer> {
     @Option(names = "--role", required = true, description = "claude or codex")
     Role role;
 
-    @Option(names = "--session-id", required = true, description = "The host's identifier for this session")
+    @Option(names = "--session-id", description = "The host's identifier for this session; for codex, defaults to $CODEX_THREAD_ID")
     String sessionId;
 
     @Option(names = "--parent-pid", description = "The host process, so a dead session can be superseded automatically")
@@ -54,7 +54,11 @@ public class ActivateCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws IOException {
-        Activation activation = recipients.activate(repository.stateDirectory(home), role, sessionId, parentPid, replace);
+        String id = sessionId != null ? sessionId : System.getenv(role == Role.CODEX ? "CODEX_THREAD_ID" : "CLAUDE_SESSION_ID");
+        if (id == null || id.isBlank()) {
+            throw new IllegalArgumentException("--session-id is required" + (role == Role.CODEX ? " (CODEX_THREAD_ID is not set)" : ""));
+        }
+        Activation activation = recipients.activate(repository.stateDirectory(home), role, id, parentPid, replace);
         Output.print(spec, json, activation);
         return ExitCode.OK;
     }
