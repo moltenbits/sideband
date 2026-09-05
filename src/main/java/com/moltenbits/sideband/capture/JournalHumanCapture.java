@@ -35,14 +35,31 @@ class JournalHumanCapture implements HumanCapture {
 
     @Override
     public Captured capture(Path stateDirectory, Role via, String body) {
-        Destination destination = routing.resolve(body, via);
-        ParticipantId human = ParticipantId.human(configs.require(stateDirectory).id());
-        Entry entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME),
-                Draft.humanInstruction(human, via, destination.to(), body));
-        if (destination.to().contains(ParticipantId.of(via))) {
-            // The client the human typed into acts on this turn directly; it must never redeliver it.
-            recipients.resolve(stateDirectory, via, List.of(entry.metadata().id()), Resolution.ORIGINATING_TURN);
+        Destination destination;
+        ParticipantId human;
+        try {
+            destination = routing.resolve(body, via);
+            human = ParticipantId.human(configs.require(stateDirectory).id());
+        } catch (IllegalArgumentException e) {
+            throw e; // invalid input keeps its own exit code; nothing was written
+        } catch (RuntimeException e) {
+            throw new CaptureFailedException(CaptureFailedException.Stage.NOT_JOURNALED, null, e);
         }
-        return Captured.of(entry, pushes.deliver(stateDirectory, entry));
+        Entry entry;
+        try {
+            entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME),
+                    Draft.humanInstruction(human, via, destination.to(), body));
+        } catch (RuntimeException e) {
+            throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
+        }
+        try {
+            if (destination.to().contains(ParticipantId.of(via))) {
+                // The client the human typed into acts on this turn directly; it must never redeliver it.
+                recipients.resolve(stateDirectory, via, List.of(entry.metadata().id()), Resolution.ORIGINATING_TURN);
+            }
+            return Captured.of(entry, pushes.deliver(stateDirectory, entry));
+        } catch (RuntimeException e) {
+            throw new CaptureFailedException(CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), e);
+        }
     }
 }

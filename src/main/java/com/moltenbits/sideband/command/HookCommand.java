@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.command;
 
+import com.moltenbits.sideband.capture.CaptureFailedException;
 import com.moltenbits.sideband.capture.Captured;
 import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.handoff.Handoffs;
@@ -27,6 +28,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -71,6 +73,17 @@ public class HookCommand {
         public Integer call() {
             try {
                 return capturePrompt();
+            } catch (CaptureFailedException e) {
+                try {
+                    return switch (e.stage()) {
+                        case NOT_JOURNALED -> failed("capture failed: " + e.getMessage());
+                        case UNCERTAIN -> uncertain(e.getMessage());
+                        case JOURNALED -> journaledButIncomplete(e.journaledId(), e.getMessage());
+                    };
+                } catch (IOException unreportable) {
+                    spec.commandLine().getErr().println("sideband hook: could not report the failure: " + unreportable.getMessage());
+                    return ExitCode.OK;
+                }
             } catch (IOException | RuntimeException e) {
                 try {
                     return failed("capture failed: " + e.getMessage());
@@ -109,19 +122,24 @@ public class HookCommand {
             if (!Files.isDirectory(stateDirectory)) {
                 return ExitCode.OK;
             }
-            if (payload.sessionId() == null || payload.sessionId().isBlank()) {
-                return skipped("hook payload has no session_id");
-            }
             Role role = agent != null ? agent : host.role().orElse(null);
+            if (payload.sessionId() == null || payload.sessionId().isBlank()) {
+                // Without a session id the caller cannot be tied to a recorded session. That is a
+                // host defect worth hearing about only where Sideband is actually in use.
+                String reason = "hook payload has no session_id";
+                return (role != null ? isActive(stateDirectory, role) : anyActive(stateDirectory)) ? failed(reason) : skipped(reason);
+            }
             if (role == null) {
-                // Both hosts use the same event name. A unique recorded session match identifies
-                // the caller when hook shells omit the usual environment markers.
+                // Both hosts use the same event name. When hook shells omit the usual environment
+                // markers, the caller is the one role whose recorded session it presents, or whose
+                // recorded host process it runs inside (a cleared conversation carries a new id).
                 var matching = Arrays.stream(Role.values())
                         .filter(candidate -> matchesSession(stateDirectory, candidate, payload.sessionId()))
                         .toList();
                 if (matching.size() != 1) {
-                    return skipped(matching.isEmpty() ? "no recorded session matches this caller; activate Sideband"
-                            : "session matches multiple roles; use --agent to identify the caller");
+                    String reason = matching.isEmpty() ? "no recorded session matches this caller; activate Sideband"
+                            : "session matches multiple roles; use --agent to identify the caller";
+                    return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
                 }
                 role = matching.getFirst();
             }
@@ -150,8 +168,26 @@ public class HookCommand {
          */
         private int failed(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
-            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit",
-                    "Sideband could not journal this prompt: " + reason + ". Tell the user; the prompt is not in the journal.")));
+            return report("Sideband could not journal this prompt: " + reason
+                    + ". It is not in the journal; tell the user, then capture it with `sideband capture-human` if Sideband is active.");
+        }
+
+        /** The append itself failed, so the journal may or may not hold the entry. */
+        private int uncertain(String reason) throws IOException {
+            spec.commandLine().getErr().println("sideband hook: capture failed during the append: " + reason);
+            return report("Sideband may not have journaled this prompt: " + reason
+                    + ". Tell the user. Do not capture it again unless the journal tail shows it is missing.");
+        }
+
+        /** The entry is journaled; only what follows the append failed. */
+        private int journaledButIncomplete(String id, String reason) throws IOException {
+            spec.commandLine().getErr().println("sideband hook: journaled " + id + " but could not finish: " + reason);
+            return report("Sideband journaled this prompt as " + id + " but could not finish afterwards: " + reason
+                    + ". Do not capture it again. Tell the user; its delivery or cursor update may be missing.");
+        }
+
+        private int report(String context) throws IOException {
+            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", context)));
             return ExitCode.OK;
         }
 
@@ -168,16 +204,30 @@ public class HookCommand {
             }
             spec.commandLine().getErr().println("sideband hook: capture skipped: Sideband is not activated for " + role.id()
                     + "; " + waiting + " waiting");
-            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit",
-                    "Sideband is not active in this session and " + waiting + (waiting == 1 ? " entry" : " entries")
+            String invocation = role == Role.CLAUDE ? "/sideband" : "$sideband";
+            return report("Sideband is not active in this session and " + waiting + (waiting == 1 ? " entry" : " entries")
                     + " addressed to " + role.displayName() + " " + (waiting == 1 ? "is" : "are")
-                    + " waiting. Tell the user; /sideband activates and reviews them.")));
-            return ExitCode.OK;
+                    + " waiting. Tell the user; " + invocation + " activates and reviews them.");
         }
 
         private boolean matchesSession(Path stateDirectory, Role role, String sessionId) {
             Session session = recipients.load(stateDirectory, role).session();
-            return session != null && session.id().equals(sessionId);
+            if (session == null) {
+                return false;
+            }
+            if (session.id().equals(sessionId)) {
+                return true;
+            }
+            Optional<Long> caller = host.parentPid(role);
+            return caller.isPresent() && caller.get().equals(session.parentPid());
+        }
+
+        private boolean isActive(Path stateDirectory, Role role) {
+            return recipients.load(stateDirectory, role).session() != null;
+        }
+
+        private boolean anyActive(Path stateDirectory) {
+            return Arrays.stream(Role.values()).anyMatch(role -> isActive(stateDirectory, role));
         }
 
         private static String note(Captured captured) {

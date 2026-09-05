@@ -82,12 +82,17 @@ sideband capture-human --human <id> --body-file <prompt.md>
 Only capture text the human typed. Never capture a listener delivery. When the
 prompt hook is installed (`sideband init` registers `sideband hook prompt` in
 this repository's `.claude/settings.json`), it has already captured the prompt
-before you see it and says so in a hook note; do not capture again. A hook
-note that begins "Sideband could not journal this prompt" means the prompt
-was lost: tell the user the reason before doing anything else, then capture
-it yourself with `capture-human` if Sideband is active. A note that Sideband
-is not active and entries are waiting means the user should be told and
-offered `/sideband`.
+before you see it and says so in a hook note; do not capture again. Any other
+hook note is a problem to tell the user about before doing anything else, and
+each says what to do:
+  - "could not journal this prompt": it is not in the journal. Capture it
+    yourself with `capture-human` once you have told the user, unless the
+    reason is that another session owns Sideband.
+  - "may not have journaled this prompt": the append itself failed. Read the
+    journal tail; capture again only if the prompt is missing.
+  - "journaled this prompt as <id> but could not finish": never capture it
+    again; delivery or the cursor update may be missing.
+  - "not active in this session and N entries are waiting": offer `/sideband`.
 
 ## When a Monitor notification arrives
 

@@ -19,6 +19,7 @@ class HookAndSkillSpec extends CommandSpec {
     Role detectedAgent
     Long detectedPid
     Map extraPayload = [:]
+    HumanCapture captureOverride
 
     def setup() {
         run("init", "--repo", repo.toString(), "--human", "james", "--skip-clients")
@@ -36,7 +37,7 @@ class HookAndSkillSpec extends CommandSpec {
                 parentPid(_) >> Optional.ofNullable(detectedPid)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
-                    context.getBean(RecipientState), context.getBean(HumanCapture), context.getBean(ObjectMapper))
+                    context.getBean(RecipientState), captureOverride ?: context.getBean(HumanCapture), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
             cli.err = new PrintWriter(stderr, true)
@@ -73,8 +74,6 @@ class HookAndSkillSpec extends CommandSpec {
 
         where:
         prompt                          | session | plainDirectory
-        "hello"                         | "other" | false
-        "hello"                         | null    | false
         "[Sideband message]\n{...}"     | "s1"    | false
         "/sideband status"              | "s1"    | false
         "! sideband doctor"             | "s1"    | false
@@ -187,8 +186,6 @@ class HookAndSkillSpec extends CommandSpec {
         detected    | flag     | session | ambiguous
         Role.CODEX  | "claude" | "s1"    | false
         Role.CLAUDE | null     | "s1"    | false
-        null        | null     | "s1"    | true
-        null        | "codex"  | null    | false
     }
 
     void "a non-submit event and invalid working directory cannot capture or block a prompt"() {
@@ -274,17 +271,95 @@ class HookAndSkillSpec extends CommandSpec {
         stdout = new StringWriter()
         Files.createDirectories(journalFile)
 
-        expect: "a directory where the journal belongs makes the append fail"
+        expect: "a directory where the journal belongs makes the append itself fail, so the outcome is uncertain"
         hook("this must not vanish") == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt: capture failed")
-        json().hookSpecificOutput.additionalContext.endsWith("Tell the user; the prompt is not in the journal.")
-        stderr.toString().contains("capture failed")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband may not have journaled this prompt")
+        json().hookSpecificOutput.additionalContext.endsWith("Do not capture it again unless the journal tail shows it is missing.")
+        stderr.toString().contains("capture failed during the append")
+    }
+
+    void "a failure before the append says the prompt is not journaled and may be captured again"() {
+        given:
+        run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Files.delete(repo.resolve(".git/sideband/config.json"))
+        stdout = new StringWriter()
+
+        expect: "no configuration means no human identifier, which fails before anything is written"
+        hook("lost before the journal") == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
+        json().hookSpecificOutput.additionalContext.contains("It is not in the journal")
+        json().hookSpecificOutput.additionalContext.contains("capture it with `sideband capture-human`")
+        !Files.exists(journalFile)
+    }
+
+    void "a failure after the append reports the journaled id and forbids a second capture"() {
+        given:
+        run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Path cursors = repo.resolve(".git/sideband/cursors")
+        stdout = new StringWriter()
+        cursors.toFile().setWritable(false, false)
+
+        when: "the originating-turn cursor update cannot be written after the entry is in the journal"
+        int code = hook("journaled but not finished")
+        String journal = Files.readString(journalFile)
+        String id = (journal =~ /"id":"([0-9a-f-]{36})"/)[-1][1]
+
+        then:
+        code == ExitCode.OK
+        journal.contains("journaled but not finished")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband journaled this prompt as " + id + " but could not finish afterwards")
+        json().hookSpecificOutput.additionalContext.contains("Do not capture it again")
+        stderr.toString().contains("journaled " + id)
+
+        cleanup:
+        cursors.toFile().setWritable(true, false)
+    }
+
+    void "a hook payload without a session id is reported only where Sideband is in use"() {
+        given:
+        detectedAgent = detected
+        if (active) run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        expect:
+        hook("hello", null) == ExitCode.OK
+        stderr.toString().contains("no session_id")
+        stdout.toString().isEmpty() == !active
+        !active || json().hookSpecificOutput.additionalContext.contains("no session_id")
+        !Files.exists(journalFile)
+
+        where:
+        detected    | active
+        Role.CLAUDE | true
+        Role.CLAUDE | false
+        null        | true
+        null        | false
+    }
+
+    void "a marker-free caller that cannot be identified is reported when any role is active, and silent otherwise"() {
+        given:
+        if (active) run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "1")
+        if (ambiguous) run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--parent-pid", "1")
+        stdout = new StringWriter()
+
+        expect:
+        hook("hello", session) == ExitCode.OK
+        stderr.toString().contains(reason)
+        stdout.toString().isEmpty() == !active
+        !active || json().hookSpecificOutput.additionalContext.contains(reason)
+        !Files.exists(journalFile)
+
+        where:
+        active | ambiguous | session | reason
+        false  | false     | "s1"    | "no recorded session matches"
+        true   | false     | "other" | "no recorded session matches"
+        true   | true      | "s1"    | "multiple roles"
     }
 
     void "a cleared conversation in the same host process keeps its session and captures under the new id"() {
         given:
-        detectedAgent = Role.CLAUDE
+        detectedAgent = markers ? Role.CLAUDE : null
         detectedPid = ProcessHandle.current().pid()
         run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "before-clear",
                 "--parent-pid", detectedPid.toString())
@@ -303,6 +378,9 @@ class HookAndSkillSpec extends CommandSpec {
         after.parentPid() == detectedPid
         after.startedAt() == before.startedAt()
         after.watermarkEnd() == before.watermarkEnd()
+
+        where:
+        markers << [true, false]
     }
 
     void "a caller from a second session of an active role is told another session owns Sideband"() {
@@ -375,9 +453,9 @@ class HookAndSkillSpec extends CommandSpec {
         run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--parent-pid", "999999999")
         stdout = new StringWriter()
 
-        expect:
+        expect: "both roles are active, so the failure to identify the caller is reported, not hidden"
         hook("resume") == ExitCode.OK
-        stdout.toString().isEmpty()
+        json().hookSpecificOutput.additionalContext.contains("multiple roles")
         stderr.toString().contains("multiple roles")
         !Files.exists(journalFile)
         !context.getBean(RecipientState).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).session().isLive()
