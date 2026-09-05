@@ -6,8 +6,10 @@ import com.moltenbits.sideband.command.CaptureHumanCommand;
 import com.moltenbits.sideband.command.DoctorCommand;
 import com.moltenbits.sideband.command.ExitCode;
 import com.moltenbits.sideband.command.FollowCommand;
+import com.moltenbits.sideband.command.HookCommand;
 import com.moltenbits.sideband.command.InitCommand;
 import com.moltenbits.sideband.command.PendingCommand;
+import com.moltenbits.sideband.command.SkillCommand;
 import com.moltenbits.sideband.command.StateCommands;
 import com.moltenbits.sideband.command.WaitCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
@@ -38,6 +40,8 @@ import picocli.CommandLine.IVersionProvider;
                 StateCommands.MarkDelivered.class,
                 StateCommands.Resolve.class,
                 StateCommands.ResolveOutgoing.class,
+                SkillCommand.class,
+                HookCommand.class,
                 DoctorCommand.class
         })
 public class SidebandCommand {

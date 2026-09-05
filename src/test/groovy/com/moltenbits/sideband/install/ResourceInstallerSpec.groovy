@@ -7,22 +7,29 @@ import spock.lang.Specification
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.attribute.PosixFilePermission
 
 class ResourceInstallerSpec extends Specification {
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
-    Installer installer = context.getBean(Installer)
+    Installer installer = new ResourceInstaller(context.getBean(io.micronaut.serde.ObjectMapper), "/opt/sideband/bin/sideband")
     Path home = Files.createTempDirectory("home")
     Path project = Files.createTempDirectory("project")
 
     void "the component is exposed only through its interface"() {
         expect:
-        installer instanceof ResourceInstaller
+        context.getBean(Installer) instanceof ResourceInstaller
     }
 
-    void "a fresh install writes both skills from the embedded copies and registers the hook"() {
+    void "the embedded instructions are the checked-in ones and the stubs defer to the executable"() {
+        expect:
+        installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE) == Files.readString(Path.of("skills/sideband-claude/INSTRUCTIONS.md"))
+        installer.instructions(com.moltenbits.sideband.protocol.Role.CODEX) == Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md"))
+        Files.readString(Path.of("skills/sideband-claude/SKILL.md")).contains("Run `sideband skill`")
+        Files.readString(Path.of("skills/sideband-codex/SKILL.md")).contains("Run `sideband skill`")
+    }
+
+    void "a fresh install writes both stubs and registers the hook against this executable"() {
         when:
         InstallReport report = installer.install(home, project)
 
@@ -30,15 +37,14 @@ class ResourceInstallerSpec extends Specification {
         report.skills()*.state() == ["installed", "installed"]
         report.skills()*.name() == ["claude", "codex"]
         report.hook().state() == "added"
-        Files.readString(home.resolve(".claude/skills/sideband/SKILL.md")).startsWith("---\nname: sideband")
-        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")).contains("Codex adapter")
-        Files.getPosixFilePermissions(home.resolve(".claude/skills/sideband/hooks/prompt.sh")).contains(PosixFilePermission.OWNER_EXECUTE)
         Files.readString(home.resolve(".claude/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-claude/SKILL.md"))
+        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-codex/SKILL.md"))
+        Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
 
         and: "the settings file is pretty JSON with exactly the hook entry"
         String settings = Files.readString(project.resolve(".claude/settings.json"))
         settings.contains('"UserPromptSubmit": [')
-        settings.contains('"command": "\\"$HOME\\"/.claude/skills/sideband/hooks/prompt.sh"')
+        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt"')
         settings.startsWith("{\n  \"hooks\": {")
     }
 
@@ -86,6 +92,23 @@ class ResourceInstallerSpec extends Specification {
         installer.install(home, project).skills()[0].state() == "updated"
     }
 
+    void "files an earlier version installed are removed on update"() {
+        given:
+        installer.install(home, project)
+        Files.createDirectories(home.resolve(".claude/skills/sideband/hooks"))
+        Files.writeString(home.resolve(".claude/skills/sideband/hooks/prompt.sh"), "#!/bin/sh")
+
+        expect:
+        installer.inspect(home, project).skills()[0].state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+
+        then:
+        report.skills()[0].state() == "updated"
+        Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
+    }
+
     void "a file where the skill directory should be is a conflict and is left alone"() {
         given:
         Files.createDirectories(home.resolve(".agents/skills"))
@@ -118,9 +141,9 @@ class ResourceInstallerSpec extends Specification {
         report.hook().state() == "updated"
         settings.contains('"allow": [\n      "Bash(ls:*)"')
         settings.contains('"command": "echo pre"')
-        settings.contains('"command": "\\"$HOME\\"/.claude/skills/sideband/hooks/prompt.sh"')
+        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt"')
         !settings.contains("CLAUDE_PROJECT_DIR")
-        settings.count("prompt.sh") == 1
+        settings.count("hook prompt") == 1
     }
 
     void "a settings file that is not JSON is refused rather than clobbered"() {

@@ -2,6 +2,7 @@ package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.ancestry.Ancestry;
 import com.moltenbits.sideband.ancestry.EntryIndex;
+import com.moltenbits.sideband.capture.Captured;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
@@ -112,7 +113,7 @@ public class AppendAgentCommand implements Callable<Integer> {
         if (Addressing.isOutgoingRequest(entry.metadata(), from)) {
             recipients.registerOutgoing(stateDirectory, from, entry.metadata().id());
         }
-        Output.print(spec, json, Appended.of(entry, pushes.deliver(stateDirectory, entry)));
+        Output.print(spec, json, Captured.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
 

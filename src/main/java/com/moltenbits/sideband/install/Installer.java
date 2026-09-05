@@ -1,11 +1,14 @@
 package com.moltenbits.sideband.install;
 
+import com.moltenbits.sideband.protocol.Role;
+
 import java.nio.file.Path;
 
 /**
- * Puts the client-side pieces in place: both skills, carried inside the executable, and
- * the Claude Code prompt hook for a repository. Idempotent; never touches files it does
- * not own beyond merging one hook entry into a settings file it can parse.
+ * Puts the client-side pieces in place: a skill stub for each client that defers to this
+ * executable, and the Claude Code prompt hook entry for a repository, pointing at this
+ * executable. Idempotent; never touches files it does not own beyond merging one hook
+ * entry into a settings file it can parse.
  */
 public interface Installer {
 
@@ -14,4 +17,7 @@ public interface Installer {
 
     /** Reports the state of the same pieces without changing anything. */
     InstallReport inspect(Path homeDir, Path projectDir);
+
+    /** The adapter instructions embedded for a client, served to the installed skill stub. */
+    String instructions(Role client);
 }

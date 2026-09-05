@@ -1,6 +1,8 @@
 package com.moltenbits.sideband.install;
 
+import com.moltenbits.sideband.protocol.Role;
 import io.micronaut.serde.ObjectMapper;
+import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 import java.io.IOException;
@@ -8,14 +10,12 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.EnumSet;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
@@ -27,14 +27,36 @@ class ResourceInstaller implements Installer {
     private static final Map<String, String> SKILLS = Map.of(
             "sideband-claude", ".claude/skills/sideband",
             "sideband-codex", ".agents/skills/sideband");
-    static final String HOOK_COMMAND = "\"$HOME\"/.claude/skills/sideband/hooks/prompt.sh";
     static final String HOOK_EVENT = "UserPromptSubmit";
+    /** Only the stub is installed; everything else the skill needs comes from the executable. */
+    private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
     private static final String SETTINGS = ".claude/settings.json";
 
     private final ObjectMapper json;
+    private final String hookCommand;
 
+    @Inject
     ResourceInstaller(ObjectMapper json) {
+        this(json, executablePath());
+    }
+
+    ResourceInstaller(ObjectMapper json, String executable) {
         this.json = json;
+        this.hookCommand = "\"" + executable + "\" hook prompt";
+    }
+
+    /** The absolute path of the running executable, so the hook works whatever PATH the hook shell has. */
+    static String executablePath() {
+        return ProcessHandle.current().info().command().orElse("sideband");
+    }
+
+    @Override
+    public String instructions(Role client) {
+        try {
+            return new String(resource("sideband-" + client.id() + "/INSTRUCTIONS.md"), UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     @Override
@@ -67,18 +89,27 @@ class ResourceInstaller implements Installer {
                 Files.delete(target); // a development link from an earlier install recipe
             } else if (Files.exists(target) && !Files.isDirectory(target)) {
                 return new InstallReport.Item(client(source), target.toString(), "conflict");
+            } else if (Files.isDirectory(target)) {
+                clear(target); // the directory is Sideband's; files an earlier version installed must not linger
             }
             for (String file : files(source)) {
                 Path destination = target.resolve(file);
                 Files.createDirectories(destination.getParent());
                 Files.write(destination, resource(source + "/" + file));
-                if (file.endsWith(".sh") || file.startsWith("scripts/")) {
-                    markExecutable(destination);
-                }
             }
             return new InstallReport.Item(client(source), target.toString(), before.equals("missing") ? "installed" : "updated");
         } catch (IOException e) {
             throw new UncheckedIOException("could not install the " + client(source) + " skill into " + target, e);
+        }
+    }
+
+    private static void clear(Path directory) throws IOException {
+        try (var walk = Files.walk(directory)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                if (!path.equals(directory)) {
+                    Files.delete(path);
+                }
+            }
         }
     }
 
@@ -96,6 +127,11 @@ class ResourceInstaller implements Installer {
             for (String file : files(source)) {
                 Path installed = target.resolve(file);
                 if (!Files.exists(installed) || !Arrays.equals(Files.readAllBytes(installed), resource(source + "/" + file))) {
+                    return "stale";
+                }
+            }
+            try (var listing = Files.list(target)) {
+                if (listing.anyMatch(path -> !files(source).contains(path.getFileName().toString()))) {
                     return "stale";
                 }
             }
@@ -122,10 +158,10 @@ class ResourceInstaller implements Installer {
                 }
                 for (Object command : commands) {
                     if (command instanceof Map<?, ?> c && String.valueOf(c.get("command")).contains("sideband")) {
-                        if (HOOK_COMMAND.equals(c.get("command"))) {
+                        if (hookCommand.equals(c.get("command"))) {
                             return new InstallReport.Item("claude-prompt-hook", settings.toString(), "unchanged");
                         }
-                        ((Map<String, Object>) c).put("command", HOOK_COMMAND);
+                        ((Map<String, Object>) c).put("command", hookCommand);
                         state = "updated";
                     }
                 }
@@ -133,7 +169,7 @@ class ResourceInstaller implements Installer {
             if (state.equals("added")) {
                 Map<String, Object> command = new LinkedHashMap<>();
                 command.put("type", "command");
-                command.put("command", HOOK_COMMAND);
+                command.put("command", hookCommand);
                 Map<String, Object> matcher = new LinkedHashMap<>();
                 matcher.put("hooks", List.of(command));
                 event.add(matcher);
@@ -152,7 +188,7 @@ class ResourceInstaller implements Installer {
                 return "missing";
             }
             String text = Files.readString(settings, UTF_8);
-            if (text.contains(PrettyJson.quote(HOOK_COMMAND))) {
+            if (text.contains(PrettyJson.quote(hookCommand))) {
                 return "installed";
             }
             return text.contains("sideband") ? "stale" : "missing";
@@ -174,17 +210,8 @@ class ResourceInstaller implements Installer {
         return new LinkedHashMap<>(parsed);
     }
 
-    private static List<String> files(String source) throws IOException {
-        List<String> files = new ArrayList<>();
-        for (String line : new String(resource("manifest.txt"), UTF_8).split("\n")) {
-            if (line.startsWith(source + "/")) {
-                files.add(line.substring(source.length() + 1));
-            }
-        }
-        if (files.isEmpty()) {
-            throw new IOException("no embedded files for skill " + source);
-        }
-        return files;
+    private static List<String> files(String source) {
+        return INSTALLED_FILES;
     }
 
     private static byte[] resource(String path) throws IOException {
@@ -193,16 +220,6 @@ class ResourceInstaller implements Installer {
                 throw new IOException("missing embedded resource skills/" + path);
             }
             return in.readAllBytes();
-        }
-    }
-
-    private static void markExecutable(Path file) throws IOException {
-        try {
-            Set<PosixFilePermission> permissions = EnumSet.copyOf(Files.getPosixFilePermissions(file));
-            permissions.add(PosixFilePermission.OWNER_EXECUTE);
-            Files.setPosixFilePermissions(file, permissions);
-        } catch (UnsupportedOperationException ignored) {
-            // no POSIX permissions on this filesystem
         }
     }
 

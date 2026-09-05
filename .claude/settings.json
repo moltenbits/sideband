@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$HOME\"/.claude/skills/sideband/hooks/prompt.sh"
+            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook prompt"
           }
         ]
       }
