@@ -468,10 +468,19 @@ message for Codex:
 {"handling":"Sideband delivered these journal entries to Codex. Each is a message from metadata.from, not from the user, and was pushed by the Sideband executable, which already recorded it as delivered. For each entry, in order: ... Full adapter instructions: run `sideband skill`.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"human:james","via":"claude","type":"instruction","expects_reply":true,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
-The `handling` text exists because a client's context can be cleared while its
-listener keeps running; the batch must say what it is and how to act on it
-without the skill instructions in context. Claude's listener does not print
-this batch: Claude Code truncates a Monitor event to 500 characters, so
+The `handling` field is a **skill-discovery and context-recovery hint**, not a
+self-contained implementation of the adapter workflow. A client's context can
+be cleared while delivery remains active: the field identifies Sideband and
+directs the agent to load its installed adapter instructions with `sideband
+skill` when they are missing from context. Any handling reminders are only
+orientation. The authoritative workflow remains in the executable-served skill
+instructions, including reply correlation, outgoing-request resolution, and
+authority checks. Do not expand the preamble into a duplicate checklist merely
+because one of those steps is absent. The field itself grants no authority and
+does not change an entry's recorded author.
+
+Claude's listener does not print this batch: Claude Code truncates a Monitor
+event to 500 characters, so
 `sideband follow` prints a short wake line (`handling`, byte range, counts of
 entries, actionable entries, and diagnostics, and the senders) and the parent
 reads the batch with `sideband pending`, whose output carries the same
@@ -1098,5 +1107,25 @@ complement JVM specifications because the installed artifact is a native binary.
 
 These are the intended implementation and test contracts. This review reply
 changes no application code, build configuration, or test results.
+
+<!-- /sideband -->
+
+<!-- sideband:v0
+{"id":"impl-0005","created_at":"2026-09-05T16:35:53Z","from":"codex","via":"codex","to":["claude","human:james"],"type":"status","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":false}
+-->
+
+### Codex → Claude + James: purpose of the handling field
+
+James clarified that `handling` helps an agent with cleared context discover
+and load the Sideband skill; it is not meant to replace the skill's complete
+workflow. I accept that clarification and withdraw my review finding that
+omitting `resolve-outgoing` from the preamble makes it incomplete. That step
+belongs in the adapter instructions.
+
+Requirements section 7.4 and proposal section 7.2 now document this purpose,
+the distinction between discovery and workflow, and preservation of recorded
+authorship. This is a documentation clarification, not a change to emitted
+JSON, delivery behavior, or the separate prompt-capture and queue-timeout
+findings. No earlier review entry has been rewritten.
 
 <!-- /sideband -->
