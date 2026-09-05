@@ -6,17 +6,21 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.routing.Resolution;
+import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.recipient.Resolution;
+import com.moltenbits.sideband.routing.Destination;
 import com.moltenbits.sideband.routing.Routing;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -30,8 +34,8 @@ public class CaptureHumanCommand implements Callable<Integer> {
     @Spec
     CommandSpec spec;
 
-    @Option(names = "--repo", description = "A directory inside the repository (default: current directory)")
-    Path repository = Path.of(System.getProperty("user.dir"));
+    @Mixin
+    Repository repository;
 
     @Option(names = "--via", required = true, description = "The client the human typed into: claude or codex")
     Role via;
@@ -45,23 +49,29 @@ public class CaptureHumanCommand implements Callable<Integer> {
     private final SidebandHome home;
     private final Journal journal;
     private final Routing routing;
+    private final RecipientState recipients;
     private final ObjectMapper json;
 
-    CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, ObjectMapper json) {
+    CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, RecipientState recipients, ObjectMapper json) {
         this.home = home;
         this.journal = journal;
         this.routing = routing;
+        this.recipients = recipients;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
         String body = Bodies.read(bodyFile);
-        Resolution resolution = routing.resolve(body, via);
-        Draft draft = Draft.humanInstruction(ParticipantId.human(human), via, resolution.to(), body);
-        Path file = home.initialize(repository).resolve(Journal.FILE_NAME);
-        Entry entry = journal.append(file, draft);
-        spec.commandLine().getOut().println(json.writeValueAsString(entry));
+        Destination destination = routing.resolve(body, via);
+        Draft draft = Draft.humanInstruction(ParticipantId.human(human), via, destination.to(), body);
+        Path stateDirectory = repository.stateDirectory(home);
+        Entry entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME), draft);
+        if (destination.to().contains(ParticipantId.of(via))) {
+            // The client the human typed into acts on this turn directly; it must never redeliver it.
+            recipients.resolve(stateDirectory, via, List.of(entry.metadata().id()), Resolution.ORIGINATING_TURN);
+        }
+        Output.print(spec, json, entry);
         return ExitCode.OK;
     }
 }

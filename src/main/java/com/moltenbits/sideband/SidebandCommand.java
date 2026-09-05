@@ -1,8 +1,11 @@
 package com.moltenbits.sideband;
 
+import com.moltenbits.sideband.command.ActivateCommand;
 import com.moltenbits.sideband.command.AppendAgentCommand;
 import com.moltenbits.sideband.command.CaptureHumanCommand;
 import com.moltenbits.sideband.command.ExitCode;
+import com.moltenbits.sideband.command.PendingCommand;
+import com.moltenbits.sideband.command.StateCommands;
 import com.moltenbits.sideband.command.WaitCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
 import io.micronaut.context.ApplicationContext;
@@ -21,9 +24,15 @@ import picocli.CommandLine.IVersionProvider;
         mixinStandardHelpOptions = true,
         versionProvider = SidebandCommand.Version.class,
         subcommands = {
+                ActivateCommand.class,
                 CaptureHumanCommand.class,
                 AppendAgentCommand.class,
-                WaitCommand.class
+                WaitCommand.class,
+                PendingCommand.class,
+                StateCommands.MarkSeen.class,
+                StateCommands.MarkDelivered.class,
+                StateCommands.Resolve.class,
+                StateCommands.ResolveOutgoing.class
         })
 public class SidebandCommand {
 

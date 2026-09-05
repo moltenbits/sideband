@@ -31,10 +31,12 @@ native-run *args: native
 run *args:
     ./gradlew run --quiet --args='{{args}}'
 
-# Build the native executable and copy it onto PATH
+# Build the native executable and put it onto PATH. The rename is atomic, so a
+# listener already blocked in the old binary keeps running on its own inode.
 install: native
     mkdir -p {{install_dir}}
-    cp {{native_binary}} {{install_dir}}/sideband
+    cp {{native_binary}} {{install_dir}}/sideband.tmp
+    mv -f {{install_dir}}/sideband.tmp {{install_dir}}/sideband
     @echo "Installed {{install_dir}}/sideband"
 
 # Run tests and the native build, the pre-commit gate

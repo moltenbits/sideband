@@ -1,13 +1,18 @@
 package com.moltenbits.sideband.waiting;
 
+import com.moltenbits.sideband.journal.Diagnostic;
+import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
+import io.micronaut.core.annotation.Nullable;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Optional;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Polls the journal tail at a modest interval. Reading from the caller's offset keeps
@@ -25,23 +30,21 @@ class PollingWatcher implements JournalWatcher {
     }
 
     @Override
-    public Read await(Path file, long offset) {
-        return poll(file, offset, null).orElseThrow();
-    }
-
-    @Override
-    public Optional<Read> await(Path file, long offset, Duration timeout) {
-        return poll(file, offset, Instant.now().plus(timeout));
-    }
-
-    private Optional<Read> poll(Path file, long offset, Instant deadline) {
+    public Waited await(Path file, long offset, @Nullable Duration timeout, Predicate<Entry> filter) {
+        Instant deadline = timeout == null ? null : Instant.now().plus(timeout);
+        long start = offset;
+        long position = offset;
+        List<Diagnostic> diagnostics = new ArrayList<>();
         while (true) {
-            Read read = journal.readCompleteFrom(file, offset);
-            if (!read.isEmpty()) {
-                return Optional.of(read);
+            Read read = journal.readCompleteFrom(file, position);
+            diagnostics.addAll(read.diagnostics());
+            List<Entry> matching = read.entries().stream().filter(filter).toList();
+            if (!matching.isEmpty()) {
+                return new Waited(new Read(start, read.end(), matching, diagnostics), false);
             }
+            position = read.end();
             if (deadline != null && !Instant.now().isBefore(deadline)) {
-                return Optional.empty();
+                return new Waited(new Read(start, position, List.of(), diagnostics), true);
             }
             pause();
         }

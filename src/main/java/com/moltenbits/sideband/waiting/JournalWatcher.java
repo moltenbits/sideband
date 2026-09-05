@@ -1,17 +1,23 @@
 package com.moltenbits.sideband.waiting;
 
-import com.moltenbits.sideband.journal.Read;
+import com.moltenbits.sideband.journal.Entry;
+import io.micronaut.core.annotation.Nullable;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.Optional;
+import java.util.function.Predicate;
 
-/** Blocks a caller until complete journal entries appear after an offset. */
+/** Blocks a caller until complete journal entries matching a filter appear after an offset. */
 public interface JournalWatcher {
 
-    /** Waits without limit; returns as soon as at least one complete entry exists past {@code offset}. */
-    Read await(Path file, long offset);
+    /**
+     * Waits until at least one complete entry past {@code offset} satisfies {@code filter}.
+     * Entries the filter rejects are consumed silently, so the returned read's end offset
+     * always moves past them. A null timeout waits without limit.
+     */
+    Waited await(Path file, long offset, @Nullable Duration timeout, Predicate<Entry> filter);
 
-    /** Waits at most {@code timeout}; empty when it elapses with no complete entry past {@code offset}. */
-    Optional<Read> await(Path file, long offset, Duration timeout);
+    default Waited await(Path file, long offset, @Nullable Duration timeout) {
+        return await(file, offset, timeout, entry -> true);
+    }
 }

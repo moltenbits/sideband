@@ -10,5 +10,5 @@ public interface Routing {
      * and {@code @all} (case-insensitive) select recipients; anything else routes to
      * {@code via} alone. The body is never altered.
      */
-    Resolution resolve(String body, Role via);
+    Destination resolve(String body, Role via);
 }

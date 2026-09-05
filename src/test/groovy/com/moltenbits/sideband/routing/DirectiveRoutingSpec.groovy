@@ -11,7 +11,7 @@ class DirectiveRoutingSpec extends Specification {
 
     void "the first non-whitespace token selects the recipients"() {
         when:
-        Resolution resolution = routing.resolve(body, Role.CLAUDE)
+        Destination resolution = routing.resolve(body, Role.CLAUDE)
 
         then:
         resolution.to() == to

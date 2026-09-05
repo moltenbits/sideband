@@ -13,9 +13,12 @@ import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.protocol.Route;
+import com.moltenbits.sideband.recipient.Addressing;
+import com.moltenbits.sideband.recipient.RecipientState;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
@@ -43,8 +46,8 @@ public class AppendAgentCommand implements Callable<Integer> {
     @Spec
     CommandSpec spec;
 
-    @Option(names = "--repo", description = "A directory inside the repository (default: current directory)")
-    Path repository = Path.of(System.getProperty("user.dir"));
+    @Mixin
+    Repository repository;
 
     @Option(names = "--from", required = true, description = "The authoring client: claude or codex")
     Role from;
@@ -72,12 +75,14 @@ public class AppendAgentCommand implements Callable<Integer> {
     private final SidebandHome home;
     private final Journal journal;
     private final Ancestry ancestry;
+    private final RecipientState recipients;
     private final ObjectMapper json;
 
-    AppendAgentCommand(SidebandHome home, Journal journal, Ancestry ancestry, ObjectMapper json) {
+    AppendAgentCommand(SidebandHome home, Journal journal, Ancestry ancestry, RecipientState recipients, ObjectMapper json) {
         this.home = home;
         this.journal = journal;
         this.ancestry = ancestry;
+        this.recipients = recipients;
         this.json = json;
     }
 
@@ -90,10 +95,14 @@ public class AppendAgentCommand implements Callable<Integer> {
         boolean actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
         Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
-        Path file = home.initialize(repository).resolve(Journal.FILE_NAME);
+        Path stateDirectory = repository.stateDirectory(home);
+        Path file = stateDirectory.resolve(Journal.FILE_NAME);
         checkLineage(file, draft);
         Entry entry = journal.append(file, draft);
-        spec.commandLine().getOut().println(json.writeValueAsString(entry));
+        if (Addressing.isOutgoingRequest(entry.metadata(), from)) {
+            recipients.registerOutgoing(stateDirectory, from, entry.metadata().id());
+        }
+        Output.print(spec, json, entry);
         return ExitCode.OK;
     }
 

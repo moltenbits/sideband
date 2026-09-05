@@ -10,11 +10,11 @@ import java.util.Arrays;
 import java.util.stream.Collectors;
 
 /** Reads and writes a {@link Wire} enum by its identifier; an unknown identifier is an error, never a guess. */
-abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
+public abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
 
     private final Class<E> type;
 
-    WireSerde(Class<E> type) {
+    protected WireSerde(Class<E> type) {
         this.type = type;
     }
 
