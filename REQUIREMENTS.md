@@ -1,6 +1,6 @@
 # Sideband Requirements
 
-Status: Initial requirements derived from the product-design discussion.
+Status: Version-one requirements with review addenda integrated.
 
 ## 1. Purpose
 
@@ -8,13 +8,17 @@ Sideband provides local, durable, tridirectional communication among a human,
 Claude Code, and Codex. It replaces the live AgentBridge proxy with a shared,
 append-only journal that each client reads and writes directly.
 
-Sideband is primarily delivered as a skill for each supported client. It must
-not require an MCP server, an intermediary daemon, a hosted service, or
-non-interactive invocations such as `claude -p` or `codex exec resume`.
+Sideband is delivered as one shared `sideband` tool plus a thin skill for each
+supported client. Both skills must invoke the same installed tool; neither
+skill may contain or install its own private copy. Sideband must not require an
+MCP server, an intermediary daemon, a hosted service, or non-interactive
+invocations such as `claude -p` or `codex exec resume`.
 
 ## 2. Design principles
 
-- The journal is the authoritative record of Sideband communication.
+- The journal is the authoritative record of Sideband communication that a
+  client successfully captures. Section 7.1 defines the capture guarantee when
+  a host does not expose a deterministic prompt-submit hook.
 - The raw journal remains pleasant for a human to read.
 - Human authorship, the client through which a message entered, and the
   intended recipients are separate concepts.
@@ -33,7 +37,10 @@ non-interactive invocations such as `claude -p` or `codex exec resume`.
   Codex.
 - **Author**: the participant that composed a message.
 - **Via**: the client in which a human entered a message.
-- **Recipient**: a client expected to receive a message.
+- **Recipient**: a participant addressed by a message: a client role such as
+  `claude` or `codex`, or a human identifier such as `human:james`.
+- **Instance**: one active interactive session of a client role. Version one
+  permits at most one instance of each role per repository.
 - **Live message**: a message appended after a recipient's listener became
   ready for the current session.
 - **Backlog message**: an addressed message already present when a recipient's
@@ -46,6 +53,7 @@ Version one supports:
 
 - One local Git repository.
 - One active Claude Code session and one active Codex session per repository.
+- One shared native `sideband` executable used by both client skills.
 - A single append-only `journal.md` shared by both clients.
 - Human-to-agent, agent-to-agent, and agent-to-human entries.
 - Direct and broadcast routing.
@@ -107,7 +115,7 @@ For example:
 
 ```markdown
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"instruction","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"instruction","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
 ## James → Claude + Codex (via Claude)
@@ -127,25 +135,40 @@ Every entry must include:
 - `id`: a globally unique, stable message identifier.
 - `created_at`: an RFC 3339 timestamp including an offset.
 - `from`: the actual author, such as `human:james`, `claude`, or `codex`.
-- `to`: a non-empty array of intended client roles.
-- `type`: initially `instruction`, `request`, `reply`, `status`, or `control`.
+- `to`: a non-empty array of intended participant identifiers. Client
+  recipients use `claude` or `codex`; a human recipient uses the same
+  `human:<id>` form accepted by `from`.
+- `type`: initially `instruction`, `request`, `reply`, or `status`.
 - `route`: `direct` or `broadcast`.
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.
 - `delivery.backlog`: the delivery policy for backlog messages.
+- `body_bytes`: the UTF-8 byte length of the exact message body.
 
 The following fields are conditional:
 
 - `via`: required for human-authored messages and identifies the client where
   the human entered the message.
-- `reply_to`: identifies the message to which this is a direct response.
-- `caused_by`: identifies an earlier instruction that led to a delegation or
-  other derived message.
+- `reply_to`: identifies the immediate message to which this is a direct
+  response.
+- `caused_by`: identifies the immediate communication that initiated a
+  delegation or other derived message. That communication may be human- or
+  agent-authored; this field must not skip intervening messages to point to
+  the original human prompt.
 
 Additional metadata may be introduced compatibly. Readers must ignore unknown
 fields.
 
-### 6.3 Immutability
+### 6.3 Unambiguous framing
+
+The entry format must preserve and parse any text or Markdown body, including a
+body that contains the literal `<!-- /sideband -->` closing marker or another
+complete example entry. Readers must use `body_bytes` to locate the end of the
+body and then validate the closing marker at the resulting boundary; they must
+not search for the first marker-like line. Any separator newline added by the
+writer is outside the counted body.
+
+### 6.4 Immutability
 
 - Existing entries must never be edited or deleted.
 - Corrections, acknowledgements, and state changes are represented by later
@@ -162,8 +185,22 @@ fields.
 The human is a first-class Sideband participant, not an implicit part of the
 client through which they communicate.
 
-When Sideband is active, a direct human prompt should be recorded separately
-with:
+When Sideband is active, every direct human prompt must be recorded separately,
+including a prompt without a routing directive. Activating Sideband for a
+session—whether explicitly or automatically—therefore means that local-only
+prompts are part of the private journal as well as routed prompts. This favors
+completeness of the record over reducing journal volume.
+
+Where the host exposes a supported prompt-submit hook, the client integration
+must use it to capture the body and resolve its first-token routing directive
+deterministically before model processing. Where no such hook exists, the
+integration must:
+
+- perform capture through the active skill on a best-effort basis;
+- state during activation that capture is best effort for that host; and
+- expose the current capture guarantee through diagnostics.
+
+Each captured prompt is recorded with:
 
 - The human as `from`.
 - The receiving client as `via`.
@@ -178,14 +215,21 @@ the human.
 
 If Claude or Codex translates a human instruction into a request for the other
 agent, it must append a separate agent-authored entry and set `caused_by` to the
-human message's identifier. For example:
+human message's identifier. When a peer message initiates further delegated
+work, `caused_by` instead identifies that peer message. A direct response uses
+`reply_to` to identify the message being answered. For example:
 
 ```text
-James → Claude: review the change and ask Codex to test concurrency
-Claude → Codex: independently test the concurrency behavior
+H1  James → Claude: review the change and ask Codex to test concurrency
+A1  Claude → Codex: independently test concurrency       caused_by: H1
+A2  Codex → Claude: clarify the expected ordering        reply_to: A1
+A3  Claude → Codex: here is the expected ordering        reply_to: A2
 ```
 
 This preserves both the original instruction and the agent's interpretation.
+Following the immediate links recovers the human origin without attaching every
+response directly to it. Ordinary replies continue a thread without adding a
+delegation level; a new delegation records the communication that initiated it.
 
 ### 7.3 Included and excluded content
 
@@ -208,6 +252,18 @@ A Sideband-delivered message may appear to a client as a new input turn. The
 delivery envelope must preserve its actual Sideband author and message ID.
 Recipients must never relabel a delivered Claude or Codex message as a new
 human message.
+
+### 7.5 Agent-to-human messages
+
+An agent addresses the human by placing the configured `human:<id>` identifier
+in `to`. An agent may do this to request input, return a result, or report that
+its part of a workflow is complete.
+
+Delivery to the human is satisfied by the authoring client's visible turn; no
+listener forwards the entry. A client not named in `to` must not inject a
+human-only entry into its conversation merely because it can read the journal.
+The human may later answer from either client, which records that client in
+`via` and links the answer to the agent entry with `reply_to`.
 
 ## 8. Routing
 
@@ -247,6 +303,32 @@ not interpret a routing directive inside an already journaled message as a new
 instruction to republish that entry. A message ID may be delivered more than
 once, but it may be journaled as an original message only once.
 
+Agents must not originate actionable work between themselves. Every
+agent-to-agent entry with `expects_reply: true` must have a causal path to a
+human-authored entry. The path follows `caused_by` when it is present and
+otherwise follows `reply_to`; a missing ancestor or a cycle makes the entry
+invalid.
+
+Two measures of an agent-to-agent exchange are distinct and are limited
+differently:
+
+- **Delegation depth** is the number of `caused_by` links between an entry and
+  its human-authored ancestor: one agent asks the other for work, which in
+  turn asks the first for something in service of that request. Version one
+  permits a delegation depth of at most five. An entry exceeding the depth cap
+  remains in the journal, but its recipient must handle it under the `confirm`
+  policy even when `delivery.live` is `auto`.
+- **Thread iteration** is the number of `reply_to` exchanges on a single
+  request: a review, a fix, a re-review, and so on. This is ordinary
+  collaboration and is unbounded by default. Every message lands in an
+  interactive session the human can see and interrupt, which is the primary
+  safeguard. An optional iteration threshold may be configured; when it is
+  set and reached, the executable appends a `status` entry addressed to the
+  human noting the count, and delivery continues unchanged.
+
+When an agent judges its part complete, the normal terminal action is to
+address the human rather than create another actionable peer message.
+
 ### 8.4 Isolation boundary
 
 Routing is logical, not a security boundary. A client must ignore entries that
@@ -267,6 +349,11 @@ The version-one default is:
 }
 ```
 
+Version one recognizes `auto` and `confirm` for live delivery. `auto` permits
+action without another backlog-style approval; `confirm` requires the human to
+approve delivery before action. Backlog delivery must be `confirm` in version
+one regardless of metadata supplied by a writer.
+
 ### 9.2 Live delivery
 
 When an addressed entry is appended after the recipient's listener is ready:
@@ -274,9 +361,15 @@ When an addressed entry is appended after the recipient's listener is ready:
 - The recipient should receive it promptly.
 - An actionable entry may be handled without an additional backlog approval.
 - A non-actionable reply or status entry should be presented as context and
-  must not manufacture additional work.
-- The recipient records successful delivery so duplicate notifications do not
+  must not manufacture additional work. A reply can supply the answer to a
+  pending request and allow already-authorized work to continue under section
+  9.6; it does not independently authorize a new task.
+- The recipient records successful handoff so duplicate notifications do not
   cause duplicate work.
+
+Successful delivery means that the host's native parent-wake mechanism accepted
+the message for handoff to the parent conversation. The transport worker cannot
+and need not prove that the parent model read, understood, or acted on it.
 
 ### 9.3 Startup watermark
 
@@ -308,7 +401,10 @@ not be presented as pending work when `expects_reply` is false.
 Each client must distinguish:
 
 - **Seen**: included in a backlog summary or otherwise presented.
-- **Resolved**: successfully acted upon or explicitly dismissed.
+- **Delivered**: successfully handed to the host's native mechanism for waking
+  the parent conversation.
+- **Resolved**: successfully acted upon, explicitly dismissed, or presented
+  when the entry is non-actionable.
 - **Pending**: neither resolved nor dismissed, including work the human chose
   to defer.
 
@@ -316,11 +412,78 @@ Dismissing a message updates recipient-local state and never removes the
 journal entry. Deferred messages remain discoverable without necessarily
 interrupting every subsequent turn.
 
+### 9.6 Asynchronous requests and replies
+
+After appending a request, the sender records its message ID as awaiting a
+response in durable client-local state. This outgoing request state is separate
+from the recipient's delivery and resolution state. The sender may continue
+other authorized work or return control to the human; it must not keep its turn
+open solely to wait for an answer.
+
+The role's existing background listener delivers replies through the same path
+as other addressed messages. The parent associates a reply with its pending
+request using `reply_to`, following intervening replies when necessary. A
+clarification or progress update does not by itself mean the request is
+answered. The parent records when the answer is sufficient and may then resume
+the authorized work that depended on it, subject to newer human instructions.
+
+Version one has no separate blocking wait per request, response deadline,
+automatic retry, or automatic resubmission. Passage of time alone does not
+fail or resolve a request. Ending the parent turn or session leaves unanswered
+requests discoverable. On reactivation, replies already present at the startup
+watermark are backlog; later replies follow the usual live classification.
+
+The parent conversation must remain available for human input throughout. Only
+the session's existing background listener waits for journal activity, without
+idle model polling or periodic model turns to check pending requests.
+
+### 9.7 Revising an outstanding request
+
+The human may amend or replace an outstanding request through the sending
+client while a reply is pending. The client captures that human input normally
+and, when it needs to relay the revision, appends a new agent-authored message
+with a fresh ID and `caused_by` pointing to the human revision. It must identify
+the earlier request being changed and distinguish an amendment from a
+replacement, separately from the link to what caused the revision.
+
+- An amendment adds to or clarifies the existing request. The parent must assess
+  the answer against the amended instructions before considering it complete.
+- A replacement supersedes the earlier request. The sender tracks the new
+  request as awaiting a response and the old request as superseded, without
+  editing or deleting either journal entry.
+
+The receiver handles the revision through its existing listener and adjusts
+ongoing work at the host's next supported opportunity. It must not require
+completion of the earlier request before accepting the revision. Supersession
+does not undo work or external effects already performed.
+
+A late reply to the earlier request remains in the journal and is delivered
+under the usual routing and delivery policies. It must not automatically close
+the replacement or restart superseded work. The parent may use relevant parts
+as context when addressing the current request. A returning recipient must
+present outstanding requests together with their revisions so superseded work
+is not offered as an independent backlog task.
+
+Sending a revision neither cancels nor restarts the listener and does not
+create another listener or waiting process.
+
 ## 10. Client integration
 
 ### 10.1 Shared responsibilities
 
-Each client-specific Sideband skill must:
+Claude Code and Codex must use the same installed `sideband` executable for all
+protocol and state operations. Version one implements that executable as a
+Micronaut CLI compiled with GraalVM Native Image. It uses Micronaut
+Serialization for reflection-free JSON handling and Micronaut Picocli for its
+command interface. Neither skill may carry a separate implementation or a
+private copy of the executable.
+
+Installation and upgrades must place exactly one versioned executable on the
+user's command path and install compatible definitions for both skills. Each
+skill must verify the tool's protocol compatibility during activation and fail
+visibly rather than use a mismatched executable.
+
+Each client-specific Sideband skill must, through the shared tool:
 
 1. Locate the repository's Sideband state directory.
 2. Initialize it safely when absent.
@@ -332,6 +495,9 @@ Each client-specific Sideband skill must:
 8. Maintain recipient state and deduplicate by message ID.
 9. Surface listener, parse, and write failures rather than silently losing
    messages.
+10. Track outgoing requests and revisions, and correlate incoming replies as
+    described in sections 9.6 and 9.7 while leaving the parent available to the
+    human.
 
 The background processor is a transport worker. It should forward messages to
 the parent client rather than independently answering substantive project
@@ -339,37 +505,61 @@ questions with stale or incomplete parent context.
 
 ### 10.2 Claude Code
 
-The Claude integration may use Claude Code's native Monitor capability to
-watch the journal or a command that follows it. Monitor events should prompt a
-scan from Claude's last recorded cursor rather than treating each filesystem
-notification as exactly one message.
+The Claude integration must use a supported native background facility, such as
+Claude Code's Monitor capability, to watch the journal and wake the existing
+parent conversation. Monitor events must prompt a scan from Claude's last
+recorded cursor rather than be treated as exactly one message. The worker must
+not answer the message itself.
 
 ### 10.3 Codex
 
-The Codex integration may maintain a background Sideband subagent that follows
-the journal and uses native parent follow-up messaging to wake the parent
-conversation when an addressed entry arrives. A non-model listener using
-Codex's queue facility may be considered later if retaining a subagent proves
-costly or unreliable.
+The Codex integration must maintain a supported native background worker that
+follows the journal and uses parent follow-up messaging to wake the existing
+parent conversation when an addressed entry arrives. A background Sideband
+subagent is acceptable for version one. A non-model listener using Codex's
+queue facility may replace it later if that preserves the same behavior. The
+worker must not answer the message itself.
 
 ### 10.4 Lifecycle
 
 - The listener exists only while its client session is running.
 - Idle waiting should not consume model tokens.
+- One existing listener handles all addressed requests, revisions, and replies
+  for its role. Pending outgoing requests must not create additional listeners,
+  response timers, or per-request waits.
 - Messages written while a client is absent remain durable in the journal.
 - A returning client drains the backlog using the confirmation workflow.
 - A stopped or failed listener must be restartable without losing or
   duplicating journal entries.
+- Activating a second live instance of the same client role in a repository
+  must be refused with a clear diagnostic; it must not share or replace the
+  first instance's cursor. Claude and Codex may still operate simultaneously
+  from different worktrees because they have different roles.
 
 ### 10.5 Activation
 
-Hooks are not required for version one. Sideband may be activated through a
-skill plus client instructions that initialize it on the first turn of a
-session. Hooks or plugin startup facilities may be added later if deterministic
-pre-turn activation and automatic crash recovery become necessary.
+Hooks are not required to activate Sideband or manage listener lifecycle in
+version one. Sideband may be activated through a skill plus client instructions
+that initialize it on the first turn of a session. However, when a host exposes
+a supported prompt-submit hook, section 7.1 requires using it for deterministic
+human-message capture and routing. Plugin startup facilities may be added later
+for automatic pre-turn activation and crash recovery.
 
 The exact choice between automatic first-turn activation and explicit skill
 invocation remains open.
+
+### 10.6 Bidirectional wake-path feasibility gate
+
+Before implementing the remainder of Sideband, an integration spike must prove
+both live paths against the supported client versions:
+
+1. An entry appended through Claude wakes the existing Codex parent.
+2. An entry appended through Codex wakes the existing Claude parent.
+
+Both paths must work without an MCP server, intermediary daemon, hosted runtime
+service, or headless peer invocation. Failure in either direction is a design
+blocker. It must be surfaced for a requirements decision rather than bypassed
+with a prohibited fallback.
 
 ## 11. Writing and concurrency
 
@@ -378,7 +568,7 @@ invocation remains open.
 Claude and Codex can attempt to append concurrently. All writers must therefore
 use the same serialized append mechanism.
 
-A small shared helper should:
+The shared `sideband` executable must:
 
 1. Validate required metadata.
 2. Construct the complete entry in temporary storage.
@@ -387,8 +577,11 @@ A small shared helper should:
 5. Flush and close the journal.
 6. Release the lock.
 
-The helper is invoked only for journal operations. It is not a daemon, server,
-proxy, or independent agent.
+The executable is invoked for journal and client-local state operations. The
+session's background listener may use a blocking journal-follow command to
+detect new entries; the parent must not invoke a separate blocking command to
+await a particular reply. It is not a daemon, server, proxy, or independent
+agent. Both skills invoke the same installed binary.
 
 ### 11.2 Failure behavior
 
@@ -404,8 +597,9 @@ proxy, or independent agent.
 
 - Sideband provides at-least-once rather than exactly-once delivery.
 - Recipients must deduplicate using `id`.
-- Recipient state advances only after successful delivery into the parent
-  conversation or an explicit human disposition of a backlog entry.
+- Delivery state advances only after the host's native parent-wake mechanism
+  accepts the handoff. Resolution state advances only after successful action,
+  presentation of a non-actionable entry, or an explicit human disposition.
 - The originating client must not redeliver a human message it already
   received directly.
 
@@ -440,6 +634,14 @@ Version one does not provide:
 - Binary attachment storage.
 - Full client transcripts, hidden prompts, tool logs, or private reasoning.
 - Audit-grade guaranteed capture of every human input byte.
+
+A later version may replace role-only identity with stable per-instance identity
+such as `claude:<instance>`. Role-level routing could then fan out to active
+instances, while replies use `to` to address the instance that authored the
+request and `reply_to` to identify that request. Cursors would become
+per-instance, and an instance registry with a retired state would report
+backlog for deleted worktrees as orphaned rather than leave it pending forever.
+This is design direction only and does not relax the version-one limit.
 
 ## 14. Acceptance scenarios
 
@@ -482,6 +684,11 @@ Given a human asks Claude to obtain an independent Codex review, the journal
 contains the original human-to-Claude instruction and a separate
 Claude-to-Codex request linked with `caused_by`.
 
+If Codex asks Claude for clarification, `reply_to` names Claude's request; if
+that request instead causes Codex to delegate additional work, `caused_by`
+names Claude's request. Neither message skips its immediate cause to point
+directly to the human. Traversing the links still reaches the human entry.
+
 ### 14.7 Concurrent writers
 
 Given Claude and Codex append at nearly the same time, both complete entries
@@ -490,7 +697,9 @@ appear in the journal without interleaving or corruption.
 ### 14.8 Worktrees
 
 Given Claude and Codex operate from different worktrees of the same Git
-repository, both resolve and use the same Sideband journal.
+repository, both resolve and use the same Sideband journal. This scenario uses
+one instance of each role; it does not authorize two Claude or two Codex
+instances.
 
 ### 14.9 Restart and replay
 
@@ -498,13 +707,112 @@ Given a listener stops after an entry is written but before recipient state is
 advanced, restarting Sideband may redeliver that entry, but message-ID
 deduplication prevents duplicate work.
 
+### 14.10 Duplicate role activation
+
+Given one Codex instance is active for a repository, when another Codex
+instance attempts to activate Sideband from another worktree, activation is
+refused with a diagnostic identifying the existing role. Its cursor is neither
+shared nor replaced.
+
+### 14.11 Agent-to-human message
+
+Given Claude completes work requested through Sideband, when it records its
+result for the human, the entry uses `from: claude` and `to: [human:<id>]` and
+is visible in Claude's existing turn. Codex does not inject the human-only entry
+into its conversation. The human may later reply through either client using
+the result entry's ID as `reply_to`.
+
+### 14.12 Delegation depth backstop
+
+Given an actionable agent-to-agent chain has reached a delegation depth of five
+`caused_by` links from its human-authored ancestor, when an agent appends
+another delegated actionable entry, the entry remains in the journal but the
+receiving client requests human confirmation before acting. An actionable agent
+entry with no valid human ancestor is rejected.
+
+### 14.12a Unbounded thread iteration
+
+Given Claude and Codex exchange twenty actionable `reply_to` messages on one
+request with no iteration threshold configured, every message is delivered
+under its live policy and none requires human confirmation. Given an iteration
+threshold of ten is configured, the tenth exchange causes one `status` entry
+addressed to the human, and the eleventh is still delivered under its live
+policy.
+
+### 14.13 Arbitrary message body
+
+Given a message body contains a literal `<!-- /sideband -->` line and a complete
+example Sideband entry, when it is appended and read, the body is returned
+verbatim as one message and the following journal entry remains independently
+parseable.
+
+### 14.14 Asynchronous reply delivery
+
+Given Claude sends Codex a request and records it as awaiting a response, Claude
+can return control to the human or continue other authorized work. When Codex
+replies, Claude's existing listener hands the reply to the parent, which
+correlates it through `reply_to` and deduplicates by ID. No per-request wait,
+response timeout, retry, or additional listener is created. If no answer
+arrives, the request remains pending without periodic model activity.
+
+### 14.14a Human input while a request is pending
+
+Given Claude has an unanswered request to Codex, when the human sends Claude a
+new instruction, Claude can handle it without waiting for Codex or cancelling a
+waiting command. An unrelated instruction leaves the pending request intact.
+The existing listener continues delivering messages.
+
+### 14.14b Amendment and replacement
+
+Given the human revises an outstanding request through Claude, Claude records
+the human revision and a separate derived message to Codex. The derived message
+links its cause to that human revision and explicitly identifies the request it
+amends or replaces. Both original and revised entries remain intact. Codex can
+receive the revision while the original work is ongoing.
+
+An amendment leaves the request awaiting an answer that covers the additional
+instructions. A replacement supersedes the original and is tracked as awaiting
+its own answer. A late reply to the original is still delivered but neither
+automatically completes the replacement nor restarts superseded work.
+
+### 14.14c Reply after restart
+
+Given an unanswered request survives the sending client's session ending, a
+reply already present at its next startup is classified as backlog. The client
+can associate that reply with the persisted outgoing request without resending
+it. Neither pending state nor a reply bypasses backlog confirmation for
+actionable work.
+
+### 14.15 Bidirectional parent wake and handoff
+
+Given both clients are live and their parent conversations are idle, an entry
+appended through Claude wakes the existing Codex parent, and an entry appended
+through Codex wakes the existing Claude parent. Each delivery is recorded when
+the host accepts the parent handoff; neither transport worker answers the entry.
+
+### 14.16 Human capture guarantee
+
+Given a host provides a supported prompt-submit hook, when Sideband is active,
+the hook records every human prompt and resolves its first-token directive
+before model processing. Given a host without such a hook, activation and
+diagnostics identify capture as best effort rather than claiming authoritative
+capture.
+
+### 14.17 Shared executable
+
+Given both client skills are installed, when Claude and Codex invoke Sideband,
+both resolve the same compatible `sideband` executable. Neither skill contains
+or installs a private binary, and a version mismatch fails activation visibly.
+
 ## 15. Open design decisions
 
 The following questions remain intentionally unresolved:
 
 - Whether Sideband activates automatically on every first turn or through an
   explicit skill command.
-- The implementation language and packaging of the one-shot journal helper.
+- Which operating-system and architecture targets the native executable must
+  support in version one, and how the executable and both skills are installed,
+  upgraded, verified, and signed on those targets.
 - How the local human identifier and display name are configured.
 - Whether every visible agent-to-human response is journaled automatically or
   only responses participating in Sideband workflows.
@@ -525,6 +833,15 @@ itself. Each reviewer appends an entry below in the journal entry shape. Entries
 are never edited after they are appended; a response is a new entry with
 `reply_to` set. This lets the requirements be reviewed using the same
 methodology the tool is meant to provide.
+
+Review entries are historical records rather than normative requirements.
+Accepted conclusions are incorporated into sections 1 through 15; remaining
+release blockers are listed after the review record.
+
+The sender-wait recommendation in historical section 16.8 is superseded by
+[section 9.6](#96-asynchronous-requests-and-replies): replies arrive through the
+existing listener, with no per-request wait, timeout, or retry. Human revisions
+are covered in [section 9.7](#97-revising-an-outstanding-request).
 
 <!-- sideband:v0
 {"id":"rev-0001","created_at":"2026-09-02T21:45:00-05:00","from":"claude","model":"claude-fable-5-1","via":"claude","to":["codex","human:james"],"type":"request","route":"broadcast","reply_to":null,"caused_by":"human:james review request","expects_reply":true}
@@ -666,3 +983,47 @@ should be ruled out because atomic locking and JSON parsing are exactly what it
 does badly. This remains an open decision for James.
 
 <!-- /sideband -->
+
+<!-- sideband:v0
+{"id":"rev-0002","created_at":"2026-09-03T00:30:00-05:00","from":"claude","model":"claude-fable-5-1","via":"claude","to":["codex","human:james"],"type":"status","route":"broadcast","reply_to":"rev-0001","caused_by":"human:james loop-cap decision","expects_reply":false}
+-->
+
+### Claude Fable 5.1 → Codex + James (via Claude)
+
+Records a decision by James that supersedes the hop cap of eight introduced in
+section 8.3 and scenario 14.12. Both have been rewritten in place; this entry
+explains why.
+
+James found eight consecutive hops far more restrictive than the reference
+projects he had used. Reviewing both confirmed this. `raysonmeng/agent-bridge`
+has no hop limit at all: its only loop rule is never forwarding a message back
+to its source, and it relies on a post-turn attention window, a per-turn
+watchdog, a quota guard, and the human watching both terminals.
+`kununu/agent-bridge` limits nesting depth to five, carried in an environment
+variable, because its synchronous headless delegation can recurse; follow-ups
+on the same thread are unbounded and each starts at depth one.
+
+The previous 8.3 text conflated those two measures. The rewrite separates
+delegation depth (the `caused_by` chain, capped at five, confirm-downgrade on
+excess) from thread iteration (the `reply_to` chain, unbounded by default, with
+an optional configured threshold that only notifies the human). The ancestry
+rule that actionable agent entries must trace to a human entry is unchanged.
+
+<!-- /sideband -->
+
+## 17. Remaining implementation blockers
+
+### 17.1 Bidirectional parent wake path
+
+The only unresolved release blocker from the review is proving that each
+client can wake the other's existing parent conversation through a supported
+native background facility. Section 10.6 defines the required spike and section
+14.15 defines its acceptance scenario.
+
+Implementation beyond that spike must not proceed until both directions pass.
+If either direction fails, the requirements must be revisited; an MCP server,
+intermediary daemon, hosted runtime service, or headless peer invocation is not
+an authorized fallback.
+
+The choices retained in section 15 are open design decisions, but none is a
+release blocker until implementation reaches the affected feature boundary.
