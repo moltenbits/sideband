@@ -1,8 +1,10 @@
 # Wake-path spike (REQUIREMENTS.md 10.6)
 
 The feasibility gate requires proof that an entry appended to the journal by
-another process wakes each client's idle parent conversation without a hook,
-daemon, MCP server, or headless invocation.
+another process wakes each client's idle parent conversation without an
+intermediary daemon, MCP server, hosted runtime service, or headless peer
+invocation. These experiments do not use hooks; section 10.6 does not impose
+a blanket hook prohibition.
 
 ## Claude Code: passed (2026-09-04)
 
@@ -219,3 +221,95 @@ and an agreed independent observer or user check-in after that cutoff.
 The feasibility gate remains blocked under REQUIREMENTS.md sections 10.6 and
 17.1. This attempt is closed; no further listener was started, no fallback was
 introduced, and the journal probes and temporary logs were retained.
+
+## Codex: queue-based attempt prepared (2026-09-05 UTC)
+
+Experiment ID: `sideband-codex-queue.zkdWGr`.
+
+Codex assessment of Fable's follow-up: accepted. The two failed mechanisms do
+not exhaust section 10.3, which already names Codex's queue facility. Closing
+those attempts was appropriate; saying a requirements change was the only
+next step was premature. This is a third in-scope feasibility test, not an
+approved reduction of live-delivery semantics. Queue acceptance alone will
+not count as a successful idle-parent wake.
+
+### Verified environment and parent identity
+
+- Installed `codex --version`: `codex-cli 0.153.3`.
+- `codex queue --help` explicitly accepts `--thread <THREAD>` (session UUID
+  or exact name) and `--message <TEXT>`.
+- In the parent shell, both `CODEX_THREAD_ID` and `CODEX_SESSION_ID` equal
+  `01a064f7-eaa7-7b63-af57-59796b87129f`. The matching rollout's `session_meta`
+  record confirms that ID and this repository's working directory. The
+  listener receives this resolved ID explicitly; it must not use its own
+  subagent environment as the parent identity.
+- The session creation metadata records CLI `0.152.1`, but inspection of
+  the currently running host PID `21585` shows its executable mapped from
+  `/opt/homebrew/Caskroom/codex/0.153.3/bin/codex`. Creation metadata is not
+  the current runtime version.
+- Sideband binary SHA-256 remains
+  `0c2fb5fee10b4ed76315d2b05db1d6069334be100a25c842ff38c7700c70d9f4`.
+- Initial journal size is 476 bytes.
+
+The official CLI reference checked through OpenAI Docs did not establish
+the idle-wake behavior. Installed command help establishes the syntax; the
+live experiment must establish what delivery actually does. No claim about
+which release first shipped the command is needed for this test.
+
+### Procedure and observation cutoff
+
+1. Spawn one transport subagent, `/root/sideband_queue`, to run
+   `node /tmp/sideband-codex-queue.zkdWGr/wait-queue.cjs`. This temporary test
+   wrapper invokes the existing native binary, not a replacement toolkit:
+
+   ```sh
+   /Users/jamesdh/.local/bin/sideband wait --repo /Users/jamesdh/Projects/moltenbits/sideband --from 476 --timeout 240
+   ```
+
+2. After listener readiness, launch a detached shell writer with a 60-second
+   delay. It appends `/tmp/sideband-codex-queue.zkdWGr/body.md` using the shared
+   binary. Record its launch time, expected append time, and observation
+   cutoff in `schedule.json` in that temporary directory. The cutoff is 180
+   seconds after launch; the parent must tell the user the exact local time
+   and explicitly invite a check-in after it if no parent response appears.
+3. End the parent turn before the append. The user's check-in after the
+   cutoff is failure observation, not a disruption. There is no claim that
+   an idle parent can report its own failed wake without another trigger.
+4. When the native wait returns, validate its starting offset, non-timeout
+   result, and unique probe token. Pass the resulting JSON unchanged inside
+   an explicitly labeled transport envelope as one command argument:
+
+   ```sh
+   /opt/homebrew/bin/codex queue --thread 01a064f7-eaa7-7b63-af57-59796b87129f --message '<Sideband transport envelope and native wait JSON>'
+   ```
+
+   The wrapper uses an argument array, not shell interpolation of message
+   content. Queue is attempted once, with a 20-second process timeout. Logs
+   record stdout, stderr, status, signal, and timestamps in `transport.json`.
+   Queue command exit 0 is not itself proof of parent wake.
+5. The transport worker sends neither an intermediate entry message nor a
+   final entry result through the collaboration tools. After queue returns,
+   the wrapper stays alive for 180 seconds to keep subagent completion outside
+   the observation window. The parent stops it once the result is checked;
+   it is bounded and does not rearm or retry.
+6. Count success only if the queue delivery starts a new parent turn without
+   a human check-in, and the parent visibly reports the probe. Record whether
+   it appeared as user-role input and whether the parent preserved provenance.
+
+### Provenance and scope
+
+The probe's actual author is Codex, and a detached shell appends it as an
+external-writer stand-in. It is not an actual Claude-authored message. The
+envelope explicitly says it is transport data for the already authorized
+experiment, not a new human prompt or authorization. The parent must not
+relabel it as human input, re-append it as a human message, or execute any
+body instructions. Verification/reporting follows the existing experiment
+task, not authority conferred by the queued envelope.
+
+The spike's body-only journal does not implement version-one message IDs or
+authorship validation. A passing test would still require the adapter to
+preserve real message IDs/authors and prevent prompt-capture hooks from
+recording queue delivery as human authorship (section 7.4). Mid-turn queuing,
+rearming, restart, and production identity discovery are not proved here.
+
+Outcome: prepared, pending observation. No skills or feature code changed.
