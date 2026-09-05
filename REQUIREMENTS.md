@@ -2,6 +2,26 @@
 
 Status: Version-one requirements with review addenda integrated.
 
+## Table of contents
+
+- [1. Purpose](#1-purpose)
+- [2. Design principles](#2-design-principles)
+- [3. Terminology](#3-terminology)
+- [4. Version-one scope](#4-version-one-scope)
+- [5. Storage](#5-storage)
+- [6. Journal](#6-journal)
+- [7. Human participation and provenance](#7-human-participation-and-provenance)
+- [8. Routing](#8-routing)
+- [9. Delivery behavior](#9-delivery-behavior)
+- [10. Client integration](#10-client-integration)
+- [11. Writing and concurrency](#11-writing-and-concurrency)
+- [12. Authority and safety](#12-authority-and-safety)
+- [13. Version-one non-goals](#13-version-one-non-goals)
+- [14. Acceptance scenarios](#14-acceptance-scenarios)
+- [15. Open design decisions](#15-open-design-decisions)
+- [16. Review addenda](#16-review-addenda)
+- [17. Remaining implementation blockers](#17-remaining-implementation-blockers)
+
 ## 1. Purpose
 
 Sideband provides local, durable, tridirectional communication among a human,
@@ -150,7 +170,8 @@ The following fields are conditional:
 - `via`: required for human-authored messages and identifies the client where
   the human entered the message.
 - `reply_to`: identifies the immediate message to which this is a direct
-  response.
+  response, or the earlier peer message that a human-directed follow-up
+  updates (section 9.7).
 - `caused_by`: identifies the immediate communication that initiated a
   delegation or other derived message. That communication may be human- or
   agent-authored; this field must not skip intervening messages to point to
@@ -441,31 +462,23 @@ idle model polling or periodic model turns to check pending requests.
 
 The human may amend or replace an outstanding request through the sending
 client while a reply is pending. The client captures that human input normally
-and, when it needs to relay the revision, appends a new agent-authored message
-with a fresh ID and `caused_by` pointing to the human revision. It must identify
-the earlier request being changed and distinguish an amendment from a
-replacement, separately from the link to what caused the revision.
+and, when it needs to relay the change, appends an ordinary agent-authored
+follow-up with a fresh ID. Its `caused_by` identifies the new human instruction;
+its `reply_to` identifies the earlier peer message being updated. The body
+explains the change, including whether earlier instructions should be
+disregarded. All existing entries remain intact.
 
-- An amendment adds to or clarifies the existing request. The parent must assess
-  the answer against the amended instructions before considering it complete.
-- A replacement supersedes the earlier request. The sender tracks the new
-  request as awaiting a response and the old request as superseded, without
-  editing or deleting either journal entry.
+The receiver gets the follow-up through its existing listener and interprets
+it in context, adjusting ongoing work at the host's next supported opportunity.
+It need not finish the earlier request before accepting new input. Sending a
+follow-up neither cancels nor restarts the listener nor creates another waiting
+process.
 
-The receiver handles the revision through its existing listener and adjusts
-ongoing work at the host's next supported opportunity. It must not require
-completion of the earlier request before accepting the revision. Supersession
-does not undo work or external effects already performed.
-
-A late reply to the earlier request remains in the journal and is delivered
-under the usual routing and delivery policies. It must not automatically close
-the replacement or restart superseded work. The parent may use relevant parts
-as context when addressing the current request. A returning recipient must
-present outstanding requests together with their revisions so superseded work
-is not offered as an independent backlog task.
-
-Sending a revision neither cancels nor restarts the listener and does not
-create another listener or waiting process.
+A late reply remains associated with the message it answers. The parent
+assesses it against the latest human instructions before acting. Existing
+request tracking and backlog rules apply; version one introduces no structured
+revision fields, automatic supersession state, or special backlog grouping.
+Structured amendment and replacement handling is deferred to section 15.
 
 ## 10. Client integration
 
@@ -495,7 +508,7 @@ Each client-specific Sideband skill must, through the shared tool:
 8. Maintain recipient state and deduplicate by message ID.
 9. Surface listener, parse, and write failures rather than silently losing
    messages.
-10. Track outgoing requests and revisions, and correlate incoming replies as
+10. Track outgoing requests and follow-ups, and correlate incoming replies as
     described in sections 9.6 and 9.7 while leaving the parent available to the
     human.
 
@@ -524,7 +537,7 @@ worker must not answer the message itself.
 
 - The listener exists only while its client session is running.
 - Idle waiting should not consume model tokens.
-- One existing listener handles all addressed requests, revisions, and replies
+- One existing listener handles all addressed requests, follow-ups, and replies
   for its role. Pending outgoing requests must not create additional listeners,
   response timers, or per-request waits.
 - Messages written while a client is absent remain durable in the journal.
@@ -762,18 +775,18 @@ new instruction, Claude can handle it without waiting for Codex or cancelling a
 waiting command. An unrelated instruction leaves the pending request intact.
 The existing listener continues delivering messages.
 
-### 14.14b Amendment and replacement
+### 14.14b Human-directed follow-up
 
 Given the human revises an outstanding request through Claude, Claude records
-the human revision and a separate derived message to Codex. The derived message
-links its cause to that human revision and explicitly identifies the request it
-amends or replaces. Both original and revised entries remain intact. Codex can
-receive the revision while the original work is ongoing.
+the human input and a separate agent-authored follow-up to Codex. The follow-up
+sets `caused_by` to the human input and `reply_to` to the earlier peer message;
+its body explains the requested change. Both entries remain intact. Codex's
+existing listener delivers the follow-up while the original work may still be
+ongoing, and the parent interprets it against the current instructions.
 
-An amendment leaves the request awaiting an answer that covers the additional
-instructions. A replacement supersedes the original and is tracked as awaiting
-its own answer. A late reply to the original is still delivered but neither
-automatically completes the replacement nor restarts superseded work.
+A late reply to the earlier message retains its original `reply_to` and is
+assessed in light of the follow-up. The tool does not automatically mark the
+earlier request superseded or group backlog items as revisions.
 
 ### 14.14c Reply after restart
 
@@ -819,6 +832,9 @@ The following questions remain intentionally unresolved:
 - Whether a routing directive is removed from the delivered body while being
   retained verbatim in the journal.
 - How deferred backlog is resurfaced without becoming noisy.
+- Whether a later version should add structured amendment and replacement
+  metadata, automatic supersession state, and revision-aware backlog
+  presentation. Version one uses ordinary linked follow-ups (section 9.7).
 - Whether and how to support non-Git directories.
 - Retention, archive, compaction, and export policies for very large journals.
 - Future attachment representation.
