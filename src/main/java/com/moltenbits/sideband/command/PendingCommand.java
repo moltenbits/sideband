@@ -16,7 +16,7 @@ import java.io.IOException;
 import java.util.concurrent.Callable;
 
 /** Lists what a role still has open: unresolved incoming entries and unanswered outgoing requests. */
-@Command(name = "pending", description = "List a role's unresolved incoming entries and unanswered requests")
+@Command(name = "pending", description = "List a role's unresolved incoming entries and unanswered requests", mixinStandardHelpOptions = true)
 @Prototype
 public class PendingCommand implements Callable<Integer> {
 

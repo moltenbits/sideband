@@ -21,7 +21,7 @@ import java.util.concurrent.Callable;
  * and prints the backlog the human must decide on. The listener starts from
  * {@code session.watermark_end}.
  */
-@Command(name = "activate", description = "Start a session for a role, establish its watermark, and list its backlog")
+@Command(name = "activate", description = "Start a session for a role, establish its watermark, and list its backlog", mixinStandardHelpOptions = true)
 @Prototype
 public class ActivateCommand implements Callable<Integer> {
 

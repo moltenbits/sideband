@@ -38,7 +38,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * body: paths, permissions, protocol and build versions, configuration, journal health,
  * each role's session and pending counts, lock ownership, and skill links.
  */
-@Command(name = "doctor", description = "Report paths, versions, configuration, journal health, sessions, and skill links")
+@Command(name = "doctor", description = "Report paths, versions, configuration, journal health, sessions, and skill links", mixinStandardHelpOptions = true)
 @Prototype
 public class DoctorCommand implements Callable<Integer> {
 

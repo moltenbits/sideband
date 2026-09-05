@@ -31,7 +31,7 @@ import java.util.function.Predicate;
  * With {@code --role}, only open entries for that role are returned. For a listener that
  * should never need re-arming, see {@code follow}.
  */
-@Command(name = "wait", description = "Block until complete entries are appended after a byte offset, then print one batch")
+@Command(name = "wait", description = "Block until complete entries are appended after a byte offset, then print one batch", mixinStandardHelpOptions = true)
 @Prototype
 public class WaitCommand implements Callable<Integer> {
 

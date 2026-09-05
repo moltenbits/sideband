@@ -33,7 +33,7 @@ import java.util.function.Predicate;
  * that turns each output line into a notification, such as Claude Code's Monitor.
  * Idle waiting happens inside this process and costs no model tokens.
  */
-@Command(name = "follow", description = "Stream one JSON batch per line as open entries for a role arrive; never exits on its own")
+@Command(name = "follow", description = "Stream one JSON batch per line as open entries for a role arrive; never exits on its own", mixinStandardHelpOptions = true)
 @Prototype
 public class FollowCommand implements Callable<Integer> {
 

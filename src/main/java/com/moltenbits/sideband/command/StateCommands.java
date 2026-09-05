@@ -67,7 +67,7 @@ public final class StateCommands {
         }
     }
 
-    @Command(name = "mark-seen", description = "Record that entries were summarized or shown to the parent")
+    @Command(name = "mark-seen", description = "Record that entries were summarized or shown to the parent", mixinStandardHelpOptions = true)
     @Prototype
     public static class MarkSeen extends Transition {
 
@@ -81,7 +81,7 @@ public final class StateCommands {
         }
     }
 
-    @Command(name = "mark-delivered", description = "Record that the host accepted entries for handoff to the parent")
+    @Command(name = "mark-delivered", description = "Record that the host accepted entries for handoff to the parent", mixinStandardHelpOptions = true)
     @Prototype
     public static class MarkDelivered extends Transition {
 
@@ -95,7 +95,7 @@ public final class StateCommands {
         }
     }
 
-    @Command(name = "resolve", description = "Record the parent's disposition of incoming entries")
+    @Command(name = "resolve", description = "Record the parent's disposition of incoming entries", mixinStandardHelpOptions = true)
     @Prototype
     public static class Resolve extends Transition {
 
@@ -112,7 +112,7 @@ public final class StateCommands {
         }
     }
 
-    @Command(name = "resolve-outgoing", description = "Record that the parent considers its requests answered or dismissed")
+    @Command(name = "resolve-outgoing", description = "Record that the parent considers its requests answered or dismissed", mixinStandardHelpOptions = true)
     @Prototype
     public static class ResolveOutgoing extends Transition {
 

@@ -30,7 +30,7 @@ import java.util.concurrent.Callable;
  * Journals a human's prompt verbatim, resolving its routing directive, and prints the entry.
  * The prompt entered through {@code via} is recorded with the human as author.
  */
-@Command(name = "capture-human", description = "Journal a human prompt entered through a client, resolving its routing directive")
+@Command(name = "capture-human", description = "Journal a human prompt entered through a client, resolving its routing directive", mixinStandardHelpOptions = true)
 @Prototype
 public class CaptureHumanCommand implements Callable<Integer> {
 

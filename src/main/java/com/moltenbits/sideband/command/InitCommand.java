@@ -18,7 +18,7 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /** Creates the private state directory and the local configuration if either is missing. */
-@Command(name = "init", description = "Create the repository's private Sideband state and configuration")
+@Command(name = "init", description = "Create the repository's private Sideband state and configuration", mixinStandardHelpOptions = true)
 @Prototype
 public class InitCommand implements Callable<Integer> {
 
