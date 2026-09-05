@@ -393,8 +393,8 @@ sideband mark-delivered --role codex <id>...
 sideband resolve --role codex --as acted|dismissed|presented|originating-turn <id>...
 sideband resolve-outgoing --role codex --as answered|dismissed <id>...
 sideband pending --role codex
-sideband version --json
-sideband doctor --role codex
+sideband version
+sideband doctor
 ```
 
 Message bodies enter through files or stdin, never interpolated into shell

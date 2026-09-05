@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.command;
 
+import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
@@ -40,7 +41,7 @@ public class CaptureHumanCommand implements Callable<Integer> {
     @Option(names = "--via", required = true, description = "The client the human typed into: claude or codex")
     Role via;
 
-    @Option(names = "--human", required = true, description = "The human's identifier, e.g. james")
+    @Option(names = "--human", description = "The human's identifier (default: the one recorded by `sideband init`)")
     String human;
 
     @Option(names = "--body-file", description = "File holding the prompt; standard input is read when omitted")
@@ -50,13 +51,16 @@ public class CaptureHumanCommand implements Callable<Integer> {
     private final Journal journal;
     private final Routing routing;
     private final RecipientState recipients;
+    private final Configs configs;
     private final ObjectMapper json;
 
-    CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, RecipientState recipients, ObjectMapper json) {
+    CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, RecipientState recipients,
+                        Configs configs, ObjectMapper json) {
         this.home = home;
         this.journal = journal;
         this.routing = routing;
         this.recipients = recipients;
+        this.configs = configs;
         this.json = json;
     }
 
@@ -64,8 +68,9 @@ public class CaptureHumanCommand implements Callable<Integer> {
     public Integer call() throws IOException {
         String body = Bodies.read(bodyFile);
         Destination destination = routing.resolve(body, via);
-        Draft draft = Draft.humanInstruction(ParticipantId.human(human), via, destination.to(), body);
         Path stateDirectory = repository.stateDirectory(home);
+        String humanId = human != null ? human : configs.require(stateDirectory).id();
+        Draft draft = Draft.humanInstruction(ParticipantId.human(humanId), via, destination.to(), body);
         Entry entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME), draft);
         if (destination.to().contains(ParticipantId.of(via))) {
             // The client the human typed into acts on this turn directly; it must never redeliver it.

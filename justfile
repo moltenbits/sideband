@@ -31,13 +31,34 @@ native-run *args: native
 run *args:
     ./gradlew run --quiet --args='{{args}}'
 
-# Build the native executable and put it onto PATH. The rename is atomic, so a
-# listener already blocked in the old binary keeps running on its own inode.
+# The rename is atomic, so a listener already blocked in the old binary keeps
+# running on its own inode.
+# Build the native executable and put it onto PATH
 install: native
     mkdir -p {{install_dir}}
     cp {{native_binary}} {{install_dir}}/sideband.tmp
     mv -f {{install_dir}}/sideband.tmp {{install_dir}}/sideband
     @echo "Installed {{install_dir}}/sideband"
+
+# Refuses to overwrite a real directory or a link pointing elsewhere.
+# Link both client skills from their user skill roots into this checkout
+install-skills:
+    #!/usr/bin/env sh
+    set -e
+    link() {
+        root="$1"; target="$2"; dest="$root/sideband"
+        mkdir -p "$root"
+        if [ -L "$dest" ]; then
+            current="$(readlink "$dest")"
+            if [ "$current" = "$target" ]; then echo "ok       $dest"; return; fi
+            echo "conflict $dest -> $current (expected $target)"; return 1
+        elif [ -e "$dest" ]; then
+            echo "conflict $dest exists and is not a link"; return 1
+        fi
+        ln -s "$target" "$dest"; echo "linked   $dest -> $target"
+    }
+    link "$HOME/.claude/skills" "{{justfile_directory()}}/skills/sideband-claude"
+    link "$HOME/.agents/skills" "{{justfile_directory()}}/skills/sideband-codex"
 
 # Run tests and the native build, the pre-commit gate
 check: test native
@@ -46,8 +67,9 @@ check: test native
 clean:
     ./gradlew clean
 
-# Show the resolved Java, Gradle, and native-image toolchain
+# Show the resolved Java, Gradle, and native-image toolchain, then Sideband's own report
 doctor:
     @java -version
     @./gradlew --version | grep -E '^(Gradle|Kotlin|JVM)'
     @which native-image && native-image --version
+    @command -v sideband >/dev/null && sideband doctor --repo {{justfile_directory()}} || echo "sideband not installed"

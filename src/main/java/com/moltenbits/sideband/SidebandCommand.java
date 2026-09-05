@@ -3,7 +3,9 @@ package com.moltenbits.sideband;
 import com.moltenbits.sideband.command.ActivateCommand;
 import com.moltenbits.sideband.command.AppendAgentCommand;
 import com.moltenbits.sideband.command.CaptureHumanCommand;
+import com.moltenbits.sideband.command.DoctorCommand;
 import com.moltenbits.sideband.command.ExitCode;
+import com.moltenbits.sideband.command.InitCommand;
 import com.moltenbits.sideband.command.PendingCommand;
 import com.moltenbits.sideband.command.StateCommands;
 import com.moltenbits.sideband.command.WaitCommand;
@@ -24,6 +26,7 @@ import picocli.CommandLine.IVersionProvider;
         mixinStandardHelpOptions = true,
         versionProvider = SidebandCommand.Version.class,
         subcommands = {
+                InitCommand.class,
                 ActivateCommand.class,
                 CaptureHumanCommand.class,
                 AppendAgentCommand.class,
@@ -32,7 +35,8 @@ import picocli.CommandLine.IVersionProvider;
                 StateCommands.MarkSeen.class,
                 StateCommands.MarkDelivered.class,
                 StateCommands.Resolve.class,
-                StateCommands.ResolveOutgoing.class
+                StateCommands.ResolveOutgoing.class,
+                DoctorCommand.class
         })
 public class SidebandCommand {
 

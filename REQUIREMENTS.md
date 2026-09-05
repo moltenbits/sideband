@@ -843,7 +843,10 @@ The following questions remain intentionally unresolved:
 
 - Whether Sideband activates automatically on every first turn or through an
   explicit skill command.
-- How the local human identifier and display name are configured.
+- Whether the local human identifier should be configurable beyond the
+  version-one rule: `sideband init` records a slug of `git config user.name`
+  (or an explicit `--human`) and the git name as display name in the state
+  directory's `config.json`.
 - Whether every visible agent-to-human response is journaled automatically or
   only responses participating in Sideband workflows.
 - Whether a routing directive is removed from the delivered body while being
@@ -1173,9 +1176,16 @@ ongoing lifecycle behavior. Mid-turn delivery, rearming, durable cursors,
 message identity, and prompt-capture behavior remain implementation and
 acceptance-test work. The procedures, observed outputs, failed attempts, and
 successful mechanisms are recorded in
-[docs/spike-wake-path.md](docs/spike-wake-path.md). The Codex skill stub still
-describes the failed collaboration-message mechanism and must be updated in
-the adapter implementation task.
+[docs/spike-wake-path.md](docs/spike-wake-path.md). Both skills were then
+rewritten around the proven mechanisms.
+
+Update (2026-09-05, overnight): the first live, unattended, bidirectional
+exchange of real protocol entries completed between the two adapters in this
+repository, with authorization traced to a captured human entry, bounded to
+one request and two replies per agent. Both records are in
+[docs/overnight-handshake.md](docs/overnight-handshake.md) (Claude side) and
+[docs/spike-wake-path.md](docs/spike-wake-path.md) (Codex side). The full
+integration with James present remains the next step.
 
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.

@@ -30,7 +30,7 @@ class SidebandCommandSpec extends Specification {
     void "help lists every subcommand"() {
         expect:
         cli().execute("--help") == ExitCode.OK
-        ["activate", "capture-human", "append-agent", "wait", "pending", "mark-seen", "mark-delivered", "resolve", "resolve-outgoing"].every { out.toString().contains(it) }
+        ["init", "activate", "doctor", "capture-human", "append-agent", "wait", "pending", "mark-seen", "mark-delivered", "resolve", "resolve-outgoing"].every { out.toString().contains(it) }
     }
 
     void "version reports the build and protocol versions"() {
