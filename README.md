@@ -108,21 +108,21 @@ running, still handle what arrives.
 sequenceDiagram
     actor James
     participant Claude as Claude Code
-    participant J as journal.md
+    participant SB as sideband
     participant Codex
 
     James->>Claude: "Add retries to the uploader, have Codex review the tests"
-    Claude->>J: hook journals the prompt as an instruction from James
+    Claude->>SB: hook prompt, which journals the prompt as an instruction from James
     Note over Claude: Claude implements the change
-    Claude->>J: append-agent --to codex --type request --caused-by (James's entry)
-    J->>Codex: codex queue starts a turn with the envelope
+    Claude->>SB: append-agent --to codex --type request --caused-by (James's entry)
+    SB->>Codex: codex queue starts a turn with the envelope
     Note over Codex: Codex reviews the tests and runs them
-    Codex->>J: append-agent --to claude --type reply --reply-to (the request)
-    Codex->>J: resolve --as acted
-    J-->>Claude: follow emits a wake line into the idle conversation
-    Claude->>J: pending, mark-delivered
+    Codex->>SB: append-agent --to claude --type reply --reply-to (the request)
+    Codex->>SB: resolve --as acted
+    SB-->>Claude: follow emits a wake line into the idle conversation
+    Claude->>SB: pending, then mark-delivered
     Note over Claude: Claude fixes what Codex found
-    Claude->>J: resolve --as acted, resolve-outgoing --as answered
+    Claude->>SB: resolve --as acted, resolve-outgoing --as answered
     Claude->>James: The change, with Codex's review folded in
 ```
 
