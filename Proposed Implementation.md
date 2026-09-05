@@ -611,8 +611,11 @@ proposed adapter, subject to the uncompleted feasibility spike, should:
 - spawn a dedicated background subagent named for the Sideband listener;
 - pass the parent task/thread identity and the generated Sideband session ID to
   that worker;
-- have the worker block in `sideband wait`, send each returned envelope through
-  Codex's native parent follow-up messaging, mark successful delivery, and loop;
+- have the worker block in `sideband wait` and, for each returned batch, run
+  `codex queue --thread <parent thread id> --message <envelope>` against the
+  parent thread (the parent reads `CODEX_THREAD_ID` from its shell and passes it
+  to the worker), mark successful delivery, and loop; subagent messaging and
+  subagent completion do not wake an idle parent and are not delivery paths;
 - keep all interpretation and project work in the parent; and
 - reuse/restart the same listener identity instead of creating a worker per
   message.

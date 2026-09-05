@@ -274,6 +274,12 @@ delivery envelope must preserve its actual Sideband author and message ID.
 Recipients must never relabel a delivered Claude or Codex message as a new
 human message.
 
+On a host where a delivered envelope arrives as user-role input, as Codex's
+queue facility does, the prompt-capture path required by section 7.1 must
+recognize the Sideband envelope and must not journal it as a new human
+message. The envelope therefore carries a stable, machine-recognizable
+preamble that capture hooks check before recording anything.
+
 ### 7.5 Agent-to-human messages
 
 An agent addresses the human by placing the configured `human:<id>` identifier
@@ -525,20 +531,27 @@ questions with stale or incomplete parent context.
 
 ### 10.2 Claude Code
 
-The Claude integration must use a supported native background facility, such as
-Claude Code's Monitor capability, to watch the journal and wake the existing
-parent conversation. Monitor events must prompt a scan from Claude's last
+The Claude integration must use a supported native background facility to
+watch the journal and wake the existing parent conversation. The proven
+mechanism ([docs/spike-wake-path.md](docs/spike-wake-path.md)) is a background
+task blocked on the journal-follow command; Claude Code re-invokes the parent
+when that task exits, with the task's output as the delivery envelope. Monitor
+is an acceptable alternative. Monitor events must prompt a scan from Claude's last
 recorded cursor rather than be treated as exactly one message. The worker must
 not answer the message itself.
 
 ### 10.3 Codex
 
 The Codex integration must maintain a supported native background worker that
-follows the journal and uses parent follow-up messaging to wake the existing
-parent conversation when an addressed entry arrives. A background Sideband
-subagent is acceptable for version one. A non-model listener using Codex's
-queue facility may replace it later if that preserves the same behavior. The
-worker must not answer the message itself.
+follows the journal and wakes the existing parent conversation when an
+addressed entry arrives. The proven mechanism
+([docs/spike-wake-path.md](docs/spike-wake-path.md)) is a background subagent
+blocked on the journal-follow command that, when it returns, runs
+`codex queue --thread <parent thread id> --message <envelope>` against the
+parent's own thread, identified from `CODEX_THREAD_ID` in the parent's shell.
+Subagent messaging and subagent completion were tested and do not wake an idle
+parent; they must not be used for delivery. The worker must not answer the
+message itself.
 
 ### 10.4 Lifecycle
 
