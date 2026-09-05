@@ -15,12 +15,13 @@ and what to do with what arrives.
 All commands print one JSON object on stdout and use these exit codes: 0 ok,
 2 invalid input, 3 not a repository, 4 lock contention, 5 I/O failure, 6 timed
 out, 7 another live session already owns the role. Bodies travel through
-`--body-file` or stdin, never as an argument. Pass `--repo "$PWD"` everywhere.
+`--body-file` or stdin, never as an argument. Every command resolves the
+repository from the current directory.
 
 ## Activate, once per session
 
 ```bash
-sideband activate --repo "$PWD" --role codex --parent-pid $PPID
+sideband activate --role codex --parent-pid $PPID
 ```
 
 The session id defaults to `CODEX_THREAD_ID` from this shell; that is the
@@ -34,11 +35,11 @@ session and are still open. Do not act on them yet. Show the user a short table
 act on some, show full bodies, dismiss, or leave pending. Record the decision:
 
 ```bash
-sideband resolve --repo "$PWD" --role codex --as acted|dismissed|presented <id>...
+sideband resolve --role codex --as acted|dismissed|presented <id>...
 ```
 
 Informational entries are `presented` once shown. Anything left alone stays
-pending and is listed by `sideband pending --repo "$PWD" --role codex`.
+pending and is listed by `sideband pending --role codex`.
 
 ## On every human turn while active
 
@@ -48,7 +49,7 @@ routes to Codex alone, and Codex's own turn is marked handled so it is never
 pushed back.
 
 ```bash
-sideband capture-human --repo "$PWD" --via codex --body-file <prompt.md>
+sideband capture-human --via codex --body-file <prompt.md>
 ```
 
 A turn that begins with `[Sideband message]` was pushed by the executable. It
@@ -70,16 +71,16 @@ recorded them as delivered. For each entry:
 3. Record the outcome: `resolve --as acted` after acting, `presented` for
    informational entries, `dismissed` if the user declined.
 4. If it answers one of your outgoing requests and the answer is sufficient:
-   `sideband resolve-outgoing --repo "$PWD" --role codex --as answered <request id>`.
+   `sideband resolve-outgoing --role codex --as answered <request id>`.
 
 Report any `diagnostics` to the user.
 
 ## Send
 
 ```bash
-sideband append-agent --repo "$PWD" --from codex --to claude --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --repo "$PWD" --from codex --to claude --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --repo "$PWD" --from codex --to human:<id> --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --from codex --to claude --type request --caused-by <id> --body-file <body.md>
+sideband append-agent --from codex --to claude --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --from codex --to human:<id> --type reply --reply-to <id> --body-file <body.md>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;

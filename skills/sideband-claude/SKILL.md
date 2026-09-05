@@ -13,7 +13,8 @@ this file only says when to call it and what to do with the results.
 All commands print one JSON object on stdout and use these exit codes: 0 ok,
 2 invalid input, 3 not a repository, 4 lock contention, 5 I/O failure, 6 timed
 out, 7 another live session already owns the role. Bodies travel through
-`--body-file` or stdin, never as an argument. Pass `--repo "$PWD"` everywhere.
+`--body-file` or stdin, never as an argument. Every command resolves the
+repository from the current directory.
 
 ## Activate
 
@@ -21,7 +22,7 @@ out, 7 another live session already owns the role. Bodies travel through
    pid lets a later session supersede this one automatically if it dies.
 
    ```bash
-   sideband activate --repo "$PWD" --role claude --session-id <session id> --parent-pid $PPID
+   sideband activate --role claude --session-id <session id> --parent-pid $PPID
    ```
 
    Exit 7 means another live Claude session owns this repository. Tell the
@@ -35,11 +36,11 @@ out, 7 another live session already owns the role. Bodies travel through
    pending. Then record their decision:
 
    ```bash
-   sideband resolve --repo "$PWD" --role claude --as acted|dismissed|presented <id>...
+   sideband resolve --role claude --as acted|dismissed|presented <id>...
    ```
 
    Informational entries are `presented` once shown. Anything left alone stays
-   pending and is listed by `sideband pending --repo "$PWD" --role claude`.
+   pending and is listed by `sideband pending --role claude`.
 
 3. Start exactly one listener: a persistent Monitor on the streaming follow
    command, from the JSON `session.watermark_end`. Each line it prints is one
@@ -47,13 +48,13 @@ out, 7 another live session already owns the role. Bodies travel through
    re-arming.
 
    ```
-   Monitor(command: "sideband follow --repo \"$PWD\" --role claude --from <watermark_end>",
+   Monitor(command: "sideband follow --role claude --from <watermark_end>",
            description: "Sideband entries for Claude", persistent: true)
    ```
 
    Idle waiting costs no model tokens. Never start a second listener. If
    Monitor is unavailable, fall back to a background Bash task running
-   `sideband wait --repo "$PWD" --role claude --from <offset> --timeout 3600`
+   `sideband wait --role claude --from <offset> --timeout 3600`
    and restart it from the JSON `end` after each exit.
 
 ## On every human turn while active
@@ -64,7 +65,7 @@ routes to Claude alone, and Claude's own turn is marked handled so it is never
 redelivered.
 
 ```bash
-sideband capture-human --repo "$PWD" --via claude --human <id> --body-file <prompt.md>
+sideband capture-human --via claude --human <id> --body-file <prompt.md>
 ```
 
 Only capture text the human typed. Never capture a listener delivery.
@@ -74,7 +75,7 @@ Only capture text the human typed. Never capture a listener delivery.
 Each line is a JSON batch whose `entries` are open entries addressed to Claude,
 already filtered, each with `metadata`, `body`, `effective_live`, and an
 optional `lineage_problem`. For each entry, in order:
-  1. Record the handoff: `sideband mark-delivered --repo "$PWD" --role claude <id>`.
+  1. Record the handoff: `sideband mark-delivered --role claude <id>`.
      This also correlates a reply with the request it answers.
   2. Present it as a message from `metadata.from`, never as the user speaking.
   3. If `effective_live` is `confirm`, or `lineage_problem` is set, ask the
@@ -84,7 +85,7 @@ optional `lineage_problem`. For each entry, in order:
   4. Record the outcome: `resolve --as acted` after acting, `presented` for
      informational entries, `dismissed` if the user declined.
   5. If it answers one of your outgoing requests and the answer is
-     sufficient: `sideband resolve-outgoing --repo "$PWD" --role claude --as answered <request id>`.
+     sufficient: `sideband resolve-outgoing --role claude --as answered <request id>`.
 Report any `diagnostics`. If the Monitor itself ends, show its stderr to the
 user and restart it from the last batch's `end` only once the cause is
 understood.
@@ -92,9 +93,9 @@ understood.
 ## Send
 
 ```bash
-sideband append-agent --repo "$PWD" --from claude --to codex --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --repo "$PWD" --from claude --to codex --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --repo "$PWD" --from claude --to human:<id> --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --from claude --to codex --type request --caused-by <id> --body-file <body.md>
+sideband append-agent --from claude --to codex --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --from claude --to human:<id> --type reply --reply-to <id> --body-file <body.md>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;
