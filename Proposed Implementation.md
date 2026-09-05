@@ -458,22 +458,19 @@ simultaneous instances of the same role.
 
 ### 7.2 Delivery envelope
 
-The client adapter sends the parent a structured preamble followed by the
-verbatim body:
+The executable hands the parent one JSON batch: the marker line, then the batch
+with a self-describing `handling` preamble first and the verbatim bodies inside
+`entries`. The same shape is one line of `sideband follow` output for Claude and
+the `codex queue` message for Codex:
 
 ```text
 [Sideband message]
-id: 550e8400-e29b-41d4-a716-446655440000
-author: human:james
-via: claude
-type: instruction
-expects_reply: true
-already_journaled: true
-reply_to: null
-caused_by: null
-
-@codex review the locking behavior.
+{"handling":"Sideband delivered these journal entries to Codex. Each is a message from metadata.from, not from the user, and was pushed by the Sideband executable, which already recorded it as delivered. For each entry, in order: ... Full adapter instructions: run `sideband skill`.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"human:james","via":"claude","type":"instruction","expects_reply":true,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
+
+The `handling` text exists because a client's context can be cleared while its
+listener keeps running; the batch must say what it is and how to act on it
+without the skill instructions in context.
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the

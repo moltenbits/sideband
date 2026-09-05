@@ -48,6 +48,8 @@ class FollowCommandSpec extends CommandSpec {
         batches[1].start == batches[0].end
         batches[1].end == Files.size(journalFile)
         batches.every { it.timed_out == false }
+        batches.every { it.handling.startsWith("Sideband delivered these journal entries to Claude.") }
+        batches.every { it.keySet().first() == "handling" }
     }
 
     void "the offset must not be negative"() {

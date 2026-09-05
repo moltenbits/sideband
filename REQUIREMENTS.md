@@ -280,6 +280,15 @@ recognize the Sideband envelope and must not journal it as a new human
 message. The envelope therefore carries a stable, machine-recognizable
 preamble that capture hooks check before recording anything.
 
+The envelope must also be self-describing. A client can have its conversation
+context cleared while its listener keeps running (Claude Code's `/clear` leaves
+the Monitor and its `sideband follow` process alive; verified 2026-09-05), so
+the adapter instructions cannot be assumed to be in context when a batch
+arrives. Every batch a host receives therefore begins with a `handling` field
+stating what the batch is, that each entry is a message from its `from` and not
+the human, the minimal steps to act on it for that role, and that
+`sideband skill` prints the full adapter instructions.
+
 ### 7.5 Agent-to-human messages
 
 An agent addresses the human by placing the configured `human:<id>` identifier
@@ -551,6 +560,8 @@ task blocked on `sideband wait` is the fallback where Monitor is unavailable,
 as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a scan from Claude's last
 recorded cursor rather than be treated as exactly one message. The worker must
 not answer the message itself.
+Clearing the conversation's context does not stop the Monitor, so no re-arming
+step exists; each batch carries its own handling preamble (section 7.4) instead.
 
 ### 10.3 Codex
 

@@ -82,6 +82,8 @@ exit $(cat "''' + exitFile + '''")
         message.startsWith("[Sideband message]\n{")
         message.contains('"body":"@codex please look"')
         message.contains('"effective_live":"auto"')
+        message.contains('"handling":"Sideband delivered these journal entries to Codex.')
+        !message.contains("mark-delivered")
         recipients.load(state, Role.CODEX).stateOf(entry.metadata().id()).deliveredAt() != null
         !recipients.load(state, Role.CODEX).isResolved(entry.metadata().id())
     }

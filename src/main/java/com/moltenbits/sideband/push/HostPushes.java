@@ -59,7 +59,7 @@ class HostPushes implements Pushes {
             return new PushResult(role, PushOutcome.SESSION_DEAD, "session " + session.id() + " process " + session.parentPid() + " is gone");
         }
         Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
-        Batch batch = new Batch(entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
+        Batch batch = Batch.forRole(role, entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
         PushResult result = pusher.push(session, handoffs.envelope(batch));
         if (result.outcome() == PushOutcome.PUSHED) {
             recipients.markDelivered(stateDirectory, role, List.of(entry.metadata().id()));

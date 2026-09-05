@@ -103,6 +103,11 @@ Report any `diagnostics`. If the Monitor itself ends, show its stderr to the
 user and restart it from the last batch's `end` only once the cause is
 understood.
 
+Every batch begins with a `handling` field that restates these steps, so a
+conversation whose context was cleared while the listener kept running can
+still act on it. `/clear` does not stop the Monitor; never start another one
+because the instructions above are no longer in context.
+
 ## Send
 
 ```bash

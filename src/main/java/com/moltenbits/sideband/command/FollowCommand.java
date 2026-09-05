@@ -94,7 +94,7 @@ public class FollowCommand implements Callable<Integer> {
                 continue;
             }
             out.println(json.writeValueAsString(
-                    new Batch(read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), false)));
+                    Batch.forRole(role, read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), false)));
             out.flush();
             batches++;
         }

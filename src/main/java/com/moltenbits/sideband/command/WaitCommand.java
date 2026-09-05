@@ -91,6 +91,6 @@ public class WaitCommand implements Callable<Integer> {
 
     Batch batch(Path file, Waited waited) {
         Read read = waited.read();
-        return new Batch(read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), waited.timedOut());
+        return Batch.forRole(role, read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), waited.timedOut());
     }
 }

@@ -4,6 +4,7 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.DeliveryPolicy
+import com.moltenbits.sideband.protocol.Role
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
 import spock.lang.Shared
@@ -39,13 +40,13 @@ class LineageHandoffsSpec extends Specification {
     void "the envelope is the marker, a newline, and the batch as one JSON line"() {
         given:
         Entry h = journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
-        Batch batch = new Batch(h.start(), h.end(), handoffs.prepare(file, [h]), [], false)
+        Batch batch = Batch.forRole(Role.CODEX, h.start(), h.end(), handoffs.prepare(file, [h]), [], false)
 
         when:
         String envelope = handoffs.envelope(batch)
 
         then:
-        envelope.startsWith(Handoffs.ENVELOPE_MARKER + "\n{\"start\":")
+        envelope.startsWith(Handoffs.ENVELOPE_MARKER + "\n{\"handling\":\"Sideband delivered these journal entries to Codex.")
         envelope.count("\n") == 1
         envelope.contains('"entries":[{"metadata":{"id":"' + h.metadata().id() + '"')
         envelope.endsWith('"timed_out":false}')
