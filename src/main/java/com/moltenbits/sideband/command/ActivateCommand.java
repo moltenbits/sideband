@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.recipient.Activation;
 import com.moltenbits.sideband.recipient.RecipientState;
@@ -30,35 +31,37 @@ public class ActivateCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--role", required = true, description = "claude or codex")
+    @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
     Role role;
 
-    @Option(names = "--session-id", description = "The host's identifier for this session; for codex, defaults to $CODEX_THREAD_ID")
+    @Option(names = "--session-id", hidden = true, description = "Override the session id detected from the environment")
     String sessionId;
 
-    @Option(names = "--parent-pid", description = "The host process, so a dead session can be superseded automatically")
+    @Option(names = "--parent-pid", hidden = true, description = "Override the client process detected from the environment")
     Long parentPid;
 
     @Option(names = "--replace", description = "Supersede a live session that already owns the role")
     boolean replace;
 
     private final SidebandHome home;
+    private final HostEnvironment host;
     private final RecipientState recipients;
     private final ObjectMapper json;
 
-    ActivateCommand(SidebandHome home, RecipientState recipients, ObjectMapper json) {
+    ActivateCommand(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
         this.home = home;
+        this.host = host;
         this.recipients = recipients;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
-        String id = sessionId != null ? sessionId : System.getenv(role == Role.CODEX ? "CODEX_THREAD_ID" : "CLAUDE_SESSION_ID");
-        if (id == null || id.isBlank()) {
-            throw new IllegalArgumentException("--session-id is required" + (role == Role.CODEX ? " (CODEX_THREAD_ID is not set)" : ""));
-        }
-        Activation activation = recipients.activate(repository.stateDirectory(home), role, id, parentPid, replace);
+        Role who = role != null ? role : host.requireRole("--role");
+        String id = sessionId != null ? sessionId : host.sessionId(who).orElseThrow(() -> new IllegalArgumentException(
+                "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
+        Long pid = parentPid != null ? parentPid : host.parentPid(who).orElse(null);
+        Activation activation = recipients.activate(repository.stateDirectory(home), who, id, pid, replace);
         Output.print(spec, json, activation);
         return ExitCode.OK;
     }

@@ -2,6 +2,7 @@ package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
@@ -39,7 +40,7 @@ public class CaptureHumanCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--via", required = true, description = "The client the human typed into: claude or codex")
+    @Option(names = "--via", hidden = true, description = "Override the client detected from the environment")
     Role via;
 
     @Option(names = "--human", description = "The human's identifier (default: the one recorded by `sideband init`)")
@@ -49,6 +50,7 @@ public class CaptureHumanCommand implements Callable<Integer> {
     Path bodyFile;
 
     private final SidebandHome home;
+    private final HostEnvironment host;
     private final Journal journal;
     private final Routing routing;
     private final RecipientState recipients;
@@ -56,9 +58,10 @@ public class CaptureHumanCommand implements Callable<Integer> {
     private final Pushes pushes;
     private final ObjectMapper json;
 
-    CaptureHumanCommand(SidebandHome home, Journal journal, Routing routing, RecipientState recipients,
+    CaptureHumanCommand(SidebandHome home, HostEnvironment host, Journal journal, Routing routing, RecipientState recipients,
                         Configs configs, Pushes pushes, ObjectMapper json) {
         this.home = home;
+        this.host = host;
         this.journal = journal;
         this.routing = routing;
         this.recipients = recipients;
@@ -70,6 +73,9 @@ public class CaptureHumanCommand implements Callable<Integer> {
     @Override
     public Integer call() throws IOException {
         String body = Bodies.read(bodyFile);
+        if (via == null) {
+            via = host.requireRole("--via");
+        }
         Destination destination = routing.resolve(body, via);
         Path stateDirectory = repository.stateDirectory(home);
         String humanId = human != null ? human : configs.require(stateDirectory).id();

@@ -50,9 +50,8 @@ class FollowCommandSpec extends CommandSpec {
         batches.every { it.timed_out == false }
     }
 
-    void "the role is required and the offset must not be negative"() {
+    void "the offset must not be negative"() {
         expect:
-        run("follow", "--repo", repo.toString(), "--from", "0", "--max-batches", "1") == ExitCode.INVALID_INPUT
         run("follow", "--repo", repo.toString(), "--role", "claude", "--from", "-1", "--max-batches", "1") == ExitCode.INVALID_INPUT
     }
 }

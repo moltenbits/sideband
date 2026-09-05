@@ -16,16 +16,17 @@ All commands print one JSON object on stdout and use these exit codes: 0 ok,
 2 invalid input, 3 not a repository, 4 lock contention, 5 I/O failure, 6 timed
 out, 7 another live session already owns the role. Bodies travel through
 `--body-file` or stdin, never as an argument. Every command resolves the
-repository from the current directory.
+repository from the current directory and the calling client from its shell
+environment, so no command needs to be told which client it runs inside.
 
 ## Activate, once per session
 
 ```bash
-sideband activate --role codex --parent-pid $PPID
+sideband activate
 ```
 
-The session id defaults to `CODEX_THREAD_ID` from this shell; that is the
-thread the executable will `codex queue` into. Exit 7 means another live Codex
+The executable recognizes Codex from `CODEX_THREAD_ID` in this shell and
+records that thread id; it is the thread later pushes `codex queue` into. Exit 7 means another live Codex
 session owns this repository; rerun with `--replace` only if the user says so.
 
 The JSON `backlog` holds entries addressed to Codex that arrived before this
@@ -35,11 +36,11 @@ session and are still open. Do not act on them yet. Show the user a short table
 act on some, show full bodies, dismiss, or leave pending. Record the decision:
 
 ```bash
-sideband resolve --role codex --as acted|dismissed|presented <id>...
+sideband resolve --as acted|dismissed|presented <id>...
 ```
 
 Informational entries are `presented` once shown. Anything left alone stays
-pending and is listed by `sideband pending --role codex`.
+pending and is listed by `sideband pending`.
 
 ## On every human turn while active
 
@@ -49,7 +50,7 @@ routes to Codex alone, and Codex's own turn is marked handled so it is never
 pushed back.
 
 ```bash
-sideband capture-human --via codex --body-file <prompt.md>
+sideband capture-human --body-file <prompt.md>
 ```
 
 A turn that begins with `[Sideband message]` was pushed by the executable. It
@@ -71,16 +72,16 @@ recorded them as delivered. For each entry:
 3. Record the outcome: `resolve --as acted` after acting, `presented` for
    informational entries, `dismissed` if the user declined.
 4. If it answers one of your outgoing requests and the answer is sufficient:
-   `sideband resolve-outgoing --role codex --as answered <request id>`.
+   `sideband resolve-outgoing --as answered <request id>`.
 
 Report any `diagnostics` to the user.
 
 ## Send
 
 ```bash
-sideband append-agent --from codex --to claude --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --from codex --to claude --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --from codex --to human:<id> --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --to claude --type request --caused-by <id> --body-file <body.md>
+sideband append-agent --to claude --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --to human:<id> --type reply --reply-to <id> --body-file <body.md>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;

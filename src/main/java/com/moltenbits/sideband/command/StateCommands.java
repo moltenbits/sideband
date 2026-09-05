@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.protocol.Wire;
 import com.moltenbits.sideband.recipient.Cursor;
@@ -36,18 +37,20 @@ public final class StateCommands {
         @Mixin
         Repository repository;
 
-        @Option(names = "--role", required = true, description = "claude or codex")
+        @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
         Role role;
 
         @Parameters(arity = "1..*", paramLabel = "ID", description = "Entry identifiers")
         List<String> ids;
 
         final SidebandHome home;
+        final HostEnvironment host;
         final RecipientState recipients;
         final ObjectMapper json;
 
-        Transition(SidebandHome home, RecipientState recipients, ObjectMapper json) {
+        Transition(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
             this.home = home;
+            this.host = host;
             this.recipients = recipients;
             this.json = json;
         }
@@ -56,6 +59,9 @@ public final class StateCommands {
 
         @Override
         public Integer call() throws IOException {
+            if (role == null) {
+                role = host.requireRole("--role");
+            }
             Output.print(spec, json, apply());
             return ExitCode.OK;
         }
@@ -65,8 +71,8 @@ public final class StateCommands {
     @Prototype
     public static class MarkSeen extends Transition {
 
-        MarkSeen(SidebandHome home, RecipientState recipients, ObjectMapper json) {
-            super(home, recipients, json);
+        MarkSeen(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
+            super(home, host, recipients, json);
         }
 
         @Override
@@ -79,8 +85,8 @@ public final class StateCommands {
     @Prototype
     public static class MarkDelivered extends Transition {
 
-        MarkDelivered(SidebandHome home, RecipientState recipients, ObjectMapper json) {
-            super(home, recipients, json);
+        MarkDelivered(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
+            super(home, host, recipients, json);
         }
 
         @Override
@@ -96,8 +102,8 @@ public final class StateCommands {
         @Option(names = "--as", required = true, description = "acted, dismissed, presented, or originating-turn")
         String resolution;
 
-        Resolve(SidebandHome home, RecipientState recipients, ObjectMapper json) {
-            super(home, recipients, json);
+        Resolve(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
+            super(home, host, recipients, json);
         }
 
         @Override
@@ -113,8 +119,8 @@ public final class StateCommands {
         @Option(names = "--as", required = true, description = "answered or dismissed")
         String status;
 
-        ResolveOutgoing(SidebandHome home, RecipientState recipients, ObjectMapper json) {
-            super(home, recipients, json);
+        ResolveOutgoing(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
+            super(home, host, recipients, json);
         }
 
         @Override

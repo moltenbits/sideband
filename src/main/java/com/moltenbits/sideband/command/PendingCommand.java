@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.recipient.RecipientState;
 import io.micronaut.context.annotation.Prototype;
@@ -25,22 +26,25 @@ public class PendingCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--role", required = true, description = "claude or codex")
+    @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
     Role role;
 
     private final SidebandHome home;
+    private final HostEnvironment host;
     private final RecipientState recipients;
     private final ObjectMapper json;
 
-    PendingCommand(SidebandHome home, RecipientState recipients, ObjectMapper json) {
+    PendingCommand(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
         this.home = home;
+        this.host = host;
         this.recipients = recipients;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
-        Output.print(spec, json, recipients.pending(repository.stateDirectory(home), role));
+        Role who = role != null ? role : host.requireRole("--role");
+        Output.print(spec, json, recipients.pending(repository.stateDirectory(home), who));
         return ExitCode.OK;
     }
 }

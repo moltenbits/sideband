@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.handoff.Batch;
 import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
@@ -48,20 +49,22 @@ public class FollowCommand implements Callable<Integer> {
     @Option(names = "--from", required = true, description = "Byte offset to start from, normally the session's watermark_end")
     long from;
 
-    @Option(names = "--role", required = true, description = "Stream only open entries addressed to this role: claude or codex")
+    @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
     Role role;
 
     @Option(names = "--max-batches", hidden = true, description = "Stop after this many batches (for tests)")
     Integer maxBatches;
 
     private final SidebandHome home;
+    private final HostEnvironment host;
     private final JournalWatcher watcher;
     private final RecipientState recipients;
     private final Handoffs handoffs;
     private final ObjectMapper json;
 
-    FollowCommand(SidebandHome home, JournalWatcher watcher, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
+    FollowCommand(SidebandHome home, HostEnvironment host, JournalWatcher watcher, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
         this.home = home;
+        this.host = host;
         this.watcher = watcher;
         this.recipients = recipients;
         this.handoffs = handoffs;
@@ -72,6 +75,9 @@ public class FollowCommand implements Callable<Integer> {
     public Integer call() throws IOException {
         if (from < 0) {
             throw new IllegalArgumentException("--from must not be negative");
+        }
+        if (role == null) {
+            role = host.requireRole("--role");
         }
         Path stateDirectory = home.locate(repository.directory);
         Path file = stateDirectory.resolve(Journal.FILE_NAME);

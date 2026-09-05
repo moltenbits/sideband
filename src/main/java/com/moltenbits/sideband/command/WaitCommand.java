@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.handoff.Batch;
 import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;

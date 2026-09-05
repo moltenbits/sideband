@@ -99,12 +99,12 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("pending", "--repo", repo.toString(), "--role", "claude") == [backlog: [], live: [], outgoing: [:]]
     }
 
-    void "activate for codex without a session id or CODEX_THREAD_ID is invalid input"() {
+    void "activate for a role whose session id the environment does not expose is invalid input"() {
         when:
         int code = run("activate", "--repo", repo.toString(), "--role", "codex")
 
         then:
-        (System.getenv("CODEX_THREAD_ID") != null) || (code == ExitCode.INVALID_INPUT && stderr.toString().contains("CODEX_THREAD_ID"))
+        (System.getenv("CODEX_THREAD_ID") != null) || (code == ExitCode.INVALID_INPUT && stderr.toString().contains("--session-id"))
     }
 
     void "bad dispositions are invalid input"() {

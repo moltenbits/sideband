@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.ancestry.Ancestry;
 import com.moltenbits.sideband.ancestry.EntryIndex;
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
@@ -50,7 +51,7 @@ public class AppendAgentCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--from", required = true, description = "The authoring client: claude or codex")
+    @Option(names = "--from", hidden = true, description = "Override the client detected from the environment")
     Role from;
 
     @Option(names = "--to", required = true, arity = "1..*", converter = ParticipantIdConverter.class,
@@ -74,15 +75,17 @@ public class AppendAgentCommand implements Callable<Integer> {
     Path bodyFile;
 
     private final SidebandHome home;
+    private final HostEnvironment host;
     private final Journal journal;
     private final Ancestry ancestry;
     private final RecipientState recipients;
     private final Pushes pushes;
     private final ObjectMapper json;
 
-    AppendAgentCommand(SidebandHome home, Journal journal, Ancestry ancestry, RecipientState recipients,
+    AppendAgentCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry, RecipientState recipients,
                        Pushes pushes, ObjectMapper json) {
         this.home = home;
+        this.host = host;
         this.journal = journal;
         this.ancestry = ancestry;
         this.recipients = recipients;
@@ -96,6 +99,9 @@ public class AppendAgentCommand implements Callable<Integer> {
             throw new IllegalArgumentException("only a human may author an instruction; use capture-human");
         }
         String body = Bodies.read(bodyFile);
+        if (from == null) {
+            from = host.requireRole("--from");
+        }
         boolean actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
         Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
