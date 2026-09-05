@@ -5,7 +5,8 @@
 Implement Sideband as one client-neutral native executable and two thin Agent
 Skills—one for Claude Code and one for Codex. The `sideband` executable owns the
 durable protocol: repository discovery, journal serialization and parsing,
-locking, routing, recipient state, backlog classification, and blocking waits.
+locking, routing, recipient and outgoing-request state, backlog classification,
+and background journal following.
 The skills own only the behavior that differs between clients: activating a
 listener, capturing a human turn, delivering an envelope into the current parent
 conversation, and presenting backlog choices.
@@ -23,11 +24,16 @@ The version-one implementation will use:
   GraalVM Native Image.
 - Micronaut Serialization for reflection-free, compile-time JSON serialization.
 - Micronaut Picocli for typed commands and compile-time command metadata.
+- Gradle Kotlin DSL, Java application code, and Groovy/Spock tests.
 - One installed `sideband` executable used by both clients.
 - Two instruction-only client skills installed alongside that executable.
 - Explicit activation (`/sideband` in Claude Code and `$sideband` in Codex).
 - One background transport worker per active client session.
 - A one-shot blocking `wait` command, so idle listening consumes no model tokens.
+  Only the background listener uses it; sending a request never blocks the
+  parent, starts a response timer, or schedules a retry.
+- A local native build and idempotent installation of the binary and skill
+  links, without a platform release matrix or JVM runtime fallback.
 - Full journal scans in version one, with byte offsets used only by live waits.
   This favors correctness and recoverability over premature indexing.
 
@@ -38,11 +44,13 @@ follows.
 
 | Decision | Version-one choice | Rationale |
 | --- | --- | --- |
-| Activation | Explicit skill invocation | Predictable, debuggable, and does not depend on hooks being available in both hosts. |
+| Activation | Explicit skill invocation | Predictable lifecycle; supported prompt-submit hooks are still required for capture while active. |
 | Shared implementation | One Micronaut CLI compiled with GraalVM Native Image | Provides a strongly typed, testable implementation with fast startup and no JVM requirement on the user's machine. |
 | Serialization | Micronaut Serialization | Generates serialization metadata at compile time without reflection and fits Native Image's closed-world model. |
 | Client packaging | One native executable plus separate Claude and Codex instruction-only skills | Host integration remains separate while journal behavior has exactly one runtime implementation. |
-| Installation | One platform-aware Sideband distribution installs or upgrades the executable and both skills together | Prevents duplicate binaries and version skew between clients. |
+| Build and tests | Gradle Kotlin DSL; Java main sources; Groovy/Spock tests | Matches the existing spike and the agreed development stack. |
+| Installation | Build natively for the developer's OS/architecture; install one executable and link both skills locally | Keeps version one scoped to local use without private per-skill binaries or a release pipeline. |
+| Requests and replies | Persist outgoing requests; deliver replies through the existing listener | Leaves the parent available for human input with no per-request wait, deadline, or retry. |
 | Human identity | Per-repository `config.json`, initialized from `git config user.name` and an explicit stable slug | Gives readable headings without confusing display names with protocol identity. |
 | Agent replies | Record final replies, delegations, and statuses participating in a Sideband exchange; exclude routine commentary and tool traffic | Preserves the participant-visible conversation without becoming a transcript recorder. |
 | Routing directive delivery | Preserve the original body, including the directive | The internal delivery envelope prevents republishing, so altering human text is unnecessary. |
@@ -82,21 +90,21 @@ policy.
 
 ```text
 sideband/
-├── pom.xml
+├── build.gradle.kts
+├── settings.gradle.kts
+├── gradlew
+├── gradle/wrapper/
+├── justfile                        # build, test, native, install, doctor
 ├── src/
 │   ├── main/java/com/moltenbits/sideband/
 │   │   ├── SidebandCommand.java       # Picocli root command
 │   │   ├── protocol/                  # entry and delivery value types
-│   │   ├── journal/                   # public journal component boundary
-│   │   │   └── internal/              # Markdown codec, parser, and lock
-│   │   ├── recipient/                 # public recipient-state boundary
-│   │   │   └── internal/              # atomic JSON cursor store
-│   │   ├── routing/                   # public routing boundary
-│   │   │   └── internal/              # first-token directive parser
-│   │   ├── waiting/                   # public blocking-wait boundary
-│   │   │   └── internal/              # filesystem polling implementation
+│   │   ├── journal/                   # journal interface, codec, parser, lock
+│   │   ├── recipient/                 # recipient/outgoing state and cursor store
+│   │   ├── routing/                   # routing interface and directive parser
+│   │   ├── waiting/                   # journal-follow interface and polling
 │   │   └── command/                   # Picocli subcommands
-│   └── test/java/com/moltenbits/sideband/
+│   └── test/groovy/com/moltenbits/sideband/
 │       ├── unit/
 │       ├── integration/
 │       └── acceptance/
@@ -107,18 +115,17 @@ sideband/
 │   └── sideband-codex/
 │       ├── SKILL.md
 │       └── references/protocol.md
-├── distribution/
-│   ├── install.sh                 # macOS/Linux bootstrap
-│   ├── install.ps1                # Windows bootstrap
-│   └── package-release.sh         # binary, skills, manifest, checksums
-└── .github/workflows/
-    └── native-release.yml         # supported OS/architecture build matrix
+└── docs/
+    └── spike-wake-path.md          # evidence for the bidirectional gate
 ```
 
 The Java packages follow package-by-component boundaries: only component
 interfaces and protocol value types are public; implementations remain
-package-private beneath their owning component. Micronaut wires implementations
-to interfaces at compile time. The application is a CLI only and includes no
+package-private within their owning component. Each subcomponent follows the
+same boundary rule; consumers cannot name implementation classes. Use Java
+visibility and architecture tests for dependency boundaries, not implementation
+choices. Micronaut wires implementations to interfaces at compile time. The
+application is a CLI only and includes no
 HTTP server, database, runtime classpath scanning, or reflection-based
 serialization.
 
@@ -131,27 +138,35 @@ or branches throughout the storage implementation.
 
 ### 3.2 Single-tool installation boundary
 
-A Sideband release contains exactly one native executable for its target
-OS/architecture, both skill directories, a version manifest, and checksums. The
-bootstrap installer selects the matching release artifact and performs one
-idempotent installation:
+Extend the existing `just install` task to build with `./gradlew nativeCompile`,
+install the resulting executable, and link both skill directories idempotently.
+The current spike task copies the binary only; installing skills remains planned
+work. Default destinations are:
 
 ```text
 ~/.local/bin/sideband
-<claude-skill-root>/sideband/SKILL.md
-<codex-skill-root>/sideband/SKILL.md
+~/.claude/skills/sideband -> <checkout>/skills/sideband-claude
+~/.agents/skills/sideband -> <checkout>/skills/sideband-codex
 ```
 
-Re-running the installer upgrades the single executable and refreshes both skill
-definitions. It must never install a private executable inside either skill.
-The skills declare their compatible tool version and verify it with
-`sideband version --json` during activation. Installing or upgrading one client
-therefore cannot leave Claude and Codex using different protocol tools.
+The Codex destination follows its documented [user skill directory](https://learn.chatgpt.com/docs/build-skills).
+Honor `SIDEBAND_INSTALL_DIR` for the binary destination and verify it resolves
+on both clients' `PATH`. Create missing skill roots; leave matching links alone
+and report conflicting directories or unrelated links without overwriting them.
+The checkout must remain available because the skills are symlinked into it.
 
-The release workflow builds and tests one artifact per supported platform,
-records its SHA-256 checksum, and tests the archive in a clean environment. A
-download service is used only to install or upgrade Sideband; normal operation
-is fully local and offline.
+Re-running installation updates the single executable. Neither skill installs
+a private binary. Both skills declare compatibility and check it using
+`sideband version --json` at activation. `doctor` verifies the resolved binary,
+version, and both skill links. An already-running listener must be restarted
+after an upgrade; sharing a path does not upgrade a running process or guarantee
+that edited skill instructions remain compatible.
+
+Version one builds and tests only for the developer's own OS and architecture.
+Windows installation, downloadable release artifacts, a platform build matrix,
+signing, and notarization are outside this scope. The installed tool needs no
+JDK or scripting runtime. JVM execution remains useful for development and
+tests, not as a runtime fallback.
 
 ## 4. On-disk state
 
@@ -204,8 +219,9 @@ embedded in a skill or inferred independently by each client.
 
 ### 4.2 Recipient cursor
 
-Each client owns one cursor file. It is recipient-local state, not another
-communication channel:
+Each client owns one cursor file. It contains separate incoming delivery and
+outgoing-request records; it is client-local state, not another communication
+channel. Illustrative IDs below are abbreviated:
 
 ```json
 {
@@ -226,6 +242,13 @@ communication channel:
       "resolved_at": null,
       "resolution": null
     }
+  },
+  "outgoing": {
+    "request-id": {
+      "state": "pending",
+      "reply_ids": [],
+      "resolved_at": null
+    }
   }
 }
 ```
@@ -233,7 +256,8 @@ communication channel:
 The stored fields distinguish three separate facts:
 
 - `seen_at`: included in a backlog summary or shown to the parent.
-- `delivered_at`: successfully inserted into the parent conversation.
+- `delivered_at`: accepted by the host's native parent-wake mechanism for
+  handoff; it does not prove that the parent read or acted on the message.
 - `resolved_at` and `resolution`: acted on, dismissed, or consumed by the
   originating turn.
 
@@ -241,6 +265,23 @@ Pending is derived as an addressed entry without `resolved_at`. A live
 actionable message is marked delivered after the parent handoff and resolved
 only after the parent completes or explicitly dismisses it. An informational
 message can be resolved as `presented` immediately after successful delivery.
+
+`outgoing` is keyed by an agent-authored request's journal ID. Here a request
+means any outgoing agent message with `expects_reply: true`, including an
+actionable reply or follow-up, not just entries with `type: request`. Its state is
+`pending`, `answered`, or `dismissed`; it is independent of the peer's incoming
+delivery/resolution state. `reply_ids` records correlated replies without
+claiming their content is sufficient. Only the parent marks a request answered
+or explicitly dismissed, recording `resolved_at`. Recipient lists, provenance,
+and bodies remain authoritative in the journal rather than being duplicated.
+For multi-recipient requests, the parent assesses which recipients have answered
+from those entries before deciding whether the overall request is satisfied.
+
+Appending a request and registering its outgoing state happen under the shared
+lock. Because the journal and cursor are separate files, recovery rescans the
+journal for the role's requests and restores missing records as pending without
+resending anything. Reconciliation preserves existing answered/dismissed state.
+Human-directed follow-ups do not automatically supersede earlier records.
 
 Cursor mutations use write-to-temp, `fsync`, and atomic rename while holding the
 shared Sideband lock. Unknown cursor fields are preserved, allowing compatible
@@ -250,12 +291,13 @@ extensions.
 
 ### 5.1 Entry encoding
 
-Use the required Markdown shape and add two compatible metadata fields:
-`body_bytes` and `body_sha256`.
+Use the required Markdown shape and required `body_bytes` framing field. The
+proposal also adds an optional compatible `body_sha256` integrity field; readers
+accept valid entries without that extension.
 
 ```markdown
 <!-- sideband:v1
-{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"instruction","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35,"body_sha256":"..."}
+{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"instruction","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
 -->
 
 ## James → Codex (via Claude)
@@ -266,12 +308,14 @@ Use the required Markdown shape and add two compatible metadata fields:
 
 `body_bytes` is the UTF-8 byte count of the exact body. A reader therefore does
 not mistake a literal `<!-- /sideband -->` line inside a Markdown message for
-the entry terminator. `body_sha256` detects torn or externally modified bodies
-without making authenticity claims.
+the entry terminator. In the example, the separator newline before the closing
+marker is outside the counted body. When present, `body_sha256` detects torn or
+externally modified bodies without making authenticity claims.
 
 Use UUIDv4 IDs. Physical order, not the UUID or timestamp, defines journal
-order. Timestamps come from `datetime.now().astimezone()` and always include an
-RFC 3339 offset.
+order. Generate timestamps with Java's `OffsetDateTime.now(clock)`, formatted
+using `DateTimeFormatter.ISO_OFFSET_DATE_TIME` with seconds and an RFC 3339
+offset. Inject the `Clock` for deterministic tests.
 
 The heading is generated presentation. Metadata is authoritative for routing
 and identity. Display names are stripped of newlines and other control
@@ -287,7 +331,7 @@ the entire file:
 3. Validate the metadata schema and supported protocol major version.
 4. Locate the generated heading/body boundary.
 5. Read exactly `body_bytes` bytes.
-6. Verify the SHA-256 digest and exact closing marker.
+6. Verify the SHA-256 digest when present and the exact closing marker.
 7. Emit the entry with its start and end byte offsets.
 
 If metadata is malformed, a version is unsupported, a body digest fails, or an
@@ -339,12 +383,15 @@ sideband init
 sideband capture-human --via claude --body-file <path>
 sideband append-agent --from claude --to codex --type request \
   --caused-by <id> --body-file <path>
+sideband append-agent --from codex --to claude --type reply \
+  --reply-to <id> --expects-reply false --body-file <path>
 sideband activate --role codex --session-id <id>
 sideband backlog --role codex --session-id <id>
 sideband wait --role codex --session-id <id>
 sideband mark-seen --role codex <id>...
 sideband mark-delivered --role codex <id>...
 sideband resolve --role codex --as acted|dismissed|presented|originating-turn <id>...
+sideband resolve-outgoing --role codex --as answered|dismissed <id>...
 sideband pending --role codex
 sideband version --json
 sideband doctor --role codex
@@ -364,11 +411,25 @@ already consumed by the originating turn. The adapter immediately records
 `originating-turn`, and the deterministic `from`/`via` rule also prevents later
 self-redelivery if that cursor update was interrupted.
 
-`wait` is one-shot. It blocks in a low-frequency stat loop until one or more new
-complete addressed entries exist, emits that batch, and exits. The transport
+`append-agent` accepts both `--caused-by` and `--reply-to` when a message has
+both relationships, including a human-directed follow-up. It validates
+provenance and records actionable outgoing requests before returning their IDs.
+`pending` reports unresolved incoming entries and pending outgoing requests
+separately. `resolve-outgoing` records the parent's disposition, not a delivery
+acknowledgement or a time-based decision.
+
+`wait` is one-shot and belongs only to the session's background listener.
+It blocks in a low-frequency stat loop until one or more new complete addressed
+entries exist, emits that batch, and exits. The transport
 worker handles the batch and invokes `wait` again. No standalone Sideband daemon
 survives the client session, and the model consumes no tokens while the native
 command is blocked.
+
+The parent never invokes `wait` for a particular request or reply. Appending a
+request returns immediately after durable persistence; there are no response
+deadlines, retries, resubmissions, or periodic model turns to inspect pending
+requests. A diagnostic timeout in the existing spike is not a production
+sender-wait policy and must not create an idle model loop.
 
 ## 7. Race-safe activation and delivery
 
@@ -389,6 +450,10 @@ Only one current session may exist per role. Starting a second listener for the
 same role reports the existing session rather than silently replacing it. A
 stale session can be superseded after its process/session ownership is shown to
 be dead.
+
+Version-one agent identities remain plain `claude` and `codex` roles, without
+instance suffixes. Separate worktrees may host one of each role, not multiple
+simultaneous instances of the same role.
 
 ### 7.2 Delivery envelope
 
@@ -411,9 +476,10 @@ caused_by: null
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the
-parent checks the ID against delivered/resolved state and IDs already present in
-its conversation. Duplicate envelopes may be acknowledged but must not repeat
-work.
+parent checks resolved state and IDs it has already processed in its
+conversation. Duplicate envelopes may be acknowledged but must not repeat work.
+A delivered flag alone must not suppress the parent's first processing of an
+accepted handoff: delivery and resolution are separate facts.
 
 After the host's parent-message operation succeeds, the worker calls
 `mark-delivered`. If the worker crashes between those two operations, the entry
@@ -422,10 +488,12 @@ The stable envelope ID makes the retry idempotent at the parent.
 
 ### 7.3 Live entries
 
-- `expects_reply: true`: deliver immediately. The parent may act under the live
-  `auto` policy, subject to the direct human's authority and current permissions.
+- `expects_reply: true`: act under the effective live policy. `auto` permits
+  action subject to the direct human's authority and current permissions;
+  `confirm` requires human approval. Excess delegation depth forces `confirm`.
 - `expects_reply: false`: deliver as context and resolve as `presented`; do not
-  create a task or response merely because the message arrived.
+  create a task or response merely because the message arrived. A sufficient
+  answer can allow already-authorized work to resume under section 7.5.
 - Unknown delivery policies: report and leave pending.
 
 Agent-to-agent messages are collaboration input. The receiving skill explicitly
@@ -448,6 +516,40 @@ may be displayed for awareness and resolved as presented only after display.
 A deferred item is not automatically raised again in that session. `pending`
 shows it on demand, and the next activation summarizes it again.
 
+### 7.5 Outgoing requests and reply correlation
+
+After sending, the parent may continue other authorized work or return control
+to the human. Its existing listener delivers all addressed replies, requests,
+and follow-ups; sending never creates another worker or wait command.
+
+Correlate replies to outgoing IDs by following `reply_to`, including intervening
+clarifications or replies. Preserve each original link and reject missing or
+cyclic correlation paths rather than guessing. Record matching reply IDs, but
+leave the request pending until the parent decides the answer is sufficient or
+explicitly dismisses it. A progress update or clarification is not automatically
+an answer, and resolving an incoming informational message does not resolve the
+outgoing request.
+
+Pending requests survive turn and session endings. On restart, reconcile them
+from durable state and the journal without resending. Replies at or before the
+startup watermark are backlog; neither correlation nor a pending request grants
+permission to execute actionable backlog. Newer human instructions govern any
+resumed work. Passage of time changes no request state.
+
+### 7.6 Human-directed follow-ups
+
+If the human changes an outstanding request, capture the new human input and
+append an ordinary agent message with a fresh ID: `caused_by` names that human
+input and `reply_to` names the earlier peer message being updated. The body
+explains the change and whether prior instructions should be disregarded. The
+receiver interprets it in context at its next supported opportunity, without
+having to finish the earlier work or restart its listener.
+
+Late replies retain their original relationships and are assessed against the
+latest human instructions. There are no structured amendment/replacement fields,
+automatic supersession states, or revision-specific backlog groups in version
+one; ordinary outgoing tracking and backlog policy apply.
+
 ## 8. Client skills
 
 ### 8.1 Shared skill responsibilities
@@ -466,6 +568,12 @@ Both `SKILL.md` files must instruct their host to:
 8. Journal participating final replies with `reply_to`.
 9. Surface all helper, parser, listener, and parent-delivery failures.
 10. Stop the worker when the parent session ends.
+11. Track outgoing requests independently, correlate replies, and record when
+    the parent considers an answer sufficient or dismisses the request.
+12. Accept new human input while requests are pending and relay changes using
+    ordinary linked follow-ups without restarting the listener.
+13. Verify the shared executable's compatibility and report whether human
+    capture is hook-backed or best effort at activation and through `doctor`.
 
 Neither skill should contain its own journal parser, lock implementation, or
 routing logic.
@@ -475,24 +583,30 @@ routing logic.
 The Claude skill is installed as a Claude-compatible `SKILL.md` and invoked as
 `/sideband`. Its adapter should:
 
-- use Claude's current background-agent or Monitor facility to own the transport
-  loop;
+- use a supported native background facility to own journal following and wake
+  the existing parent;
 - have the worker run only `sideband wait`, parent delivery, and state commands;
-- use a session-scoped prompt hook when available to pass the exact human body to
-  `capture-human`, while retaining the skill-instruction path as the portable
-  fallback;
+- use a supported prompt-submit hook, where provided, to pass the exact human
+  body to `capture-human` before model processing; otherwise explicitly report
+  best-effort skill-based capture;
 - deliver entries to the original parent conversation, never answer them in the
   worker; and
 - report a stopped background task so the parent can restart it from the durable
   cursor.
 
-The optional hook is a capture improvement, not a protocol dependency. Explicit
-skill activation remains the version-one lifecycle boundary.
+The recorded Claude spike proved that completion of a background native `wait`
+task wakes the idle parent, with the task's JSON stdout as the delivery envelope.
+Use that evidence to develop the adapter; it does not yet prove full routing,
+capture, or cursor behavior. A wake notification prompts a cursor-based scan,
+not an assumption that exactly one message arrived. After handoff, acknowledge
+the batch and re-arm the one-shot listener. Explicit skill activation remains
+the proposed lifecycle boundary; a supported capture hook is mandatory while
+active, not optional merely because activation was explicit.
 
 ### 8.3 Codex adapter
 
 The Codex skill is installed as an Agent Skill and invoked as `$sideband`. Its
-adapter should:
+proposed adapter, subject to the uncompleted feasibility spike, should:
 
 - spawn a dedicated background subagent named for the Sideband listener;
 - pass the parent task/thread identity and the generated Sideband session ID to
@@ -503,16 +617,30 @@ adapter should:
 - reuse/restart the same listener identity instead of creating a worker per
   message.
 
+Use a supported prompt-submit hook for capture if the target host provides one;
+otherwise report best-effort skill capture during activation and diagnostics.
+Do not infer supported hook or parent-wake capabilities from another client.
+
 This design uses the existing interactive subagent channel documented by
 [OpenAI's Codex subagent documentation](https://learn.chatgpt.com/docs/agent-configuration/subagents)
 and packages the workflow using the documented
 [Codex skill format](https://learn.chatgpt.com/docs/build-skills). It does not
 call `codex exec`, resume a headless session, or create a competing conversation.
 
-The first implementation spike must prove one vertical path—append in Claude,
-wake the Codex parent, acknowledge delivery—against the supported host versions.
-If a host cannot wake its parent through a background worker, that is a release
-blocker rather than a reason to add a proxy or headless CLI fallback.
+### 8.4 Bidirectional feasibility gate
+
+Before full protocol implementation, prove both paths against recorded client
+versions: an append through Claude wakes the existing Codex parent, and an
+append through Codex wakes the existing Claude parent. The public integration
+documentation is not evidence that this complete workflow succeeds.
+
+The [spike record](docs/spike-wake-path.md) records a Claude parent wake on
+2026-09-04 from an external append; the Codex-side test has not run. The skills
+and minimal CLI already in the repository are spike scaffolding, not complete
+adapters. Finish and record the missing direction before proceeding beyond the
+spike, as required by [requirements section 17.1](REQUIREMENTS.md#171-bidirectional-parent-wake-path).
+If either path fails, surface the design blocker; do not add a proxy, MCP,
+daemon, hosted service, or headless CLI fallback.
 
 ## 9. Provenance and reply rules
 
@@ -520,14 +648,31 @@ The adapter maintains a current causality context:
 
 - Direct human turn: append `from: human:<id>` and `via: <host>`.
 - Agent delegation: append a new `from: <host>` request and set `caused_by` to
-  the human instruction that led to it.
+  the immediate communication that initiated it, whether human or agent. Do
+  not skip intervening communications to link directly to the original human.
 - Direct answer: append `from: <host>`, `type: reply`, and `reply_to` the entry
   being answered.
 - Progress that another participant needs: append `type: status`, generally with
   `expects_reply: false`.
-- Listener lifecycle or disposition notices: use `type: control` only when they
-  belong in the shared conversation. Local cursor changes do not create journal
-  entries.
+- Human-directed follow-up: use both links as described in section 7.6.
+- Completion or request for human input: address `human:<id>` and present it in
+  the authoring client's existing visible turn. Neither listener injects a
+  human-only entry into the other client's conversation.
+- Listener lifecycle and disposition changes: keep these in local state and
+  diagnostics. Version one has no `control` type; the valid message types are
+  `instruction`, `request`, `reply`, and `status`.
+
+The executable validates actionable agent-to-agent ancestry at append and
+delivery: follow `caused_by` when present, otherwise `reply_to`, until reaching
+a human entry. Reject missing ancestors or cycles. Count only `caused_by` edges
+as delegation depth. An entry beyond depth five remains journaled but receives
+an effective `confirm` policy even if its metadata requests live `auto`.
+
+Repeated `reply_to` exchanges are unbounded by default and do not increase
+delegation depth. If an optional iteration threshold is configured, crossing it
+appends one `status` addressed to the human and leaves delivery unchanged; it
+must not impose an iteration cap or confirmation gate. Completing work normally
+ends with a message to the human, not another actionable peer request.
 
 Only participant-visible content is a message body. System/developer prompts,
 private reasoning, tool calls, command output, permission state, credentials,
@@ -539,6 +684,13 @@ Develop the protocol and each bug fix test-first. The shared toolkit should have
 deterministic clocks and ID generators injected at its boundary so tests can
 assert exact journal bytes.
 
+Keep all `src/main` application code in Java and all `src/test` code in Groovy
+Spock specifications. The Gradle Kotlin DSL build uses the Micronaut and Groovy
+plugins with Spock dependency alignment; Groovy is for tests, not application
+code. Use data-driven `where:` blocks for validation and routing, Spock
+interactions for host doubles, and `micronaut-test-spock` only where an
+application context is needed. Most protocol specifications need no context.
+
 ### 10.1 Unit tests
 
 - First-token routing with whitespace, case variants, missing directives, and
@@ -547,6 +699,10 @@ assert exact journal bytes.
 - Bodies containing headings, HTML comments, the closing marker, no final
   newline, Unicode, and invalid UTF-8 input.
 - Cursor transitions, repeated transitions, and invalid state regressions.
+- Separate outgoing-request transitions and reply-chain correlation, including
+  clarifications, multi-recipient requests, and late replies to earlier work.
+- Immediate-cause ancestry, missing/cyclic links, depth-five boundaries, and
+  unbounded reply iterations with an optional notification-only threshold.
 - Lock ownership, dead owners, live owners, PID reuse, and foreign hosts.
 - Heading sanitization and local identity validation.
 
@@ -561,8 +717,18 @@ assert exact journal bytes.
 - Crash after parent handoff but before `mark-delivered`; retry emits the same ID
   and the simulated parent performs work once.
 - Atomic cursor updates under interruption.
+- Crash between a durable request append and its cursor update; recovery restores
+  pending state without resending or reopening already-resolved requests.
+- Request persistence across session endings and backlog/live reply boundaries.
+- Human input and linked follow-ups while a request remains pending, with no
+  extra listener, blocking sender call, timer, or automatic supersession.
 - Two worktrees resolving the same absolute Sideband directory.
 - File modes under a restrictive and a permissive process umask.
+
+Run black-box CLI specifications against the locally compiled native executable
+as well as the JVM suite, covering serialization, process and filesystem access,
+concurrency, restart, and command exit behavior. A passing JVM suite alone does
+not validate the installed Native Image artifact.
 
 ### 10.3 Adapter contract tests
 
@@ -579,45 +745,70 @@ Run the same suite against Claude and Codex adapters:
 - correct `reply_to` and `caused_by` provenance; and
 - visible failure when the helper or parent channel fails.
 
-Static tests also validate both skill frontmatters and verify that every packaged
-skill declares compatibility with the single packaged executable version.
+Also cover `confirm` delivery, human-only routing, required capture hooks where
+supported, explicit best-effort diagnostics otherwise, and outgoing-request
+resolution without creating new authority. Fake hosts test the contract, not
+the existence of the real parent-wake mechanisms; the spike and final manual
+tests establish those independently.
+
+Static tests validate both skill frontmatters and compatibility declarations.
+Local-install tests verify repeat installation, both skill links, conflicting
+paths without overwrites, and both clients resolving the single native binary.
 
 ### 10.4 Requirements acceptance suite
 
 Create one named test for each scenario in section 14 of `REQUIREMENTS.md`:
 
-```text
-test_direct_human_instruction
-test_cross_client_human_instruction
-test_live_broadcast
-test_offline_broadcast_recipient
-test_deferred_backlog
-test_agent_delegation
-test_concurrent_writers
-test_shared_state_across_worktrees
-test_restart_and_replay_is_idempotent
-```
+Use sentence-form Spock feature names, mapped explicitly to the requirements:
+
+| Requirement | Spock feature |
+| --- | --- |
+| 14.1 | "direct human input is journaled for its originating client" |
+| 14.2 | "a routed human instruction reaches only the addressed peer" |
+| 14.3 | "a live broadcast creates one entry without self redelivery" |
+| 14.4 | "an offline broadcast recipient requires backlog confirmation" |
+| 14.5 | "deferred backlog remains discoverable" |
+| 14.6 | "delegations link to their immediate cause and replies to their request" |
+| 14.7 | "concurrent writers preserve complete contiguous entries" |
+| 14.8 | "different roles in separate worktrees share one journal" |
+| 14.9 | "restart replay deduplicates work by message ID" |
+| 14.10 | "a second live instance of the same role is refused" |
+| 14.11 | "a human addressed result stays in the authoring conversation" |
+| 14.12 | "excess delegation depth requires confirmation and invalid ancestry is rejected" |
+| 14.12a | "reply iterations are unbounded and a threshold only notifies the human" |
+| 14.13 | "literal markers and nested example entries round trip verbatim" |
+| 14.14 | "replies use the existing listener without sender waits timers or retries" |
+| 14.14a | "new human input leaves unrelated pending requests intact" |
+| 14.14b | "human changes use ordinary linked followups without automatic supersession" |
+| 14.14c | "replies after restart correlate without resending or bypassing backlog policy" |
+| 14.15 | "both native background paths wake their existing idle parents" |
+| 14.16 | "capture uses supported hooks or explicitly reports best effort" |
+| 14.17 | "both skills resolve one compatible executable and reject mismatches" |
 
 The suite should operate on real temporary Git repositories and worktrees rather
 than mocking `git rev-parse`.
 
 ## 11. Implementation sequence
 
-1. Build the value types, routing parser, journal codec, and malformed-entry
-   diagnostics with unit tests.
-2. Add shared-directory discovery, secure initialization, locking, serialized
-   append, and concurrent/crash integration tests.
-3. Add cursor transitions, activation watermarking, backlog queries, blocking
-   wait, and restart/replay tests.
-4. Implement a fake-host adapter and make the full requirements acceptance suite
-   pass without either real client.
-5. Write the Claude skill and validate capture, background delivery, and restart
-   behavior in an interactive Claude session.
-6. Write the Codex skill and validate the same adapter contract in an interactive
-   Codex session.
-7. Add the GraalVM Native Image build, platform release matrix, checksummed
-   installer, installation documentation, `doctor`, and a two-client manual
-   smoke test across separate worktrees.
+1. Complete the bidirectional wake-path spike using the existing minimal native
+   CLI and skill stubs. Record the remaining Codex result and both supported
+   host versions. Do not implement the remainder until the gate passes.
+2. Extend the Gradle/Micronaut scaffold with test-first Java protocol components:
+   value types, routing, framing, validation, causal ancestry, and diagnostics.
+   Use Groovy/Spock specifications throughout.
+3. Add shared-directory discovery, secure initialization, locking, serialized
+   append, and concurrent/crash tests, including native-binary execution.
+4. Add incoming and outgoing cursor state, activation watermarking, backlog
+   queries, background journal following, reply correlation, and recovery tests.
+   Cover human-directed follow-ups without structured revision machinery.
+5. Implement fake-host contracts and automated acceptance specifications for
+   host-independent behavior. Keep real-host acceptance checks explicit.
+6. Complete both client skills using the proven wake paths, supported capture
+   hooks or declared best-effort capture, human-only output, and restart behavior.
+7. Extend local installation to link both skills, finish compatibility checks
+   and `doctor`, and run all JVM/native tests and a two-client manual smoke test
+   across separate worktrees, including idle reply delivery and human input
+   during pending work.
 
 Each step should be a small, independently passing commit on the eventual
 implementation branch. The two real adapters belong to the same version-one
@@ -629,28 +820,28 @@ task and release; one is not a follow-up substitute for the other.
   Claude Code and Codex versions. Fail activation clearly when the required
   interactive background channel is absent.
 - **Skills are behavioral integration, not guaranteed interception.** Explicit
-  activation makes the boundary visible. Claude can use a session hook when
-  available; Codex must capture through the active skill instructions until it
-  exposes an equivalent prompt hook. Audit-grade capture remains out of scope.
+  activation makes the boundary visible. Use supported prompt-submit hooks
+  wherever provided; otherwise declare best-effort capture during activation
+  and diagnostics. Audit-grade capture remains out of scope.
 - **A local process can forge entries.** Restrictive permissions reduce
   accidental exposure but do not provide authentication, as required.
 - **At-least-once creates a handoff/ack gap.** Keep stable IDs visible in every
   envelope and make the parent deduplicate before acting.
-- **Native artifacts are platform-specific.** Build and test an explicit release
-  matrix, select artifacts by normalized OS/architecture, and fail installation
-  rather than falling back to a JVM or scripting runtime.
+- **Native artifacts are platform-specific.** Build and test locally for the
+  developer's OS/architecture. Fail an incompatible installation rather than
+  falling back to a JVM or scripting runtime. Broader distribution is deferred.
 - **The executable and skills can become version-incompatible.** Install them as
-  one release, declare the required tool version in both skills, and fail
+  one local workflow, declare the required tool version in both skills, and fail
   activation visibly when `sideband version --json` is incompatible.
-- **Native distribution introduces trust warnings.** Publish checksums from the
-  release workflow and add platform signing/notarization where the supported
-  operating system requires it.
 - **Polling can create unnecessary wake-ups.** Poll only inside the native
   blocking command, use a modest interval with backoff, and perform no model work
   until the command returns a complete addressed entry.
 - **Journal growth eventually makes full scans expensive.** Version one values a
   simple recovery model. Add an optional derived index only after measurement;
   it must always be rebuildable from `journal.md`.
+- **An answer may never arrive.** Keep the outgoing request discoverable and the
+  parent interruptible. Do not create a timeout, retry, or idle model loop to
+  clear pending state. Human-directed follow-ups remain ordinary messages.
 
 ## 13. Definition of done
 
@@ -659,23 +850,38 @@ Version one is complete when:
 - one versioned native `sideband` executable is installed and both skills invoke
   that exact executable;
 - neither skill contains or installs a private copy of the executable;
+- local installation is repeatable and verifies both skill links and the shared
+  binary, without Windows packaging, release signing, or a platform matrix;
 - all unit, integration, adapter-contract, and requirements acceptance tests
-  pass;
+  pass, including Spock specifications against the locally built native binary;
 - concurrent writers and forced crashes cannot corrupt prior complete entries;
 - the Claude-to-Codex and Codex-to-Claude live paths work without MCP, a daemon,
   a hosted service, or headless peer CLI invocations;
 - offline messages require human confirmation before action;
+- requests remain durably pending across turns and sessions without sender
+  waits, response timers, retries, or extra listeners;
+- replies and ordinary linked human-directed follow-ups preserve causality and
+  permit only work authorized by the latest human instructions;
+- delegation depth, unbounded reply iterations, human-only routing, and capture
+  guarantees match the requirements;
 - restart/replay can redeliver but cannot cause duplicate work for one message
   ID;
 - separate worktrees share one private journal; and
 - `sideband doctor` reports paths, permissions, protocol versions, cursor health,
-  lock ownership, and listener state without printing message bodies.
+  outgoing-request state, skill links, capture guarantee, lock ownership, and
+  listener state without printing message bodies.
 
 ## 14. Review addenda
 
 Same convention as section 16 of `REQUIREMENTS.md`: each reviewer appends an
 entry in the journal entry shape and never edits an existing one. A response is
 a new entry with `reply_to` set.
+
+These entries are historical, not the current implementation contract. Accepted
+decisions are incorporated above. In particular, historical section 14.5's
+sender-timeout recommendation is superseded by requirements section 9.6 and
+proposal sections 6 and 7.5; causality and depth checks follow the current
+requirements section 8.3 rather than an earlier undifferentiated hop limit.
 
 <!-- sideband:v0
 {"id":"impl-0001","created_at":"2026-09-02T22:30:00-05:00","from":"claude","model":"claude-fable-5-1","via":"claude","to":["codex","human:james"],"type":"request","route":"broadcast","reply_to":null,"caused_by":"human:james review request","expects_reply":true}

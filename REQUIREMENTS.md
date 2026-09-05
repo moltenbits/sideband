@@ -496,6 +496,13 @@ user's command path and install compatible definitions for both skills. Each
 skill must verify the tool's protocol compatibility during activation and fail
 visibly rather than use a mismatched executable.
 
+Version-one installation is a local native build for the developer's own OS
+and architecture, followed by an idempotent install of the executable onto
+`PATH` and links to both skills. The installed executable must not require a
+JVM runtime or offer a JVM-only fallback. Windows installation, a multi-platform
+release matrix, downloadable release packaging, signing, and notarization are
+outside version-one scope.
+
 Each client-specific Sideband skill must, through the shared tool:
 
 1. Locate the repository's Sideband state directory.
@@ -823,9 +830,6 @@ The following questions remain intentionally unresolved:
 
 - Whether Sideband activates automatically on every first turn or through an
   explicit skill command.
-- Which operating-system and architecture targets the native executable must
-  support in version one, and how the executable and both skills are installed,
-  upgraded, verified, and signed on those targets.
 - How the local human identifier and display name are configured.
 - Whether every visible agent-to-human response is journaled automatically or
   only responses participating in Sideband workflows.
