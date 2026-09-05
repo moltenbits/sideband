@@ -12,9 +12,15 @@ stdin, captures the original prompt through `HumanCapture`, and returns
 uses that confirmation to avoid a second capture or routing action.
 
 Detection order is explicit `--agent codex|claude`, existing host environment
-markers, then a unique match of the payload's `session_id` to a live recorded
-role session. An explicit/detected role must also match that session. Missing,
-stale or ambiguous ownership captures nothing. `hook_event_name`, when
+markers, then a unique match of the payload's `session_id` to a recorded
+role session. An explicit/detected role must also match that session. Missing
+or ambiguous ownership captures nothing. A dead process for the same
+conversation can now be refreshed from the identified living caller before
+capture, under the state lock; activation timestamps, watermarks and all
+incoming/outgoing state remain unchanged. A living recorded process or
+different conversation is never replaced by this refresh. Missing caller
+identification skips capture with a diagnostic rather than guessing a PID.
+`hook_event_name`, when
 supplied, must be `UserPromptSubmit`; both hosts use that name, so it does not
 identify the caller. Delivered envelopes (including leading whitespace),
 slash commands, shell commands and blank prompts are skipped. Payload and
@@ -57,7 +63,7 @@ and the requirement for user trust review through `/hooks`.
 - `sideband init` in this project reported the Codex hook `added`, and both
   skill stubs and the existing Claude hook `unchanged`.
 
-## Live host verification still required
+## Initial live host verification checklist
 
 The tests above invoke the real executable with fixture payloads. They do not
 prove that the interactive Codex host invokes the hook.
@@ -82,3 +88,46 @@ markers alone need not block capture. Cross-layer duplicate registration and
 host-level repeated event delivery are not an exactly-once guarantee from
 this implementation; use one capture registration and the per-prompt success
 context to avoid model recapture.
+
+## Live capture result and resume correction
+
+After James trusted the hook and restarted Codex, `sideband doctor` reported
+the recorded Codex host as dead: activation still referenced PID `21585`.
+The thread ID remained `01a064f7-eaa7-7b63-af57-59796b87129f`. The original
+hook required the stored PID to be alive, so it rejected the resumed thread.
+Explicit reactivation updated the recorded host to PID `14532`.
+
+At `2026-09-05T15:10:19-05:00`, James's `test again` was captured automatically
+as `adbf04d6-df9e-46d9-8de1-3e05cc3c202d`, with the exact ten-byte body,
+`from: human:james` and `via: codex`. A native scan returned one new entry and
+the parent received `Sideband journaled this prompt. Do not capture it again.`
+as developer context. No model-driven capture was performed. The following
+question and `Make that fix` also arrived with hook confirmation and are
+recorded as `f74ff7bb-de5d-4aaf-bd98-77041ffddf0d` and
+`7d3b601b-4d8e-4f8b-8b54-50cb66ea2021`.
+
+James approved automatic same-conversation refresh. The hook now matches
+recorded session identity independently of PID liveness, then asks the state
+component to check ownership and refresh a dead PID under its existing lock.
+No full activation is performed. This preserves the existing live/backlog
+classification and dispositions; it does not replay or act on waiting work.
+Envelopes are filtered before refresh, so receiving one cannot revive a role.
+
+The pre-restart configuration-loading explanation remains a hypothesis.
+The post-restart stale-PID rejection and successful capture following
+reactivation are observed facts. Subsequent automatic recovery across a real
+host restart, queued-envelope filtering after restart and mid-turn human
+capture remain distinct live checks, not results inferred from fixture tests.
+
+The fix passed the complete 271-case JVM suite and `just install`. Native
+restart regression passed at `2026-09-05T20:17:21.731Z`, using the installed
+binary and a throwaway repository: a dead recorded PID was refreshed via
+process ancestry with no client marker environment variables, the resumed
+prompt was captured once, watermark and pending incoming/outgoing data were
+unchanged, an envelope did not revive the session, and another conversation
+could not replace it. Evidence script:
+`/tmp/sideband-resume-hook.bW9J7v/check.cjs`; fixture entry:
+`f4529a9e-be21-4d37-b621-81db16ceb299`. Only the executable accessed its journal
+and cursor. Installed binary SHA-256:
+`9f9efbbfcb9335793a15e6fc63b6ee4c320f82052f7c6edafcd200e5757a0879`.
+No host configuration or trust definition changed for this fix.

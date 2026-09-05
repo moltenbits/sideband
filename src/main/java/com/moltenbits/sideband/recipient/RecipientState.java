@@ -26,6 +26,13 @@ public interface RecipientState {
      */
     Activation activate(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace);
 
+    /**
+     * Checks ownership under the shared lock. For the same conversation only, replaces a dead
+     * recorded host with the caller's identified, living process. Preserves the activation
+     * watermark, timestamps and all incoming/outgoing state; never activates or replaces a role.
+     */
+    SessionRefresh refreshSession(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid);
+
     /** Records that the host accepted the handoff, and correlates replies to pending outgoing requests. */
     Cursor markDelivered(Path stateDirectory, Role role, List<String> ids);
 

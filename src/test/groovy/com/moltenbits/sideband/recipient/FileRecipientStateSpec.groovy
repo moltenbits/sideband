@@ -132,6 +132,58 @@ class FileRecipientStateSpec extends Specification {
         state.activate(dir, Role.CODEX, "s1", null, false).session().id() == "s1"
     }
 
+    void "refreshing a resumed process preserves the complete cursor except its process id"() {
+        given:
+        Entry backlog = human("before activation")
+        state.activate(dir, Role.CODEX, "s1", 999999999L, false)
+        Entry live = human("after activation")
+        state.markDelivered(dir, Role.CODEX, [live.metadata().id()])
+        state.registerOutgoing(dir, Role.CODEX, "pending-request")
+        Cursor before = state.load(dir, Role.CODEX)
+        String journalBefore = Files.readString(file)
+        long currentPid = ProcessHandle.current().pid()
+
+        when:
+        def result = state.refreshSession(dir, Role.CODEX, "s1", currentPid)
+        Cursor after = state.load(dir, Role.CODEX)
+
+        then:
+        result.name() == "REFRESHED"
+        after == before.withSession(new Session("s1", before.session().startedAt(), currentPid,
+                before.session().watermarkId(), before.session().watermarkEnd()))
+        Files.readString(file) == journalBefore
+        state.pending(dir, Role.CODEX).backlog()*.metadata()*.id() == [backlog.metadata().id()]
+        state.pending(dir, Role.CODEX).live()*.metadata()*.id() == [live.metadata().id()]
+
+        when:
+        def again = state.refreshSession(dir, Role.CODEX, "s1", currentPid)
+
+        then:
+        again.name() == "READY"
+        state.load(dir, Role.CODEX) == after
+    }
+
+    void "refresh cannot activate a role, replace another conversation, overwrite a live process, or revive with an unknown caller"() {
+        given:
+        Long oldPid = oldLive ? ProcessHandle.current().pid() : 999999999L
+        if (active) state.activate(dir, Role.CODEX, "s1", oldPid, false)
+        Cursor before = state.load(dir, Role.CODEX)
+        Long pid = callerLive ? ProcessHandle.current().pid() : suppliedPid
+
+        expect:
+        state.refreshSession(dir, Role.CODEX, sessionId, pid).name() == outcome
+        state.load(dir, Role.CODEX) == before
+
+        where:
+        active | oldLive | sessionId | callerLive | suppliedPid | outcome
+        false  | false   | "s1"      | true       | null        | "NOT_ACTIVE"
+        true   | false   | "other"   | true       | null        | "SESSION_MISMATCH"
+        true   | true    | "other"   | true       | null        | "SESSION_MISMATCH"
+        true   | false   | "s1"      | false      | null        | "CALLER_UNAVAILABLE"
+        true   | false   | "s1"      | false      | 999999998L  | "CALLER_UNAVAILABLE"
+        true   | true    | "s1"      | false      | 999999998L  | "READY"
+    }
+
     void "resolved entries drop out of backlog and pending; dismissal never touches the journal"() {
         given:
         Entry first = human("first")

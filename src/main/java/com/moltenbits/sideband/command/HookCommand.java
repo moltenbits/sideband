@@ -10,6 +10,7 @@ import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.recipient.RecipientState;
 import com.moltenbits.sideband.recipient.Session;
+import com.moltenbits.sideband.recipient.SessionRefresh;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -102,31 +103,42 @@ public class HookCommand {
                 return ExitCode.OK;
             }
             if (payload.sessionId() == null || payload.sessionId().isBlank()) {
-                return ExitCode.OK;
+                return skipped("hook payload has no session_id");
             }
             Role role = agent != null ? agent : host.role().orElse(null);
             if (role == null) {
-                // Both hosts use the same event name. A unique active session match identifies
+                // Both hosts use the same event name. A unique recorded session match identifies
                 // the caller when hook shells omit the usual environment markers.
                 var matching = Arrays.stream(Role.values())
-                        .filter(candidate -> ownsSession(stateDirectory, candidate, payload.sessionId()))
+                        .filter(candidate -> matchesSession(stateDirectory, candidate, payload.sessionId()))
                         .toList();
                 if (matching.size() != 1) {
-                    return ExitCode.OK;
+                    return skipped(matching.isEmpty() ? "no recorded session matches this caller; activate Sideband"
+                            : "session matches multiple roles; use --agent to identify the caller");
                 }
                 role = matching.getFirst();
             }
-            if (!ownsSession(stateDirectory, role, payload.sessionId())) {
-                return ExitCode.OK;
+            SessionRefresh refreshed = recipients.refreshSession(stateDirectory, role, payload.sessionId(),
+                    host.parentPid(role).orElse(null));
+            switch (refreshed) {
+                case NOT_ACTIVE -> { return skipped("Sideband is not activated for " + role.id()); }
+                case SESSION_MISMATCH -> { return skipped("the caller does not own the recorded " + role.id() + " session"); }
+                case CALLER_UNAVAILABLE -> { return skipped("recorded host is dead and a living caller process could not be identified; reactivate Sideband"); }
+                case READY, REFRESHED -> { /* capture below */ }
             }
             Captured captured = capture.capture(stateDirectory, role, prompt);
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
             return ExitCode.OK;
         }
 
-        private boolean ownsSession(Path stateDirectory, Role role, String sessionId) {
+        private int skipped(String reason) {
+            spec.commandLine().getErr().println("sideband hook: capture skipped: " + reason);
+            return ExitCode.OK;
+        }
+
+        private boolean matchesSession(Path stateDirectory, Role role, String sessionId) {
             Session session = recipients.load(stateDirectory, role).session();
-            return session != null && session.isLive() && session.id().equals(sessionId);
+            return session != null && session.id().equals(sessionId);
         }
 
         private static String note(Captured captured) {

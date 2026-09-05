@@ -231,7 +231,13 @@ payload's session identifier and an active role's recorded session as the
 fallback when hook shells omit those variables. Both clients use
 `UserPromptSubmit`, so the event name alone cannot distinguish them.
 An optional `--agent codex|claude` overrides detection when needed, but never
-bypasses the session ownership check. It then reads that client's payload
+bypasses the session ownership check. If the same recorded conversation resumes
+with a new host process, the hook may replace its dead recorded process with
+the identified living caller under the state lock, before capture. This
+refresh preserves activation timestamps, watermarks and incoming/outgoing
+state; it must not activate a new role, replace a different conversation or
+overwrite a living recorded process. Missing caller identification or
+ambiguous ownership skips capture with a diagnostic. It then reads that client's payload
 shape, journals the prompt against that client's cursor, and answers in that
 client's response format. `sideband init` registers the same command line in
 each client's hook configuration that the executable recognizes, so the
@@ -1356,14 +1362,16 @@ automatic detection plus an optional `--agent` override. The official
 [Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 confirms the event, stdin prompt/session fields and stdout context shape.
 
-The remaining verification is a live Codex invocation after the user reviews
-and trusts the registration through `/hooks`: verify verbatim capture once,
-`via: codex`, no re-capture of queued Sideband envelopes, and capture of human
-input submitted during an active turn. Marker inheritance into the actual
-hook shell remains unobserved; unique session matching and the explicit
-override are implemented fallback paths, not claims about host inheritance.
-Until the live test passes, do not equate installed configuration with
-deterministic capture. See [Codex hook verification](docs/codex-prompt-hook.md).
+Live ordinary-prompt capture passed after restart and reactivation: the hook
+recorded James's `test again` once, with `via: codex`, and supplied capture
+confirmation before model processing. Reactivation exposed a stale-process
+bug; same-conversation refresh now addresses it without advancing watermarks.
+Remaining live checks are no re-capture of queued Sideband envelopes, human
+input submitted during an active turn, and automatic refresh on a subsequent
+host restart. Marker inheritance into the actual hook shell remains
+unobserved; fallback success is not evidence of marker inheritance. See
+[Codex hook verification](docs/codex-prompt-hook.md). Registration on disk
+alone still does not establish live capture.
 
 Neither is a release blocker for the Claude Code path.
 

@@ -17,6 +17,7 @@ class HookAndSkillSpec extends CommandSpec {
     Path repo = TempRepo.init()
     Path journalFile = repo.resolve(".git/sideband/journal.md")
     Role detectedAgent
+    Long detectedPid
     Map extraPayload = [:]
 
     def setup() {
@@ -32,6 +33,7 @@ class HookAndSkillSpec extends CommandSpec {
         try {
             HostEnvironment host = Stub() {
                 role() >> Optional.ofNullable(detectedAgent)
+                parentPid(_) >> Optional.ofNullable(detectedPid)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
                     context.getBean(RecipientState), context.getBean(HumanCapture), context.getBean(ObjectMapper))
@@ -214,5 +216,90 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString() == Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md"))
+    }
+
+    void "a resumed conversation refreshes its dead process before capturing without reactivation"() {
+        given:
+        detectedAgent = detected
+        detectedPid = ProcessHandle.current().pid()
+        run("activate", "--repo", repo.toString(), "--role", owner, "--session-id", "s1", "--parent-pid", "999999999")
+        RecipientState state = context.getBean(RecipientState)
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        def before = state.load(dir, Role.valueOf(owner.toUpperCase())).session()
+        stdout = new StringWriter()
+
+        when:
+        int code = hook("first prompt after resume", "s1", repo.toString(), flag ? ["--agent", flag] : [])
+
+        then:
+        code == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.contains("Sideband journaled this prompt")
+        with(state.load(dir, Role.valueOf(owner.toUpperCase())).session()) {
+            parentPid() == detectedPid
+            id() == before.id()
+            startedAt() == before.startedAt()
+            watermarkId() == before.watermarkId()
+            watermarkEnd() == before.watermarkEnd()
+        }
+
+        where:
+        detected    | owner    | flag
+        Role.CODEX  | "codex"  | null
+        null        | "codex"  | null
+        Role.CLAUDE | "codex"  | "codex"
+        Role.CLAUDE | "claude" | null
+        null        | "claude" | null
+    }
+
+    void "a dead recorded process is not revived without a living identified caller and explains skipped capture"() {
+        given:
+        detectedAgent = Role.CODEX
+        detectedPid = caller
+        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
+        stdout = new StringWriter()
+
+        expect:
+        hook("resume", "s1") == ExitCode.OK
+        stdout.toString().isEmpty()
+        stderr.toString().contains("capture skipped")
+        stderr.toString().contains("caller")
+        !Files.exists(journalFile)
+
+        where:
+        caller << [null, 999999998L]
+    }
+
+    void "an envelope cannot revive a dead session"() {
+        given:
+        detectedAgent = Role.CODEX
+        detectedPid = ProcessHandle.current().pid()
+        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        RecipientState state = context.getBean(RecipientState)
+        def before = state.load(dir, Role.CODEX)
+        stdout = new StringWriter()
+
+        expect:
+        hook("[Sideband message]\n{}") == ExitCode.OK
+        stdout.toString().isEmpty()
+        stderr.toString().isEmpty()
+        state.load(dir, Role.CODEX) == before
+        !Files.exists(journalFile)
+    }
+
+    void "ambiguous dead sessions are not refreshed by the fallback"() {
+        given:
+        detectedPid = ProcessHandle.current().pid()
+        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
+        run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--parent-pid", "999999999")
+        stdout = new StringWriter()
+
+        expect:
+        hook("resume") == ExitCode.OK
+        stdout.toString().isEmpty()
+        stderr.toString().contains("multiple roles")
+        !Files.exists(journalFile)
+        !context.getBean(RecipientState).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).session().isLive()
+        !context.getBean(RecipientState).load(context.getBean(SidebandHome).locate(repo), Role.CLAUDE).session().isLive()
     }
 }

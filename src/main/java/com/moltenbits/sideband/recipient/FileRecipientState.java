@@ -98,6 +98,33 @@ class FileRecipientState implements RecipientState {
         }
     }
 
+    @Override
+    public SessionRefresh refreshSession(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid) {
+        try (Lock ignored = locks.acquire(stateDirectory)) {
+            Cursor cursor = load(stateDirectory, role);
+            Session existing = cursor.session();
+            if (existing == null) {
+                return SessionRefresh.NOT_ACTIVE;
+            }
+            if (!existing.id().equals(sessionId)) {
+                return SessionRefresh.SESSION_MISMATCH;
+            }
+            if (existing.isLive()) {
+                return SessionRefresh.READY;
+            }
+            if (parentPid == null || parentPid <= 0
+                    || !ProcessHandle.of(parentPid).map(ProcessHandle::isAlive).orElse(false)) {
+                return SessionRefresh.CALLER_UNAVAILABLE;
+            }
+            Session refreshed = new Session(existing.id(), existing.startedAt(), parentPid,
+                    existing.watermarkId(), existing.watermarkEnd());
+            save(stateDirectory, cursor.withSession(refreshed));
+            return SessionRefresh.REFRESHED;
+        } catch (IOException e) {
+            throw new UncheckedIOException("could not refresh the " + role.id() + " session in " + stateDirectory, e);
+        }
+    }
+
     /** Requests this role sent are pending unless recorded otherwise; replies to them are correlated. */
     private Cursor reconcileOutgoing(Cursor cursor, Role role, List<Entry> entries) {
         Map<String, EntryMetadata> byId = new HashMap<>();
