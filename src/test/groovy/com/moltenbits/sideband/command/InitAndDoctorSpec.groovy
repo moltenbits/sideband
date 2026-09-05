@@ -53,6 +53,7 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         report.initialized == false
         report.protocol == "v1"
+        report.version ==~ /sideband \S+ \(protocol v1\)/
         report.config == null
         report.journal == null
         report.roles == [:]

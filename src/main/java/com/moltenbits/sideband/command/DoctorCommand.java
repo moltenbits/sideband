@@ -89,7 +89,7 @@ public class DoctorCommand implements Callable<Integer> {
         Path lockFile = stateDirectory.resolve(Locks.FILE_NAME);
         String lockOwner = Files.exists(lockFile) ? Files.readString(lockFile, UTF_8).strip() : null;
         Output.print(spec, json, new Report(
-                spec.root().name() + " " + String.join(" ", spec.root().version()),
+                String.join(" ", spec.root().version()),
                 Journal.PROTOCOL_VERSION,
                 stateDirectory.toString(),
                 exists,
