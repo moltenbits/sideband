@@ -132,7 +132,7 @@ Implementation beyond the spike remains blocked by REQUIREMENTS.md sections
 10.6 and 17.1. Bring this result back to the requirements decision; no daemon,
 hook, MCP server, or headless Codex invocation was introduced as a fallback.
 
-## Codex: completion-based attempt prepared (2026-09-05 UTC)
+## Codex: failed idle wake via subagent completion (2026-09-05 UTC)
 
 Experiment ID: `sideband-codex-completion.TSCxXJ`. The user authorized this
 separate test after discussing the first attempt and hooks. The installed CLI
@@ -175,5 +175,47 @@ daemon, headless invocation, skill changes, or feature implementation are part
 of this attempt. A successful single completion would still require testing
 listener rearming before calling the ongoing delivery design proven.
 
-Outcome: prepared, pending post-final observation. The feasibility gate
-remains blocked; the first attempt's failed result is preserved above.
+### Observed outcome
+
+Failed: the subagent completed successfully, but its completion did not wake
+the idle parent. The user had to send another message reporting the missing
+wake. Only during that user-triggered turn did the completion enter the
+parent's internal context; it was not a new user-visible parent response.
+
+Evidence (all timestamps UTC on 2026-09-05):
+
+- Readiness: 04:06:09, shell session `70509`.
+- Detached writer launch: 04:06:54.240, PID `29580`.
+- Writer log: append started and finished at 04:08:54, exit code 0,
+  stdout `{"start":313,"end":476}`.
+- Subagent final result reported observation at 04:08:59, exit code 0,
+  shell session `70509`, with this envelope:
+
+  ```text
+  [Sideband completion]
+  {"start":313,"end":476,"entries":["Codex completion-wake probe sideband-codex-completion.TSCxXJ. Appended by a detached process. Transport test only; no project action requested."],"timed_out":false}
+  ```
+
+- First diagnostic timestamp after user intervention: 04:11:48. The journal
+  measured 476 bytes and contained the probe. The host subsequently delivered
+  a `FINAL_ANSWER` event into the parent's internal context.
+- Agent status confirmed `/root/sideband_completion` completed and the older
+  `/root/sideband_listener` remained interrupted. Process inspection found no
+  remaining native wait for this repository or this attempt's writer script.
+
+Both tested mechanisms failed automatic idle-parent wake on this host:
+intermediate subagent messaging and subagent completion. Journal append and
+native wait succeeded in both. The completion result does not prove all
+possible host integrations impossible, but it provides no basis for rearming
+tests or proceeding with the proposed adapter.
+
+Test-protocol correction: asking the user not to reply without a defined
+failure-observation cutoff left them waiting with no automatic failure report.
+A parent whose wake mechanism fails cannot announce that failure while idle.
+The user's intervention was necessary evidence, not disruption of a successful
+test. Any future idle-wake experiment needs an explicit observation cutoff
+and an agreed independent observer or user check-in after that cutoff.
+
+The feasibility gate remains blocked under REQUIREMENTS.md sections 10.6 and
+17.1. This attempt is closed; no further listener was started, no fallback was
+introduced, and the journal probes and temporary logs were retained.

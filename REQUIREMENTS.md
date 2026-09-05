@@ -1148,11 +1148,12 @@ an authorized fallback.
 
 Status (2026-09-05 UTC): the Claude Code direction passed. A background
 `sideband wait` task woke the idle parent conversation when a detached process
-appended an entry. The Codex persistent-listener/message attempt failed the
-idle-parent wake requirement: the detached append and native wait succeeded,
-but the subagent's message only reached the parent during a subsequent
-user-triggered turn. Subagent-completion wake behavior was not tested. The
-gate remains blocked; this does not prove every other native path impossible.
+appended an entry. Both Codex attempts failed the idle-parent wake requirement:
+the persistent listener's message and a separate listener's final completion
+only reached the parent's internal context during subsequent user-triggered
+turns. The detached appends and native waits succeeded in both attempts, but
+neither produced an automatic parent response in the visible chat. The gate
+remains blocked; this does not prove every other native path impossible.
 The procedure, observed output, and mechanism are recorded in
 [docs/spike-wake-path.md](docs/spike-wake-path.md); the tested listener design
 is in `skills/sideband-codex/SKILL.md`.
