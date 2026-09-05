@@ -1,6 +1,7 @@
 package com.moltenbits.sideband;
 
-import com.moltenbits.sideband.command.AppendCommand;
+import com.moltenbits.sideband.command.AppendAgentCommand;
+import com.moltenbits.sideband.command.CaptureHumanCommand;
 import com.moltenbits.sideband.command.ExitCode;
 import com.moltenbits.sideband.command.WaitCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
@@ -8,6 +9,8 @@ import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.env.Environment;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
+import com.moltenbits.sideband.journal.Journal;
+import picocli.CommandLine.IVersionProvider;
 
 /**
  * The {@code sideband} root command. Every operation is a subcommand; because this class is
@@ -16,8 +19,10 @@ import picocli.CommandLine.Command;
 @Command(name = "sideband",
         description = "Local, durable, tridirectional communication between a human, Claude Code, and Codex",
         mixinStandardHelpOptions = true,
+        versionProvider = SidebandCommand.Version.class,
         subcommands = {
-                AppendCommand.class,
+                CaptureHumanCommand.class,
+                AppendAgentCommand.class,
                 WaitCommand.class
         })
 public class SidebandCommand {
@@ -33,6 +38,17 @@ public class SidebandCommand {
     /** Builds the command tree with subcommands resolved as Micronaut beans and failures mapped to exit codes. */
     public static CommandLine commandLine(ApplicationContext context) {
         return new CommandLine(SidebandCommand.class, new MicronautFactory(context))
+                .setCaseInsensitiveEnumValuesAllowed(true)
                 .setExecutionExceptionHandler(ExitCode.HANDLER);
+    }
+
+    /** Reports the build version, which Gradle generates into {@link BuildVersion}. */
+    static final class Version implements IVersionProvider {
+
+        @Override
+        public String[] getVersion() {
+            return new String[] {"sideband " + BuildVersion.VERSION + " (protocol "
+                    + Journal.PROTOCOL_VERSION + ")"};
+        }
     }
 }

@@ -1,7 +1,9 @@
 package com.moltenbits.sideband.command;
 
+import com.moltenbits.sideband.ancestry.InvalidLineageException;
 import com.moltenbits.sideband.home.NotARepositoryException;
 import com.moltenbits.sideband.journal.LockTimeoutException;
+import com.moltenbits.sideband.protocol.InvalidEntryException;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
 import picocli.CommandLine.ParseResult;
@@ -27,6 +29,8 @@ public final class ExitCode {
         return switch (failure) {
             case NotARepositoryException e -> NOT_A_REPOSITORY;
             case LockTimeoutException e -> LOCK_CONTENTION;
+            case InvalidEntryException e -> INVALID_INPUT;
+            case InvalidLineageException e -> INVALID_INPUT;
             case IllegalArgumentException e -> INVALID_INPUT;
             default -> IO_FAILURE;
         };

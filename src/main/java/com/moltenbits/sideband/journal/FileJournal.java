@@ -1,5 +1,7 @@
 package com.moltenbits.sideband.journal;
 
+import com.moltenbits.sideband.protocol.Draft;
+import com.moltenbits.sideband.protocol.EntryMetadata;
 import jakarta.inject.Singleton;
 
 import java.io.IOException;
@@ -8,12 +10,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardOpenOption.APPEND;
 import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
@@ -26,94 +27,107 @@ class FileJournal implements Journal {
     static final String LOCK_FILE_NAME = "journal.lock";
 
     private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(10);
-    private static final byte NEWLINE = '\n';
-    private static final byte[] TERMINATOR_LINE = (TERMINATOR + "\n").getBytes(UTF_8);
+
+    private final EntryCodec codec;
+    private final Clock clock;
+    private final MessageIds ids;
+
+    FileJournal(EntryCodec codec, Clock clock, MessageIds ids) {
+        this.codec = codec;
+        this.clock = clock;
+        this.ids = ids;
+    }
 
     @Override
-    public Appended append(Path file, String body) {
-        byte[] entry = frame(body);
+    public Entry append(Path file, Draft draft) {
+        EntryMetadata metadata = new EntryMetadata(
+                ids.next(),
+                OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS),
+                draft.from(), draft.via(), draft.to(), draft.type(), draft.route(),
+                draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.delivery(),
+                EntryCodec.bodyLength(draft.body()));
+        byte[] encoded = codec.encode(metadata, draft.body());
         Path lockFile = file.resolveSibling(LOCK_FILE_NAME);
         try (JournalLock ignored = JournalLock.acquire(lockFile, LOCK_TIMEOUT);
              FileChannel channel = FileChannel.open(file, CREATE, WRITE, APPEND)) {
-            long start = channel.size();
-            ByteBuffer buffer = ByteBuffer.wrap(entry);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
-            }
+            long start = closeFragment(file, channel);
+            writeFully(channel, encoded);
+            writeFully(channel, EntryCodec.SEPARATOR);
             channel.force(true);
-            return new Appended(start, start + entry.length);
+            return new Entry(metadata, draft.body(), start, start + encoded.length);
         } catch (IOException e) {
             throw new UncheckedIOException("could not append to " + file, e);
         }
     }
 
-    private static byte[] frame(String body) {
-        String normalized = body.endsWith("\n") ? body : body + "\n";
-        byte[] bodyBytes = normalized.getBytes(UTF_8);
-        byte[] entry = Arrays.copyOf(bodyBytes, bodyBytes.length + TERMINATOR_LINE.length);
-        System.arraycopy(TERMINATOR_LINE, 0, entry, bodyBytes.length, TERMINATOR_LINE.length);
-        return entry;
+    /**
+     * A crashed writer can leave one incomplete fragment at the tail. Under the lock, close it
+     * with an abort marker so readers can move past it. Returns the offset the new entry starts at.
+     */
+    private long closeFragment(Path file, FileChannel channel) throws IOException {
+        long size = channel.size();
+        if (size == 0) {
+            return 0;
+        }
+        Read read = readCompleteFrom(file, 0);
+        if (read.end() >= size) {
+            return size;
+        }
+        byte[] closer = endsWithNewline(file, size)
+                ? EntryCodec.ABORT_LINE
+                : concat(new byte[] {'\n'}, EntryCodec.ABORT_LINE);
+        writeFully(channel, closer);
+        return size + closer.length;
+    }
+
+    private static boolean endsWithNewline(Path file, long size) throws IOException {
+        try (FileChannel reader = FileChannel.open(file, READ)) {
+            ByteBuffer last = ByteBuffer.allocate(1);
+            reader.position(size - 1);
+            reader.read(last);
+            return last.get(0) == '\n';
+        }
+    }
+
+    private static void writeFully(FileChannel channel, byte[] bytes) throws IOException {
+        ByteBuffer buffer = ByteBuffer.wrap(bytes);
+        while (buffer.hasRemaining()) {
+            channel.write(buffer);
+        }
     }
 
     @Override
     public Read readCompleteFrom(Path file, long offset) {
         if (!Files.exists(file)) {
-            return new Read(offset, offset, List.of());
+            return Read.empty(offset);
         }
         byte[] tail;
         try (FileChannel channel = FileChannel.open(file, READ)) {
             long size = channel.size();
             if (offset >= size) {
-                return new Read(offset, offset, List.of());
+                return Read.empty(offset);
             }
-            tail = new byte[Math.toIntExact(size - offset)];
-            ByteBuffer buffer = ByteBuffer.wrap(tail);
-            channel.position(offset);
-            while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
-                // keep filling
-            }
+            tail = readTail(channel, offset, size);
         } catch (IOException e) {
             throw new UncheckedIOException("could not read " + file, e);
         }
-        return split(offset, tail);
+        return codec.parse(tail, offset);
     }
 
-    /** Walks lines from {@code offset}; every terminator line closes the entry that began after the previous one. */
-    private static Read split(long offset, byte[] tail) {
-        List<String> entries = new ArrayList<>();
-        int entryStart = 0;
-        int lineStart = 0;
-        while (lineStart < tail.length) {
-            int lineEnd = indexOf(tail, NEWLINE, lineStart);
-            if (lineEnd < 0) {
-                break;
-            }
-            int nextLine = lineEnd + 1;
-            if (isTerminatorLine(tail, lineStart, nextLine)) {
-                entries.add(body(tail, entryStart, lineStart));
-                entryStart = nextLine;
-            }
-            lineStart = nextLine;
+    private static byte[] readTail(FileChannel channel, long from, long to) throws IOException {
+        byte[] tail = new byte[Math.toIntExact(to - from)];
+        ByteBuffer buffer = ByteBuffer.wrap(tail);
+        channel.position(from);
+        while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
+            // keep filling
         }
-        return new Read(offset, offset + entryStart, List.copyOf(entries));
+        return tail;
     }
 
-    private static boolean isTerminatorLine(byte[] bytes, int from, int to) {
-        return Arrays.equals(bytes, from, to, TERMINATOR_LINE, 0, TERMINATOR_LINE.length);
-    }
-
-    /** The bytes between the entry start and its terminator line, minus the newline framing added. */
-    private static String body(byte[] bytes, int from, int to) {
-        int end = to > from && bytes[to - 1] == NEWLINE ? to - 1 : to;
-        return new String(bytes, from, end - from, UTF_8);
-    }
-
-    private static int indexOf(byte[] bytes, byte target, int from) {
-        for (int i = from; i < bytes.length; i++) {
-            if (bytes[i] == target) {
-                return i;
-            }
-        }
-        return -1;
+    private static byte[] concat(byte[] a, byte[] b) {
+        byte[] out = new byte[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
     }
 }

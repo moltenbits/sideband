@@ -3,7 +3,7 @@ package com.moltenbits.sideband.journal;
 import io.micronaut.serde.annotation.Serdeable;
 import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 
-/** The byte range one appended entry occupies: {@code [start, end)}. */
+/** A parse problem at a byte offset. Diagnostics never include body text. */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Appended(long start, long end) {
+public record Diagnostic(long offset, String reason) {
 }

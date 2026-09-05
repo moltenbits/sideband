@@ -1,32 +1,37 @@
 package com.moltenbits.sideband.journal;
 
+import com.moltenbits.sideband.protocol.Draft;
+
 import java.nio.file.Path;
 
 /**
  * The append-only journal shared by every Sideband participant.
  * <p>
- * This is the spike-scope contract: bodies are framed with a terminator line and
- * appended under a lock. Entry metadata, identity, and the full codec arrive later.
+ * Each entry is an HTML-comment metadata block, a generated heading, the body, and a
+ * closing marker. The body's byte length is recorded in the metadata, so a body may
+ * contain anything, including another complete entry.
  */
 public interface Journal {
 
     /** The file name of the journal inside the state directory. */
     String FILE_NAME = "journal.md";
 
-    /** The line that closes every entry. A reader never returns an entry before it. */
-    String TERMINATOR = "<!-- /sideband -->";
+    /** The protocol version this implementation writes and the only one it reads. */
+    String PROTOCOL_VERSION = "v1";
 
     /**
-     * Appends one body as a complete entry, serialized against concurrent writers.
+     * Assigns an identifier and timestamp to the draft and appends it as one complete
+     * entry, serialized against concurrent writers. An incomplete fragment left by a
+     * crashed writer is closed with an abort marker first; existing bytes are never changed.
      *
-     * @return the byte range the entry occupies in the file
      * @throws LockTimeoutException when another writer holds the lock for too long
      */
-    Appended append(Path file, String body);
+    Entry append(Path file, Draft draft);
 
     /**
-     * Reads every complete entry that starts at or after {@code offset}.
-     * An incomplete trailing entry is never returned; {@link Read#end()} stops before it.
+     * Reads every complete, well-formed entry that starts at or after {@code offset}.
+     * Malformed entries are reported as diagnostics and skipped. An incomplete trailing
+     * entry is never returned; {@link Read#end()} stops before it.
      */
     Read readCompleteFrom(Path file, long offset);
 }

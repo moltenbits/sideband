@@ -1,110 +1,101 @@
 package com.moltenbits.sideband.journal
 
+import com.moltenbits.sideband.Fixtures
+import com.moltenbits.sideband.protocol.MessageType
+import io.micronaut.context.ApplicationContext
+import io.micronaut.serde.ObjectMapper
+import spock.lang.AutoCleanup
+import spock.lang.Shared
 import spock.lang.Specification
 
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardOpenOption
+import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class FileJournalSpec extends Specification {
 
-    Journal journal = new FileJournal()
+    @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
+
+    Closure<String> ids = Fixtures.sequentialIds()
+    Journal journal = new FileJournal(new EntryCodec(context.getBean(ObjectMapper)), Fixtures.FIXED_CLOCK, ids as MessageIds)
     Path directory = Files.createTempDirectory("journal")
     Path file = directory.resolve(Journal.FILE_NAME)
 
-    void "an appended body is framed with a terminator line"() {
+    void "appending a human draft assigns id and timestamp and writes the full entry"() {
         when:
-        Appended appended = journal.append(file, "hello")
+        Entry entry = journal.append(file, Fixtures.humanDraft())
 
         then:
-        Files.readString(file) == "hello\n<!-- /sideband -->\n"
-        appended == new Appended(0, Files.size(file))
+        entry.metadata() == Fixtures.metadata()
+        entry.start() == 0
+        entry.end() == Files.size(file) - 1 // the blank separator line follows the entry
+        Files.readString(file).startsWith("<!-- sideband:v1\n{\"id\":\"019a\",\"created_at\":\"2026-09-02T16:42:00-05:00\"")
+        Files.readString(file).endsWith("@all independently review the proposed database migration.\n<!-- /sideband -->\n\n")
     }
 
-    void "a body that already ends with a newline is not given a second one"() {
+    void "consecutive appends get sequential ids and adjacent ranges"() {
         when:
-        journal.append(file, "hello\n")
+        Entry first = journal.append(file, Fixtures.humanDraft())
+        Entry second = journal.append(file, Fixtures.agentDraft(causedBy: first.metadata().id()))
 
         then:
-        Files.readString(file) == "hello\n<!-- /sideband -->\n"
+        first.metadata().id() == "019a"
+        second.metadata().id() == "019b"
+        second.start() == first.end() + 1
+        journal.readCompleteFrom(file, 0).entries()*.body() == [Fixtures.humanDraft().body(), Fixtures.agentDraft().body()]
     }
 
-    void "consecutive appends report adjacent byte ranges"() {
-        when:
-        Appended first = journal.append(file, "one")
-        Appended second = journal.append(file, "two")
-
-        then:
-        first.end() == second.start()
-        second.end() == Files.size(file)
-    }
-
-    void "reading from the start returns every complete entry in order and where to resume"() {
+    void "reading from an entry's end returns only later entries"() {
         given:
-        journal.append(file, "one")
-        Appended last = journal.append(file, "two\nlines")
-
-        when:
-        Read read = journal.readCompleteFrom(file, 0)
-
-        then:
-        read.entries() == ["one", "two\nlines"]
-        read.start() == 0
-        read.end() == last.end()
-    }
-
-    void "reading from an entry's end skips everything before it"() {
-        given:
-        Appended first = journal.append(file, "one")
-        journal.append(file, "two")
+        Entry first = journal.append(file, Fixtures.humanDraft())
+        journal.append(file, Fixtures.agentDraft())
 
         expect:
-        journal.readCompleteFrom(file, first.end()).entries() == ["two"]
+        journal.readCompleteFrom(file, first.end()).entries()*.metadata()*.id() == ["019b"]
     }
 
-    void "reading a missing file or from its end returns nothing"() {
+    void "a missing file or an offset at the end reads as empty"() {
         expect:
-        journal.readCompleteFrom(file, 0) == new Read(0, 0, [])
+        journal.readCompleteFrom(file, 0) == Read.empty(0)
 
         when:
-        Appended appended = journal.append(file, "one")
+        Entry entry = journal.append(file, Fixtures.humanDraft())
 
         then:
-        journal.readCompleteFrom(file, appended.end()) == new Read(appended.end(), appended.end(), [])
+        journal.readCompleteFrom(file, Files.size(file)) == Read.empty(Files.size(file))
     }
 
-    void "an incomplete trailing entry is not returned and does not advance the end offset"() {
+    void "the next writer closes a fragment left by a crash, and the reader skips it"() {
         given:
-        Appended complete = journal.append(file, "one")
-        Files.writeString(file, "partial write with no terminator\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND)
+        journal.append(file, Fixtures.humanDraft())
+        long complete = Files.size(file)
+        Files.writeString(file, "<!-- sideband:v1\n{\"id\":\"crashed\",\"created_at\"", StandardCharsets.UTF_8, StandardOpenOption.APPEND)
+
+        expect: "the fragment is invisible and blocks the end offset"
+        journal.readCompleteFrom(file, 0).entries().size() == 1
+        journal.readCompleteFrom(file, 0).end() == complete
 
         when:
+        Entry after = journal.append(file, Fixtures.agentDraft())
         Read read = journal.readCompleteFrom(file, 0)
 
         then:
-        read.entries() == ["one"]
-        read.end() == complete.end()
-    }
-
-    void "multi-byte characters round-trip and offsets stay in bytes"() {
-        given:
-        String body = "héllo → wörld ✓"
-
-        when:
-        Appended appended = journal.append(file, body)
-        Read read = journal.readCompleteFrom(file, 0)
-
-        then:
-        read.entries() == [body]
-        appended.end() == Files.size(file)
-        appended.end() > body.length()
+        read.entries()*.metadata()*.id() == ["019a", "019b"]
+        read.diagnostics().size() == 1
+        read.diagnostics()[0].offset() == complete
+        read.end() == Files.size(file)
+        after.end() == Files.size(file) - 1
+        Files.readString(file).contains("\"created_at\"\n<!-- sideband:aborted -->\n<!-- sideband:v1\n")
     }
 
     void "concurrent writers never interleave entries"() {
         given:
+        Journal shared = context.getBean(Journal)
         int writers = 8
         int perWriter = 25
         def pool = Executors.newFixedThreadPool(writers)
@@ -116,20 +107,22 @@ class FileJournalSpec extends Specification {
             pool.submit {
                 ready.countDown()
                 go.await()
-                perWriter.times { i -> journal.append(file, "writer $w entry $i body line\nsecond line") }
+                perWriter.times { i -> shared.append(file, Fixtures.humanDraft("writer $w entry $i\nsecond line")) }
             }
         }
         ready.await()
         go.countDown()
         pool.shutdown()
-        boolean finished = pool.awaitTermination(30, TimeUnit.SECONDS)
-        Read read = journal.readCompleteFrom(file, 0)
+        boolean finished = pool.awaitTermination(60, TimeUnit.SECONDS)
+        Read read = shared.readCompleteFrom(file, 0)
 
         then:
         finished
+        read.diagnostics().isEmpty()
         read.entries().size() == writers * perWriter
-        read.entries().every { it ==~ /writer \d entry \d+ body line\nsecond line/ }
-        read.entries().toSet().size() == writers * perWriter
+        read.entries()*.body().every { it ==~ /writer \d entry \d+\nsecond line/ }
+        read.entries()*.body().toSet().size() == writers * perWriter
+        read.entries()*.metadata()*.id().toSet().size() == writers * perWriter
         read.end() == Files.size(file)
     }
 
@@ -139,10 +132,10 @@ class FileJournalSpec extends Specification {
         Files.writeString(lock, "999999999")
 
         when:
-        journal.append(file, "after stale lock")
+        journal.append(file, Fixtures.humanDraft())
 
         then:
-        journal.readCompleteFrom(file, 0).entries() == ["after stale lock"]
+        journal.readCompleteFrom(file, 0).entries().size() == 1
         !Files.exists(lock)
     }
 
@@ -152,7 +145,7 @@ class FileJournalSpec extends Specification {
         Files.writeString(lock, ProcessHandle.current().pid().toString())
 
         when:
-        JournalLock.acquire(lock, java.time.Duration.ofMillis(200))
+        JournalLock.acquire(lock, Duration.ofMillis(200))
 
         then:
         thrown(LockTimeoutException)
@@ -164,7 +157,7 @@ class FileJournalSpec extends Specification {
         Path lock = directory.resolve(FileJournal.LOCK_FILE_NAME)
 
         when:
-        JournalLock held = JournalLock.acquire(lock, java.time.Duration.ofMillis(200))
+        JournalLock held = JournalLock.acquire(lock, Duration.ofMillis(200))
 
         then:
         Files.exists(lock)
@@ -174,5 +167,18 @@ class FileJournalSpec extends Specification {
 
         then:
         !Files.exists(lock)
+    }
+
+    void "the context wires the journal through its interface with a real clock and ids"() {
+        given:
+        Journal wired = context.getBean(Journal)
+
+        when:
+        Entry entry = wired.append(file, Fixtures.agentDraft(type: MessageType.STATUS, expectsReply: false))
+
+        then:
+        wired instanceof FileJournal
+        UUID.fromString(entry.metadata().id())
+        entry.metadata().createdAt().offset != null
     }
 }

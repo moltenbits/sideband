@@ -1,13 +1,15 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.journal.Diagnostic;
+import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.waiting.JournalWatcher;
+import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import io.micronaut.serde.annotation.Serdeable;
 import io.micronaut.serde.config.naming.SnakeCaseStrategy;
-import io.micronaut.context.annotation.Prototype;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
@@ -22,8 +24,8 @@ import java.util.concurrent.Callable;
 
 /**
  * Blocks until at least one complete entry exists past a byte offset, then prints the
- * entries and the offset to resume from. Idle waiting happens inside this process, so a
- * client blocked on it spends no model tokens.
+ * entries and the offset to resume from. This belongs to a session's background listener;
+ * idle waiting happens inside this process, so the client spends no model tokens.
  */
 @Command(name = "wait", description = "Block until complete entries are appended after a byte offset")
 @Prototype
@@ -68,16 +70,16 @@ public class WaitCommand implements Callable<Integer> {
         return output.timedOut() ? ExitCode.TIMED_OUT : ExitCode.OK;
     }
 
-    /** What a caller sees: the entries found, where to resume, and whether the wait gave up. */
+    /** What the listener sees: the entries found, skipped regions, where to resume, and whether it gave up. */
     @Serdeable(naming = SnakeCaseStrategy.class)
-    record Output(long start, long end, List<String> entries, boolean timedOut) {
+    record Output(long start, long end, List<Entry> entries, List<Diagnostic> diagnostics, boolean timedOut) {
 
         static Output of(Read read) {
-            return new Output(read.start(), read.end(), read.entries(), false);
+            return new Output(read.start(), read.end(), read.entries(), read.diagnostics(), false);
         }
 
         static Output timedOut(long offset) {
-            return new Output(offset, offset, List.of(), true);
+            return new Output(offset, offset, List.of(), List.of(), true);
         }
     }
 }

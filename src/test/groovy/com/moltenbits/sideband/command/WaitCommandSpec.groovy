@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.command
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
 
@@ -16,14 +17,23 @@ class WaitCommandSpec extends CommandSpec {
     void "returns entries already present past the offset"() {
         given:
         Files.createDirectories(journalFile.parent)
-        context.getBean(Journal).append(journalFile, "ready")
+        context.getBean(Journal).append(journalFile, Fixtures.humanDraft("ready"))
 
         when:
         int code = run("wait", "--repo", repo.toString(), "--from", "0", "--timeout", "5")
 
         then:
         code == ExitCode.OK
-        json() == [start: 0, end: Files.size(journalFile), entries: ["ready"], timed_out: false]
+        long size = Files.size(journalFile)
+        with(json()) {
+            start == 0
+            end == size
+            entries.size() == 1
+            entries[0].body == "ready"
+            entries[0].metadata.from == "human:james"
+            diagnostics == []
+            timed_out == false
+        }
     }
 
     void "blocks until an entry is appended by another process"() {
@@ -33,13 +43,12 @@ class WaitCommandSpec extends CommandSpec {
         when:
         Thread.sleep(300)
         Files.createDirectories(journalFile.parent)
-        context.getBean(Journal).append(journalFile, "late")
+        context.getBean(Journal).append(journalFile, Fixtures.humanDraft("late"))
         int code = waiting.get(15, TimeUnit.SECONDS)
 
         then:
         code == ExitCode.OK
-        json().entries == ["late"]
-        json().timed_out == false
+        json().entries*.body == ["late"]
     }
 
     void "gives up with the timeout exit code and an empty result"() {
@@ -48,15 +57,27 @@ class WaitCommandSpec extends CommandSpec {
 
         then:
         code == ExitCode.TIMED_OUT
-        json() == [start: 0, end: 0, entries: [], timed_out: true]
+        json() == [start: 0, end: 0, entries: [], diagnostics: [], timed_out: true]
+    }
+
+    void "diagnostics for skipped regions are reported alongside entries"() {
+        given:
+        Files.createDirectories(journalFile.parent)
+        Files.writeString(journalFile, "old spike bytes\n<!-- /sideband -->\n")
+        context.getBean(Journal).append(journalFile, Fixtures.humanDraft("real"))
+
+        when:
+        int code = run("wait", "--repo", repo.toString(), "--from", "0", "--timeout", "5")
+
+        then:
+        code == ExitCode.OK
+        json().entries*.body == ["real"]
+        json().diagnostics*.reason == ["unframed bytes before the next entry"]
     }
 
     void "the offset is required"() {
-        when:
-        int code = run("wait", "--repo", repo.toString())
-
-        then:
-        code == ExitCode.INVALID_INPUT
+        expect:
+        run("wait", "--repo", repo.toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--from")
     }
 

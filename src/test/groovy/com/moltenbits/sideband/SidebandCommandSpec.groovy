@@ -11,26 +11,31 @@ class SidebandCommandSpec extends Specification {
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
-    void "running without a subcommand prints usage and fails as invalid input"() {
-        given:
-        StringWriter err = new StringWriter()
-        CommandLine cli = SidebandCommand.commandLine(context)
-        cli.err = new PrintWriter(err)
+    StringWriter out = new StringWriter()
+    StringWriter err = new StringWriter()
 
+    CommandLine cli() {
+        CommandLine cli = SidebandCommand.commandLine(context)
+        cli.out = new PrintWriter(out)
+        cli.err = new PrintWriter(err)
+        cli
+    }
+
+    void "running without a subcommand prints usage and fails as invalid input"() {
         expect:
-        cli.execute() == ExitCode.INVALID_INPUT
+        cli().execute() == ExitCode.INVALID_INPUT
         err.toString().contains("Usage: sideband")
     }
 
-    void "help lists the append and wait subcommands"() {
-        given:
-        StringWriter out = new StringWriter()
-        CommandLine cli = SidebandCommand.commandLine(context)
-        cli.out = new PrintWriter(out)
-
+    void "help lists every subcommand"() {
         expect:
-        cli.execute("--help") == ExitCode.OK
-        out.toString().contains("append")
-        out.toString().contains("wait")
+        cli().execute("--help") == ExitCode.OK
+        ["capture-human", "append-agent", "wait"].every { out.toString().contains(it) }
+    }
+
+    void "version reports the build and protocol versions"() {
+        expect:
+        cli().execute("--version") == ExitCode.OK
+        out.toString() ==~ /(?s)sideband \S+ \(protocol v1\).*/
     }
 }

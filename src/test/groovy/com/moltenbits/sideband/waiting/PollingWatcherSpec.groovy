@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.waiting
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.journal.Read
 import io.micronaut.context.ApplicationContext
@@ -28,10 +29,10 @@ class PollingWatcherSpec extends Specification {
 
     void "an entry that already exists past the offset returns immediately"() {
         given:
-        journal.append(file, "already there")
+        journal.append(file, Fixtures.humanDraft("already there"))
 
         expect:
-        watcher.await(file, 0, Duration.ofSeconds(5)).get().entries() == ["already there"]
+        watcher.await(file, 0, Duration.ofSeconds(5)).get().entries()*.body() == ["already there"]
     }
 
     void "the watcher wakes when an entry is appended while it is blocked"() {
@@ -40,20 +41,20 @@ class PollingWatcherSpec extends Specification {
 
         when:
         Thread.sleep(300)
-        journal.append(file, "late arrival")
+        journal.append(file, Fixtures.humanDraft("late arrival"))
         Read read = waiting.get(5, TimeUnit.SECONDS)
 
         then:
-        read.entries() == ["late arrival"]
+        read.entries()*.body() == ["late arrival"]
         read.end() == Files.size(file)
     }
 
     void "entries before the offset do not wake the watcher"() {
         given:
-        def first = journal.append(file, "old")
+        def first = journal.append(file, Fixtures.humanDraft("old"))
 
         expect:
-        watcher.await(file, first.end(), Duration.ofMillis(300)).isEmpty()
+        watcher.await(file, first.end() + 1, Duration.ofMillis(300)).isEmpty()
     }
 
     void "the timeout elapses with an empty result when nothing arrives"() {
