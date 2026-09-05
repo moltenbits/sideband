@@ -36,18 +36,18 @@ native image, and everything a client runs is a subcommand of it.
 ## How the pieces fit
 
 ```mermaid
-flowchart LR
-    Claude["Claude Code"]
-    Journal[("journal.md in .git/sideband")]
-    Codex["Codex"]
+flowchart TB
     James(["James"])
+    Claude["Claude Code"]
+    Codex["Codex"]
+    Journal[("journal.md in .git/sideband")]
 
+    James -- "tasks" --> Claude
+    James -- "tasks" --> Codex
     Claude -- "request, reply, status" --> Journal
     Codex -- "request, reply, status" --> Journal
-    Journal -. "sideband follow wakes Claude" .-> Claude
-    Journal -. "codex queue wakes Codex" .-> Codex
-    James -- "tasks, in either session" --> Claude
-    James -- "tasks, in either session" --> Codex
+    Journal -. "follow wakes Claude" .-> Claude
+    Journal -. "queue wakes Codex" .-> Codex
 ```
 
 The executable is the only thing that parses or writes the journal, takes the
