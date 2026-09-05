@@ -374,3 +374,82 @@ No skill or feature implementation was changed in this experiment. Update the
 adapter and its tests in the implementation task; do not treat the earlier
 persistent-message skill stub as a working queue adapter. The experiment is
 closed, with no further waits or automatic probes scheduled.
+
+## Codex adapter: overnight handshake
+
+Experiment `sideband-codex-handshake.8q2bV3`, authorized by James through the
+relayed bounded handshake instructions. This is an actual Claude–Codex adapter
+test, not another detached-writer stand-in. Outcome is pending until the
+exchange below is observed; listener readiness alone is not success.
+
+### Setup and bounds (2026-09-05 UTC)
+
+- Branch: `document-requirements`. Codex owns its skill and this Codex record;
+  Fable's source/build/Claude adapter changes are excluded from Codex commits.
+- Installed CLI: `codex-cli 0.153.3`; native tool reports
+  `sideband 0.1 (protocol v1)`; host helper runtime: Node `v26.8.1`.
+- Parent `CODEX_THREAD_ID`: `01a064f7-eaa7-7b63-af57-59796b87129f`, resolved
+  in the parent and passed literally to the listener.
+- Native startup scan: `sideband wait --repo <repo> --from 0 --timeout 1`,
+  returning `end: 1646`. No direct journal file access was used. Its one
+  diagnostic (`unframed bytes before the next entry`, offset 0) describes the
+  explicitly waived old spike bytes, not a new protocol failure.
+- Human authorization H: `bb7492e4-9197-4f71-8abd-7b06f1c1d324`,
+  `from: human:james`, `via: claude`, created `2026-09-05T00:21:31-05:00`.
+  The native scan returned the verbatim human request for a minimal journal
+  conversation. No new human authorization was inferred from the Fable relay.
+- Claude's existing armed status: `63f94afe-8ff6-4a05-88e3-30da519ecba6`,
+  `from: claude`, `to: [codex]`, `expects_reply: false`; presented as context.
+- Listener: `/root/sideband_handshake_listener`; helper PID `40744`, initial
+  native-wait child PID `40761`. Readiness verified by its native child and
+  log at `2026-09-05T05:29:41.608Z`, offset 1646. One helper handles rearming
+  without repeated model turns or per-request wait processes.
+- Observation cutoff: `2026-09-05T06:29:41.608Z` (01:29:41.608 America/Bogota).
+  Each wait is at most 3600 seconds; helper duration at most one hour, with
+  eight delivered batches maximum. A cutoff notice is transport, not a request
+  timeout or permission to retry. The listener stops on handshake completion.
+- Traffic cap: one Codex request and two Codex replies, plus the initial armed
+  status. An unexpected addressed entry permits one human-only status and
+  terminates the test. No hook installation, daemon, MCP or headless peer.
+- Artifacts: `/tmp/sideband-codex-handshake.8q2bV3/` holds native command
+  outputs, bodies and `listener.log`. These are command-output evidence, not
+  another journal or durable cursor implementation.
+
+### Adapter validation before live traffic
+
+The baseline `./gradlew test` passed with tasks up-to-date. Twelve Codex helper
+tests passed, including opt-in tests against the installed native binary in a
+fresh temporary repository. Tests cover verbatim Unicode prompt capture and
+routing, skipped transport capture, native ancestry rejection, native timeout
+exit 6, exact wait JSON handoff, recipient filtering, malformed output, queue
+failure without advancement/retry, bounded cutoff and child cancellation.
+No real Codex queue is called by those tests; live handoff is tested separately.
+
+The skill-creator validator passed through `uv run --with pyyaml` because the
+system Python lacks PyYAML. This is a validation dependency, not a Sideband
+runtime/toolkit dependency. The skill-creator guidance led to deterministic
+host helpers with behavior tests and a separate bounded-handshake reference.
+The capture hook script follows the official `UserPromptSubmit` contract but
+has not been installed or tested as a registered hook in James's configuration.
+
+### Scope limitations
+
+This bounded adapter uses the native scan's offset and parent-retained IDs;
+it does not claim durable deduplication, automatic restart, role leasing,
+backlog disposition or outgoing-state integration. Those remain native-tool
+and supervised adapter integration work. Session-exit cleanup is not proved by
+explicit test cleanup. No executable gap is bypassed through raw journal or
+cursor access. All substantive message handling remains in the parent.
+
+### Exchange record
+
+1. Codex armed status: `52354eea-1937-4d70-bcf1-f1186323f070`, created
+   `2026-09-05T00:30:30-05:00`, native range 1646–2021. Body:
+   `listener armed from offset 1646` (with a trailing newline). Native read
+   advanced the listener to 2022, silently filtering this self-authored entry.
+   Native binary SHA-256 at this append:
+   `522816f53ede12b02abe438f62b4e2b0a3bdca65963b41152eb8f5c69de5dc6e`.
+
+At this setup checkpoint, Codex has sent zero requests and zero replies. It
+is waiting for the one authorized Claude ping; no handshake success is yet
+claimed. Subsequent observations will be appended here after parent delivery.
