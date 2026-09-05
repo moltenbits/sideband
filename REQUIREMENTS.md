@@ -246,11 +246,17 @@ both. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
-The hook must never block a prompt, so it always exits successfully; the only
-thing a host shows the model is the hook's context field. A prompt that
-should have been journaled and was not is therefore reported in that field,
-with the reason, so the model tells the human rather than the loss going to
-stderr where nobody reads it. Prompts that were never meant to be captured
+The hook must never block a prompt, so it always exits successfully, and the
+hook's context field is the shared, non-blocking channel both hosts show the
+model. A prompt that should have been journaled and was not is therefore
+reported in that field, with the reason, so the model tells the human rather
+than the loss going to stderr where nobody reads it. Because capture appends
+to the journal before it updates the cursor and pushes, the report says how
+far it got: nothing written, the append itself failed and the journal must
+be inspected, or the entry is journaled under a stated id with a later step
+missing. Only the first invites a second capture; the model never recaptures
+after an uncertain outcome, after a journaled one, or when the reason is that
+another session owns the role. Prompts that were never meant to be captured
 (commands, delivered envelopes, blank input) and repositories where Sideband
 is installed but not active stay silent, except that an inactive session
 whose role has entries waiting is told how many, so nothing waits unread.
