@@ -3,6 +3,8 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.config.Config;
 import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.install.InstallReport;
+import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.locking.Locks;
@@ -18,6 +20,7 @@ import io.micronaut.serde.annotation.Serdeable;
 import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
 import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
@@ -25,7 +28,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,17 +50,22 @@ public class DoctorCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
+    @Option(names = "--home", hidden = true, description = "Override the home directory the skills are inspected under")
+    Path homeDirectory = Path.of(System.getProperty("user.home"));
+
     private final SidebandHome home;
     private final Configs configs;
     private final Journal journal;
     private final RecipientState recipients;
+    private final Installer installer;
     private final ObjectMapper json;
 
-    DoctorCommand(SidebandHome home, Configs configs, Journal journal, RecipientState recipients, ObjectMapper json) {
+    DoctorCommand(SidebandHome home, Configs configs, Journal journal, RecipientState recipients, Installer installer, ObjectMapper json) {
         this.home = home;
         this.configs = configs;
         this.journal = journal;
         this.recipients = recipients;
+        this.installer = installer;
         this.json = json;
     }
 
@@ -98,7 +105,7 @@ public class DoctorCommand implements Callable<Integer> {
                 health,
                 roles,
                 lockOwner,
-                skillLinks()));
+                installer.inspect(homeDirectory, InitCommand.projectRoot(stateDirectory))));
         return ExitCode.OK;
     }
 
@@ -110,19 +117,10 @@ public class DoctorCommand implements Callable<Integer> {
         }
     }
 
-    /** Where each client expects its skill, and whether that is a link into a checkout of this project. */
-    private static List<SkillLink> skillLinks() {
-        Path homeDir = Path.of(System.getProperty("user.home"));
-        List<SkillLink> links = new ArrayList<>();
-        links.add(SkillLink.inspect("claude", homeDir.resolve(".claude/skills/sideband")));
-        links.add(SkillLink.inspect("codex", homeDir.resolve(".agents/skills/sideband")));
-        return links;
-    }
-
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Report(String version, String protocol, String stateDirectory, boolean initialized,
                   @Nullable String permissions, @Nullable Config config, @Nullable JournalHealth journal,
-                  Map<String, RoleReport> roles, @Nullable String lockOwnerPid, List<SkillLink> skills) {
+                  Map<String, RoleReport> roles, @Nullable String lockOwnerPid, InstallReport clients) {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)
@@ -132,25 +130,5 @@ public class DoctorCommand implements Callable<Integer> {
     @Serdeable(naming = SnakeCaseStrategy.class)
     record RoleReport(@Nullable String sessionId, @Nullable Boolean sessionLive, @Nullable Long watermarkEnd,
                       int backlog, int live, int outgoing) {
-    }
-
-    @Serdeable(naming = SnakeCaseStrategy.class)
-    record SkillLink(String client, String path, String state, @Nullable String target) {
-
-        static SkillLink inspect(String client, Path path) {
-            try {
-                if (Files.isSymbolicLink(path)) {
-                    Path target = Files.readSymbolicLink(path);
-                    boolean ok = Files.isRegularFile(path.resolve("SKILL.md"));
-                    return new SkillLink(client, path.toString(), ok ? "linked" : "broken-link", target.toString());
-                }
-                if (Files.isDirectory(path)) {
-                    return new SkillLink(client, path.toString(), "directory-not-link", null);
-                }
-                return new SkillLink(client, path.toString(), "missing", null);
-            } catch (IOException e) {
-                return new SkillLink(client, path.toString(), "unreadable", null);
-            }
-        }
     }
 }

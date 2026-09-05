@@ -32,6 +32,7 @@ graalvmNative {
     binaries {
         all {
             buildArgs.add("-H:+SharedArenaSupport")
+            resources.includedPatterns.add("skills/.*")
         }
     }
 }
@@ -63,6 +64,29 @@ val generateBuildVersion by tasks.registering {
 
 sourceSets.main {
     java.srcDir(generateBuildVersion)
+}
+
+// The executable carries both client skills so `sideband init` can install them anywhere.
+val skillManifest by tasks.registering {
+    val skillsDir = layout.projectDirectory.dir("skills")
+    val outputDir = layout.buildDirectory.dir("generated/resources/skills")
+    inputs.dir(skillsDir)
+    outputs.dir(outputDir)
+    doLast {
+        val root = skillsDir.asFile
+        val files = root.walkTopDown().filter { it.isFile }.map { it.relativeTo(root).path.replace('\\', '/') }.sorted().toList()
+        val manifest = outputDir.get().file("skills/manifest.txt").asFile
+        manifest.parentFile.mkdirs()
+        manifest.writeText(files.joinToString("\n") + "\n")
+    }
+}
+
+sourceSets.main {
+    resources.srcDir(skillManifest)
+}
+
+tasks.processResources {
+    from(layout.projectDirectory.dir("skills")) { into("skills") }
 }
 
 micronaut {

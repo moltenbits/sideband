@@ -40,26 +40,6 @@ install: native
     mv -f {{install_dir}}/sideband.tmp {{install_dir}}/sideband
     @echo "Installed {{install_dir}}/sideband"
 
-# Refuses to overwrite a real directory or a link pointing elsewhere.
-# Link both client skills from their user skill roots into this checkout
-install-skills:
-    #!/usr/bin/env sh
-    set -e
-    link() {
-        root="$1"; target="$2"; dest="$root/sideband"
-        mkdir -p "$root"
-        if [ -L "$dest" ]; then
-            current="$(readlink "$dest")"
-            if [ "$current" = "$target" ]; then echo "ok       $dest"; return; fi
-            echo "conflict $dest -> $current (expected $target)"; return 1
-        elif [ -e "$dest" ]; then
-            echo "conflict $dest exists and is not a link"; return 1
-        fi
-        ln -s "$target" "$dest"; echo "linked   $dest -> $target"
-    }
-    link "$HOME/.claude/skills" "{{justfile_directory()}}/skills/sideband-claude"
-    link "$HOME/.agents/skills" "{{justfile_directory()}}/skills/sideband-codex"
-
 # Run tests and the native build, the pre-commit gate
 check: test native
 

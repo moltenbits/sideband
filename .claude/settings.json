@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/skills/sideband-claude/hooks/prompt.sh"
+            "command": "\"$HOME\"/.claude/skills/sideband/hooks/prompt.sh"
           }
         ]
       }

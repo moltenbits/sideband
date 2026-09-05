@@ -8,6 +8,7 @@ import java.nio.file.Path
 class InitAndDoctorSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
+    Path home = Files.createTempDirectory("home")
 
     Map runJson(String... args) {
         stdout = new StringWriter()
@@ -21,11 +22,15 @@ class InitAndDoctorSpec extends CommandSpec {
         TempRepo.git(repo, "config", "user.name", "James Hardwick")
 
         when:
-        Map init = runJson("init", "--repo", repo.toString())
+        Map init = runJson("init", "--repo", repo.toString(), "--home", home.toString())
 
         then:
         init.state_directory == repo.toRealPath().resolve(".git/sideband").toString()
         init.config.human == [id: "james-hardwick", display_name: "James Hardwick"]
+        init.clients.skills*.state == ["installed", "installed"]
+        init.clients.hook.state == "added"
+        Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
+        Files.exists(repo.resolve(".claude/settings.json"))
 
         when:
         Map captured = runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file",
@@ -48,7 +53,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
     void "doctor reports an uninitialized repository without failing"() {
         when:
-        Map report = runJson("doctor", "--repo", repo.toString())
+        Map report = runJson("doctor", "--repo", repo.toString(), "--home", home.toString())
 
         then:
         report.initialized == false
@@ -57,18 +62,19 @@ class InitAndDoctorSpec extends CommandSpec {
         report.config == null
         report.journal == null
         report.roles == [:]
-        report.skills*.client == ["claude", "codex"]
+        report.clients.skills*.state == ["missing", "missing"]
+        report.clients.hook.state == "missing"
     }
 
     void "doctor reports configuration, journal health, sessions, pending counts, and the lock owner"() {
         given:
-        runJson("init", "--repo", repo.toString(), "--human", "james")
+        runJson("init", "--repo", repo.toString(), "--human", "james", "--skip-clients")
         runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
         runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
         Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
 
         when:
-        Map report = runJson("doctor", "--repo", repo.toString())
+        Map report = runJson("doctor", "--repo", repo.toString(), "--home", home.toString())
 
         then:
         report.initialized
