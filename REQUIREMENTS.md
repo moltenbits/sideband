@@ -1136,7 +1136,7 @@ their tests. This acceptance does not resolve the parent-wake feasibility gate.
 
 ### 17.1 Bidirectional parent wake path
 
-The only unresolved release blocker from the review is proving that each
+The release blocker identified by the review was proving that each
 client can wake the other's existing parent conversation through a supported
 native background facility. Section 10.6 defines the required spike and section
 14.15 defines its acceptance scenario.
@@ -1146,17 +1146,23 @@ If either direction fails, the requirements must be revisited; an MCP server,
 intermediary daemon, hosted runtime service, or headless peer invocation is not
 an authorized fallback.
 
-Status (2026-09-05 UTC): the Claude Code direction passed. A background
-`sideband wait` task woke the idle parent conversation when a detached process
-appended an entry. Both Codex attempts failed the idle-parent wake requirement:
-the persistent listener's message and a separate listener's final completion
-only reached the parent's internal context during subsequent user-triggered
-turns. The detached appends and native waits succeeded in both attempts, but
-neither produced an automatic parent response in the visible chat. The gate
-remains blocked; this does not prove every other native path impossible.
-The procedure, observed output, and mechanism are recorded in
-[docs/spike-wake-path.md](docs/spike-wake-path.md); the tested listener design
-is in `skills/sideband-codex/SKILL.md`.
+Status (2026-09-05 UTC): resolved at feasibility-spike scope. Claude Code woke
+its idle parent when a background `sideband wait` completed. Codex's first two
+attempts, using subagent messaging and completion, failed. Its third attempt
+passed: the listener invoked `codex queue --thread <parent> --message <envelope>`,
+which started a new turn in the existing idle parent before the observation
+cutoff, without human input. The parent preserved Codex authorship despite
+the envelope arriving as host user-role input (section 7.4).
+
+Both successful host tests used detached appenders as peer stand-ins. They
+prove the wake capability required by section 10.6, not complete adapters or
+ongoing lifecycle behavior. Mid-turn delivery, rearming, durable cursors,
+message identity, and prompt-capture behavior remain implementation and
+acceptance-test work. The procedures, observed outputs, failed attempts, and
+successful mechanisms are recorded in
+[docs/spike-wake-path.md](docs/spike-wake-path.md). The Codex skill stub still
+describes the failed collaboration-message mechanism and must be updated in
+the adapter implementation task.
 
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.

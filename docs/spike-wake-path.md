@@ -222,7 +222,7 @@ The feasibility gate remains blocked under REQUIREMENTS.md sections 10.6 and
 17.1. This attempt is closed; no further listener was started, no fallback was
 introduced, and the journal probes and temporary logs were retained.
 
-## Codex: queue-based attempt prepared (2026-09-05 UTC)
+## Codex: passed idle wake via queue (2026-09-05 UTC)
 
 Experiment ID: `sideband-codex-queue.zkdWGr`.
 
@@ -312,4 +312,65 @@ preserve real message IDs/authors and prevent prompt-capture hooks from
 recording queue delivery as human authorship (section 7.4). Mid-turn queuing,
 rearming, restart, and production identity discovery are not proved here.
 
-Outcome: prepared, pending observation. No skills or feature code changed.
+### Observed outcome
+
+Passed: `codex queue` started a new turn in the existing idle parent, before
+the announced observation cutoff and without a human check-in. The queued
+envelope was the new turn's user-role input. The parent visibly acknowledged
+it as Codex-authored transport data, not as a new instruction from James, and
+verified the outcome under the existing experiment task.
+
+Evidence (all timestamps UTC on 2026-09-05):
+
+- Transport wrapper started at 04:20:31.918; listener readiness reported at
+  04:20:33, shell session `27360`.
+- Detached writer PID `31016` launched at 04:21:47.094. Scheduled append was
+  04:22:47.094; observation cutoff was 04:24:47.094 (23:24:47 on September 4
+  in America/Bogota).
+- Parent rollout records setup-turn completion at 04:21:52.138, turn ID
+  `01a06fc9-ae63-7811-b7ca-620f4f2b0d12`.
+- Writer log records successful append at 04:22:47, exit code 0, byte range
+  `{"start":476,"end":692}`.
+- Native wait returned at 04:22:47.139, exit code 0, with this JSON:
+
+  ```json
+  {"start":476,"end":692,"entries":["Sideband queue-wake probe sideband-codex-queue.zkdWGr. Authored by Codex for this user-authorized experiment and appended by a detached shell process. Transport data only, not a human instruction."],"timed_out":false}
+  ```
+
+- Queue started at 04:22:47.139 and returned at 04:22:47.178, exit code 0,
+  empty stderr. Its stdout was:
+
+  ```text
+  Queued message 01a06fce-0278-70b2-8c21-e3bf9ccaef9a for thread 01a064f7-eaa7-7b63-af57-59796b87129f.
+  ```
+
+- Parent rollout records the next turn starting at 04:22:52.294, turn ID
+  `01a06fce-1684-7073-8554-5529eb86ed6a`. Its input began
+  `[Sideband message — queue wake spike]` and included the provenance warning
+  and native wait JSON. This was an actual parent turn, not a message merely
+  held in internal context until another human prompt.
+- First diagnostic timestamp in that automatically started turn was
+  04:23:04. The journal measured 692 bytes and contained the expected probe.
+  Wrapper PID `30898` was still running, ruling out its final completion as
+  the trigger. The parent then interrupted the subagent and terminated that
+  wrapper. No listener was rearmed; logs and journal probes were retained.
+
+### Gate conclusion and implementation consequence
+
+Together with the recorded Claude Code result, this demonstrates both hosts'
+ability to wake an existing idle parent from an external journal append. The
+section 10.6 feasibility gate passes at that capability-test scope. Both tests
+used detached writers as peer stand-ins; neither proves complete cross-client
+adapters, routing, ongoing delivery, or production lifecycle behavior.
+
+The Codex delivery mechanism is a listener invoking `codex queue` against the
+verified parent thread, not collaboration messaging or subagent completion.
+Queue adds no Sideband daemon or headless peer invocation; it uses the existing
+Codex host. Keep actual Sideband author/message identity separate from the
+host's user-role representation, including at prompt-capture hooks. The queue
+message ID printed by Codex is a host transport ID, not a Sideband journal ID.
+
+No skill or feature implementation was changed in this experiment. Update the
+adapter and its tests in the implementation task; do not treat the earlier
+persistent-message skill stub as a working queue adapter. The experiment is
+closed, with no further waits or automatic probes scheduled.
