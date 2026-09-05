@@ -158,7 +158,8 @@ Every entry must include:
 - `to`: a non-empty array of intended participant identifiers. Client
   recipients use `claude` or `codex`; a human recipient uses the same
   `human:<id>` form accepted by `from`.
-- `type`: initially `instruction`, `request`, `reply`, or `status`.
+- `type`: initially `instruction`, `request`, `reply`, `status`, or `ack`
+  (section 9.8).
 - `route`: `direct` or `broadcast`.
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.
@@ -526,6 +527,59 @@ assesses it against the latest human instructions before acting. Existing
 request tracking and backlog rules apply; version one introduces no structured
 revision fields, automatic supersession state, or special backlog grouping.
 Structured amendment and replacement handling is deferred to section 15.
+
+### 9.8 Acknowledgement and overdue requests
+
+A reply can legitimately take a long time, and silence is ambiguous: the
+recipient may be working, or it may never have received the request because
+its session ended, its host failed to wake it, or its model was never turned.
+Acknowledgement separates the two cases.
+
+On receiving an actionable entry (`expects_reply: true`), the recipient's
+parent appends an `ack` entry as its first journal action after the entry is
+presented and before it starts the work. The ack has `type: ack`, `reply_to`
+naming the received entry, `to` naming that entry's author, and
+`expects_reply: false`; its body is optional and, when present, one line on
+what the recipient is about to do. An ack is a statement by the model, not by
+the transport: the recipient cursor's `delivered_at` only records that the host
+accepted the handoff. Acks are not written for informational entries, nor for
+a human turn typed into the recipient's own session.
+
+The executable records the ack on the requester's outgoing record at append
+time (`acknowledged_at`, `ack_id`). An ack is state, not a message: it is
+never delivered as an open entry, wakes no one, and needs no resolution. It is
+still an ordinary journal entry, so a person reading the journal sees it.
+
+Two durations govern what silence means, configured in the state directory's
+`config.json` with defaults of five minutes for `ack_timeout` and sixty
+minutes for `reply_timeout`. A request unacknowledged for longer than
+`ack_timeout` is overdue for acknowledgement. A request acknowledged but
+unanswered for longer than `reply_timeout` after its ack is overdue for a
+reply. Overdue is derived from timestamps whenever state is read, never
+stored as a state change, so the rule of section 9.6 stands: passage of time
+changes no request state.
+
+The requester's listener is what notices. `follow` already re-reads the
+cursor periodically; on each pass it evaluates the role's pending outgoing
+requests and, when one first becomes overdue, emits one wake line naming the
+request, the condition, and the recipient's session liveness from the same
+check `doctor` performs. It records that notice on the outgoing record
+(`overdue_notified_at`) so each condition is reported once per request, across
+listener restarts. No model tokens are spent until something is overdue.
+`pending` reports the same derived `overdue` field so a requester can check at
+any time, for instance when the human asks.
+
+Codex runs no listener. Any running `follow` evaluates both roles' outgoing
+requests; for Codex's it pushes the notice with `codex queue` when Codex's
+session is live, under the section 10.1 rule that whoever can wake a recipient
+does so. When no listener is running, Codex learns at its next `pending`.
+
+On an unacknowledged overdue request the requester tells the human that the
+recipient may be disconnected, including whether the recipient's session is
+still alive, and does not resend on its own; the human may re-issue or
+redirect. On an acknowledged overdue request the requester tells the human the
+work is taking longer than expected and the request stays pending. Neither
+condition resolves a request; only the parent's disposition does.
 
 ## 10. Client integration
 
@@ -899,6 +953,18 @@ Given the hook command is registered in both clients, when either client
 invokes it, the executable identifies the invoking client without a flag,
 parses that client's payload, and records the prompt with that client as
 `via`; the command line registered in each client is the same.
+
+### 14.17a Acknowledgement and overdue notice
+
+Given Claude appends a request to Codex and Codex's parent receives it, Codex's
+first journal action is an `ack` with `reply_to` naming the request, and
+Claude's outgoing record shows `acknowledged_at` without Claude being woken.
+Given the request stays unacknowledged for `ack_timeout`, Claude's listener
+emits one wake line naming the request, and Claude reports to the human that
+Codex may be disconnected, together with whether Codex's session is alive.
+Given the request was acknowledged and no reply arrives within
+`reply_timeout`, one wake line reports the reply overdue and the request
+remains pending until Claude resolves it.
 
 ### 14.17 Shared executable
 
