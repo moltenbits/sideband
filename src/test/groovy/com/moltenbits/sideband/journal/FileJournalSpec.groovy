@@ -2,6 +2,7 @@ package com.moltenbits.sideband.journal
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.locking.Locks
 import io.micronaut.context.ApplicationContext
 import io.micronaut.serde.ObjectMapper
 import spock.lang.AutoCleanup
@@ -12,7 +13,6 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -22,7 +22,7 @@ class FileJournalSpec extends Specification {
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
     Closure<String> ids = Fixtures.sequentialIds()
-    Journal journal = new FileJournal(new EntryCodec(context.getBean(ObjectMapper)), Fixtures.FIXED_CLOCK, ids as MessageIds)
+    Journal journal = new FileJournal(new EntryCodec(context.getBean(ObjectMapper)), Fixtures.FIXED_CLOCK, ids as MessageIds, context.getBean(Locks))
     Path directory = Files.createTempDirectory("journal")
     Path file = directory.resolve(Journal.FILE_NAME)
 
@@ -124,49 +124,6 @@ class FileJournalSpec extends Specification {
         read.entries()*.body().toSet().size() == writers * perWriter
         read.entries()*.metadata()*.id().toSet().size() == writers * perWriter
         read.end() == Files.size(file)
-    }
-
-    void "a lock left by a dead process is reclaimed"() {
-        given:
-        Path lock = directory.resolve(FileJournal.LOCK_FILE_NAME)
-        Files.writeString(lock, "999999999")
-
-        when:
-        journal.append(file, Fixtures.humanDraft())
-
-        then:
-        journal.readCompleteFrom(file, 0).entries().size() == 1
-        !Files.exists(lock)
-    }
-
-    void "a lock held by a live process blocks the writer until it times out"() {
-        given:
-        Path lock = directory.resolve(FileJournal.LOCK_FILE_NAME)
-        Files.writeString(lock, ProcessHandle.current().pid().toString())
-
-        when:
-        JournalLock.acquire(lock, Duration.ofMillis(200))
-
-        then:
-        thrown(LockTimeoutException)
-        Files.exists(lock)
-    }
-
-    void "releasing the lock removes the lock file"() {
-        given:
-        Path lock = directory.resolve(FileJournal.LOCK_FILE_NAME)
-
-        when:
-        JournalLock held = JournalLock.acquire(lock, Duration.ofMillis(200))
-
-        then:
-        Files.exists(lock)
-
-        when:
-        held.close()
-
-        then:
-        !Files.exists(lock)
     }
 
     void "the context wires the journal through its interface with a real clock and ids"() {

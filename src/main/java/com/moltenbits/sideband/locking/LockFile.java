@@ -1,4 +1,4 @@
-package com.moltenbits.sideband.journal;
+package com.moltenbits.sideband.locking;
 
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
@@ -19,24 +19,24 @@ import static java.nio.file.StandardOpenOption.WRITE;
  * A lock whose owning process is no longer alive is treated as stale and reclaimed.
  * A lock whose contents cannot be read is reclaimed only after a grace period.
  */
-final class JournalLock implements AutoCloseable {
+final class LockFile implements Lock {
 
     private static final Duration RETRY_INTERVAL = Duration.ofMillis(10);
     private static final Duration UNREADABLE_GRACE = Duration.ofSeconds(30);
 
     private final Path lockFile;
 
-    private JournalLock(Path lockFile) {
+    private LockFile(Path lockFile) {
         this.lockFile = lockFile;
     }
 
-    static JournalLock acquire(Path lockFile, Duration timeout) throws IOException {
+    static LockFile acquire(Path lockFile, Duration timeout) throws IOException {
         Instant deadline = Instant.now().plus(timeout);
         byte[] owner = Long.toString(ProcessHandle.current().pid()).getBytes(UTF_8);
         while (true) {
             try {
                 Files.write(lockFile, owner, CREATE_NEW, WRITE);
-                return new JournalLock(lockFile);
+                return new LockFile(lockFile);
             } catch (FileAlreadyExistsException held) {
                 if (isStale(lockFile)) {
                     Files.deleteIfExists(lockFile);

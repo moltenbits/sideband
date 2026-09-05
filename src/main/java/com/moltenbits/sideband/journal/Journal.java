@@ -24,7 +24,7 @@ public interface Journal {
      * entry, serialized against concurrent writers. An incomplete fragment left by a
      * crashed writer is closed with an abort marker first; existing bytes are never changed.
      *
-     * @throws LockTimeoutException when another writer holds the lock for too long
+     * @throws com.moltenbits.sideband.locking.LockTimeoutException when another writer holds the lock for too long
      */
     Entry append(Path file, Draft draft);
 

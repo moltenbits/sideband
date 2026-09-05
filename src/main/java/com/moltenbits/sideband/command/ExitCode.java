@@ -2,7 +2,7 @@ package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.ancestry.InvalidLineageException;
 import com.moltenbits.sideband.home.NotARepositoryException;
-import com.moltenbits.sideband.journal.LockTimeoutException;
+import com.moltenbits.sideband.locking.LockTimeoutException;
 import com.moltenbits.sideband.protocol.InvalidEntryException;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;

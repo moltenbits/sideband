@@ -1,5 +1,7 @@
 package com.moltenbits.sideband.journal;
 
+import com.moltenbits.sideband.locking.Lock;
+import com.moltenbits.sideband.locking.Locks;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import jakarta.inject.Singleton;
@@ -11,7 +13,6 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 
@@ -20,22 +21,20 @@ import static java.nio.file.StandardOpenOption.CREATE;
 import static java.nio.file.StandardOpenOption.READ;
 import static java.nio.file.StandardOpenOption.WRITE;
 
-/** A journal stored as one file, appended under a sibling lock file. */
+/** A journal stored as one file in the state directory, appended under the shared lock. */
 @Singleton
 class FileJournal implements Journal {
-
-    static final String LOCK_FILE_NAME = "journal.lock";
-
-    private static final Duration LOCK_TIMEOUT = Duration.ofSeconds(10);
 
     private final EntryCodec codec;
     private final Clock clock;
     private final MessageIds ids;
+    private final Locks locks;
 
-    FileJournal(EntryCodec codec, Clock clock, MessageIds ids) {
+    FileJournal(EntryCodec codec, Clock clock, MessageIds ids, Locks locks) {
         this.codec = codec;
         this.clock = clock;
         this.ids = ids;
+        this.locks = locks;
     }
 
     @Override
@@ -47,8 +46,7 @@ class FileJournal implements Journal {
                 draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.delivery(),
                 EntryCodec.bodyLength(draft.body()));
         byte[] encoded = codec.encode(metadata, draft.body());
-        Path lockFile = file.resolveSibling(LOCK_FILE_NAME);
-        try (JournalLock ignored = JournalLock.acquire(lockFile, LOCK_TIMEOUT);
+        try (Lock ignored = locks.acquire(file.getParent());
              FileChannel channel = FileChannel.open(file, CREATE, WRITE, APPEND)) {
             long start = closeFragment(file, channel);
             writeFully(channel, encoded);
