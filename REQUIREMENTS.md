@@ -246,6 +246,15 @@ both. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
+The hook must never block a prompt, so it always exits successfully; the only
+thing a host shows the model is the hook's context field. A prompt that
+should have been journaled and was not is therefore reported in that field,
+with the reason, so the model tells the human rather than the loss going to
+stderr where nobody reads it. Prompts that were never meant to be captured
+(commands, delivered envelopes, blank input) and repositories where Sideband
+is installed but not active stay silent, except that an inactive session
+whose role has entries waiting is told how many, so nothing waits unread.
+
 Each captured prompt is recorded with:
 
 - The human as `from`.
@@ -338,7 +347,10 @@ in `to`. An agent may do this to request input, return a result, or report that
 its part of a workflow is complete.
 
 Delivery to the human is satisfied by the authoring client's visible turn; no
-listener forwards the entry. A client not named in `to` must not inject a
+listener forwards the entry. The agent addressing the human stops and puts the
+question or result to the human in its own terminal, as it would without
+Sideband; the entry exists so the journal stays a coherent record of the whole
+exchange, not as a transport. A client not named in `to` must not inject a
 human-only entry into its conversation merely because it can read the journal.
 The human may later answer from either client, which records that client in
 `via` and links the answer to the agent entry with `reply_to`.
@@ -537,30 +549,37 @@ request tracking and backlog rules apply; version one introduces no structured
 revision fields, automatic supersession state, or special backlog grouping.
 Structured amendment and replacement handling is deferred to section 15.
 
-### 9.8 Acknowledgement and overdue requests
+### 9.8 Acknowledgement and the heartbeat contract
 
 A reply can legitimately take a long time, and silence is ambiguous: the
 recipient may be working, or it may never have received the request because
 its session ended, its host failed to wake it, or its model was never turned.
-Acknowledgement separates the two cases.
+Acknowledgement separates the two cases, and it does so at the model level:
+a recorded process id says only that a host is running, not that an agent is
+listening, and process ids change across a host resume.
 
 On receiving an agent-authored request (`expects_reply: true`), the
 recipient's parent appends an `ack` entry as its first journal action after
 the entry is presented and before it starts the work. The ack has
 `type: ack`, `reply_to` naming the received entry, `to` naming that entry's
 author, and `expects_reply: false`; its body is optional and, when present,
-one line on what the recipient is about to do. An ack is a statement by the
-model, not by the transport: the recipient cursor's `delivered_at` only
-records that the host accepted the handoff. Acknowledgement exists for
+one line on what the recipient is about to do. Acknowledgement exists for
 agent-to-agent requests, where a failed API call or a stalled agent can leave
 work hanging unnoticed. An agent may also acknowledge a human entry, but no
 tracking follows from it. Acks are not written for informational entries.
-Version one tracks one recipient per request.
+Version one tracks one recipient per request. An agent with questions about a
+request does not need a separate acceptance step: it sends an ordinary
+request back.
 
-A recipient may acknowledge the same request again while it works, as a sign
-that it is still responsive; each further ack restarts the reply clock. An
-agent with questions about a request does not need a separate acceptance
-step: it sends an ordinary request back.
+The request states the cadence it expects. An actionable agent entry carries
+`heartbeat`, a duration chosen by the sender (`--heartbeat 10m`; the default
+comes from `config.json`, ten minutes unless configured). It is part of the
+contract: the recipient must, within each `heartbeat` interval measured from
+the request and then from its own latest ack, either reply or acknowledge
+again to show it is still working. Repeated acks are therefore expected
+during long work, and each one restarts the interval. The sender chooses the
+value to fit the request: a review it wants back quickly gets a short
+heartbeat, a large refactor a long one.
 
 The executable records each ack on the requester's outgoing record at append
 time (`acknowledged_at` for the latest, `ack_ids` for all). An ack is state,
@@ -568,40 +587,34 @@ not a message: it is never delivered as an open entry, wakes no one, and
 needs no resolution. It is still an ordinary journal entry, so a person
 reading the journal sees it.
 
-Two durations govern what silence means, configured in the state directory's
-`config.json` with defaults of five minutes for `ack_timeout` and sixty
-minutes for `reply_timeout`. A request unacknowledged for longer than
-`ack_timeout` is overdue for acknowledgement. A request acknowledged but
-unanswered for longer than `reply_timeout` after its latest ack is overdue
-for a reply. Overdue is derived from timestamps whenever state is read, never
-stored as a state change, so the rule of section 9.6 stands: passage of time
-changes no request state.
+Silence longer than `heartbeat` means the recipient is not responding. That
+is a derived condition, `overdue`, computed from timestamps whenever state is
+read and never stored as a state change, so the rule of section 9.6 stands:
+passage of time changes no request state. `pending` reports, per outgoing
+request, the latest acknowledgement, whether it is overdue, and how long the
+silence has lasted. A request that was never acknowledged and is overdue most
+likely never reached its recipient; one that was acknowledged and is overdue
+has a recipient that stopped working or stopped reporting.
 
 Sideband records what the decision needs; the sending client makes it. The
-executable never resolves, resends, or fails a request on its own. `pending`
-reports each outgoing request's `acknowledged_at` and a derived `overdue`
-field (`none`, `ack`, or `reply`) together with the recipient's session
-liveness from the same check `doctor` performs, so whenever the requester is
-active it can decide to keep waiting, move on, or tell the human the other
-agent may be stalled. On an unacknowledged overdue request the natural report
-is a possible disconnection, including whether the recipient's session is
-still alive; on an acknowledged one, that the work is taking longer than
-expected. Neither condition resolves a request; only the parent's disposition
-does.
+executable never resolves, resends, or fails a request on its own. The
+requester, when it sees an overdue request, chooses to keep waiting, move on
+with the rest of its work, or tell the human the other agent is not
+responding, and it records its choice through `resolve-outgoing` only when it
+gives the request up. Nothing is resolved by time alone.
 
-What prompts an idle requester to look is an open decision (section 15). A
-requester doing other work, or given another turn by the human, checks then.
-One that has gone idle needs something to wake it before it can notice that
-an interval has elapsed. The candidate is the requester's own listener:
-`follow` already re-reads the cursor periodically and could, when a request
-first becomes overdue, emit one wake line naming the request and the
-condition, recorded on the outgoing record (`overdue_notified_at`) so each
-condition is reported once per request across listener restarts, at no model
-cost until something is overdue. Codex runs no listener, so its side would
-rely on the next active turn, or on a running `follow` pushing the notice with
-`codex queue` under the section 10.1 rule that whoever can wake a recipient
-does so. Whether the wake is automatic, and whether one role's listener may
-act for the other, are the open points.
+An idle requester must still find out, or the contract is empty. The
+requester's own listener is what notices: `follow` already re-reads the
+cursor periodically, and when a pending outgoing request first becomes
+overdue it emits one wake line naming the request and how long the silence
+has lasted, recorded on the outgoing record (`overdue_notified_at`) so each
+request is reported once per silence, across listener restarts; a later ack
+clears the notice so a new silence is reported again. This costs no model
+tokens until something is overdue. Codex runs no listener: while a `follow`
+is running for Claude it evaluates Codex's outgoing requests too and pushes
+the notice with `codex queue`, under the section 10.1 rule that whoever can
+wake a recipient does so; with no listener running, Codex sees the overdue
+condition at its next `pending`.
 
 ## 10. Client integration
 
@@ -980,19 +993,19 @@ Given an explicit `--agent` override, the named role is used only when the
 payload session owns that role. An ambiguous automatic fallback or a
 mismatched session records nothing.
 
-### 14.17a Acknowledgement and overdue notice
+### 14.17a Acknowledgement and heartbeat
 
-Given Claude appends a request to Codex and Codex's parent receives it, Codex's
-first journal action is an `ack` with `reply_to` naming the request, and
-Claude's outgoing record shows `acknowledged_at` without Claude being woken.
-Given Codex acknowledges again while still working, the reply clock restarts
-from that ack. Given the request stays unacknowledged for `ack_timeout`,
-Claude's next `pending` reports it overdue for acknowledgement with Codex's
-session liveness, and Claude reports to the human that Codex may be
-disconnected. Given the request was acknowledged and no reply arrives within
-`reply_timeout` of the latest ack, `pending` reports the reply overdue and
-the request remains pending until Claude resolves it. Whether a wake line
-also prompts an idle Claude is the open decision in section 15.
+Given Claude appends a request to Codex with a ten-minute heartbeat and
+Codex's parent receives it, Codex's first journal action is an `ack` with
+`reply_to` naming the request, and Claude's outgoing record shows
+`acknowledged_at` without Claude being woken. Given Codex acknowledges again
+while still working, the interval restarts from that ack. Given ten minutes
+pass with neither an ack nor a reply, Claude's listener emits one wake line
+naming the request and the length of the silence, `pending` reports the
+request overdue with Codex's session liveness alongside, and Claude decides
+whether to keep waiting, move on, or tell the human Codex is not responding.
+Given Codex then acknowledges, the notice clears and the request is pending
+again, not overdue. The request is resolved only by Claude's disposition.
 
 ### 14.17 Shared executable
 
@@ -1006,10 +1019,9 @@ The following questions remain intentionally unresolved:
 
 - Whether Sideband activates automatically on every first turn or through an
   explicit skill command.
-- Whether an idle requester is woken automatically when an outgoing request
-  becomes overdue (section 9.8), or only checks at its next active turn; and
-  if automatically, whether Claude's listener may push overdue notices to
-  Codex, which has no listener of its own.
+- Whether the heartbeat contract of section 9.8 needs a distinct first-ack
+  deadline shorter than the heartbeat, once live use shows how long a
+  recipient takes to acknowledge in practice.
 - Whether the local human identifier should be configurable beyond the
   version-one rule: `sideband init` records a slug of `git config user.name`
   (or an explicit `--human`) and the git name as display name in the state

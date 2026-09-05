@@ -283,12 +283,14 @@ from those entries before deciding whether the overall request is satisfied.
 `acknowledged_at` and `ack_ids` are set by the executable each time the
 recipient appends an `ack` for the request (requirements 9.8); they are facts
 about the recipient's model having received it and still being responsive,
-distinct from `reply_ids`. `overdue_notified_at` is reserved for the automatic
-wake, if adopted, so a restarted listener does not repeat a notice. Overdue
-itself is never stored: `pending` derives it from `created_at`, the latest
-`acknowledged_at`, and the two timeouts in `config.json` (`ack_timeout`,
-default 5 minutes; `reply_timeout`, default 60 minutes, counted from the
-latest ack).
+distinct from `reply_ids`. `overdue_notified_at` records that the listener
+has emitted the wake line for the current silence, so a restarted listener
+does not repeat it; a later ack clears it. Overdue itself is never stored:
+`pending` and `follow` derive it from the request's `heartbeat`, its
+`created_at`, and the latest `acknowledged_at`. The request's `heartbeat` is
+metadata on the journal entry, chosen by the sender (`--heartbeat`, default
+from `config.json` `heartbeat`, ten minutes unless configured), so the
+recipient can read the cadence it is held to.
 
 Appending a request and registering its outgoing state happen under the shared
 lock. Because the journal and cursor are separate files, recovery rescans the
@@ -398,7 +400,9 @@ sideband append-agent --from claude --to codex --type request \
   --caused-by <id> --body-file <path>
 sideband append-agent --from codex --to claude --type reply \
   --reply-to <id> --expects-reply false --body-file <path>
-sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt, body optional
+sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt or still working, body optional
+sideband append-agent --from claude --to codex --type request --caused-by <id> \
+  --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
 sideband activate --role codex --session-id <id>
 sideband backlog --role codex --session-id <id>
 sideband wait --role <role> --from <offset> [--timeout s]     # one batch, then exit
@@ -595,18 +599,19 @@ permission to execute actionable backlog. Newer human instructions govern any
 resumed work. Passage of time changes no request state.
 
 Receipt is acknowledged before work starts. When the parent takes up an
-agent request it appends an `ack` first (requirements 9.8), and may append
-another while the work runs to show it is still responsive; the executable
-turns each into `acknowledged_at` on the requester's outgoing record without
-waking the requester. `pending` reports, per outgoing request, the latest
-acknowledgement, a derived `overdue` condition (`none`, `ack`, or `reply`),
-and the recipient's session liveness. The sending parent decides what to do
-with that: keep waiting, move on, or tell the human the other agent may be
-stalled. Sideband never resends or resolves on its own. How an idle requester
-comes to look is open (requirements section 15); if the automatic wake is
-adopted, `follow` evaluates outgoing requests on its periodic cursor re-reads
-and emits one wake line per newly overdue condition, recorded in
-`overdue_notified_at`.
+agent request it appends an `ack` first (requirements 9.8), and while the
+work runs it acknowledges again within each `heartbeat` interval the request
+named; the executable turns each into `acknowledged_at` on the requester's
+outgoing record without waking the requester. `pending` reports, per outgoing
+request, the latest acknowledgement, whether the silence has exceeded the
+heartbeat (`overdue`), how long it has lasted, and the recipient's session
+liveness as a secondary signal. The sending parent decides what to do with
+that: keep waiting, move on, or tell the human the other agent is not
+responding. Sideband never resends or resolves on its own. `follow` evaluates
+the role's outgoing requests on its periodic cursor re-reads and emits one
+wake line when a request first becomes overdue, recorded in
+`overdue_notified_at` and cleared by a later ack; a Claude `follow` does the
+same for Codex's requests and pushes the notice with `codex queue`.
 
 ### 7.6 Human-directed follow-ups
 
@@ -647,9 +652,9 @@ Both `SKILL.md` files must instruct their host to:
 13. Verify the shared executable's compatibility and report whether human
     capture is hook-backed or best effort at activation and through `doctor`.
 14. Acknowledge every agent request with an `ack` before starting on it,
-    acknowledge again during long work, and, when checking outgoing requests,
-    decide whether to keep waiting, move on, or report a possible
-    disconnection (unacknowledged) or slow work (acknowledged) to the human.
+    acknowledge again within each `heartbeat` interval while working on it,
+    and, when a request of its own is overdue, decide whether to keep waiting,
+    move on, or tell the human the other agent is not responding.
 
 Neither skill should contain its own journal parser, lock implementation, or
 routing logic.
