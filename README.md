@@ -31,33 +31,20 @@ native image, and everything a client runs is a subcommand of it.
 ## How the pieces fit
 
 ```mermaid
-flowchart LR
-    James((James))
-    subgraph Claude Code
-        CS[/sideband skill/]
-        Hook[UserPromptSubmit hook]
-        Mon[Monitor: sideband follow]
-    end
-    subgraph Codex
-        XS[$sideband skill]
-    end
-    Bin[[sideband executable]]
-    subgraph ".git/sideband (private, shared by worktrees)"
-        J[(journal.md)]
-        C[(cursors/claude, cursors/codex)]
-        Cfg[(config.json)]
-    end
+flowchart TB
+    James(["James"])
+    Claude["Claude Code"]
+    Codex["Codex"]
+    Bin["sideband executable"]
+    Journal[("journal.md and cursors in .git/sideband")]
 
-    James -- prompts --> CS
-    James -- prompts --> XS
-    Hook -- "hook prompt" --> Bin
-    CS -- "activate, pending, append-agent, resolve" --> Bin
-    XS -- "activate, pending, append-agent, resolve" --> Bin
-    Mon -- "one wake line per batch" --> CS
-    Bin -- appends --> J
-    Bin -- reads and updates --> C
-    Bin -. "codex queue --thread <id>" .-> XS
-    J -. watched by .-> Mon
+    James -- prompts --> Claude
+    James -- prompts --> Codex
+    Claude -- "hook, skill, listener" --> Bin
+    Codex -- skill --> Bin
+    Bin -- "append, read, cursor" --> Journal
+    Journal -. "follow: one wake line per batch" .-> Claude
+    Bin -. "codex queue: one turn per entry" .-> Codex
 ```
 
 The executable is the only thing that parses or writes the journal, takes the
@@ -121,11 +108,11 @@ sequenceDiagram
     James->>Claude: "@codex review the locking behavior"
     Claude->>Bin: hook prompt (before the model sees it)
     Bin->>J: append instruction from human:james to codex
-    Bin->>Codex: codex queue --thread <id> --message <envelope>
-    Note over Codex: New turn starts in the idle session; the entry is already marked delivered
-    Codex->>Bin: append-agent --to human:james --type reply --reply-to <id>
+    Bin->>Codex: codex queue --thread (thread id) --message (envelope)
+    Note over Codex: A new turn starts in the idle session. The entry is already marked delivered.
+    Codex->>Bin: append-agent --to human:james --type reply --reply-to (id)
     Bin->>J: append reply from codex
-    Codex->>Bin: resolve --as acted <id>
+    Codex->>Bin: resolve --as acted (id)
     Note over Bin,Claude: The human typed through Claude, so Claude's listener carries the reply
     J-->>Claude: Monitor emits one wake line
     Claude->>Bin: pending
