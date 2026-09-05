@@ -1,9 +1,11 @@
 # sideband
 
-Local, durable, tridirectional communication between a human, Claude Code, and
-Codex, through an append-only journal that lives inside the repository's `.git`
-directory. One native executable owns the protocol; each client gets a thin
-skill that tells it when to call the executable and what to do with the result.
+Lets Claude Code and Codex work together on one task, in their own sessions,
+with the human in the loop. The two agents talk through an append-only journal
+that lives inside the repository's `.git` directory: one delegates, the other
+answers, and each is woken in its own conversation when something arrives. One
+native executable owns the protocol; each client gets a thin skill that tells
+it when to call the executable and what to do with the result.
 
 Nothing leaves the machine. There is no daemon, no server, no MCP bridge, and
 no interpreter: `sideband` is a Micronaut application compiled to a GraalVM
@@ -11,18 +13,21 @@ native image, and everything a client runs is a subcommand of it.
 
 ## What it does
 
+- **Agents delegate to each other and reply.** Claude asks Codex to review
+  a change, Codex asks Claude to explain a design, either reports status.
+  Requests, replies, and status notes are all journal entries of one shape,
+  and a reply is correlated with the request it answers.
+- **Every request traces back to the human.** An agent can only ask the
+  other for work as a consequence of something the human asked. The chain is
+  recorded on each entry, and the executable refuses a request without one.
+- **Delivery wakes the idle recipient** in its existing conversation, without
+  any model tokens spent waiting. Each client is reached the way its host
+  allows, described below.
 - **The human is a participant, not a transport.** Every prompt typed into
-  either client is journaled verbatim, attributed to the human, with the
-  client it came through recorded as `via`.
-- **Routing by first token.** `@codex fix the tests` typed into Claude Code
-  routes to Codex; `@all` reaches both agents; no directive keeps the prompt
-  with the client it was typed into. The text is never rewritten.
-- **Agents talk to each other through the same journal.** A request from
-  Claude to Codex, Codex's reply, and status notes are all entries with the
-  same shape. Every actionable agent request must trace back to a human entry,
-  so agents can never originate work for each other.
-- **Delivery wakes the idle recipient** without any model tokens spent
-  waiting. Each client is reached the way its host allows, described below.
+  either client is journaled verbatim and attributed to the human. Normally
+  each agent is spoken to in its own session; `@codex` at the start of a
+  prompt typed into Claude Code routes it to Codex anyway, `@claude` does the
+  reverse, and `@all` reaches both.
 - **Nothing is lost.** Each role keeps a cursor recording what it has seen,
   accepted, and resolved. Entries that arrive while a client is away surface as
   backlog at its next activation and are confirmed with the human before any
@@ -31,20 +36,18 @@ native image, and everything a client runs is a subcommand of it.
 ## How the pieces fit
 
 ```mermaid
-flowchart TB
-    James(["James"])
+flowchart LR
     Claude["Claude Code"]
+    Journal[("journal.md in .git/sideband")]
     Codex["Codex"]
-    Bin["sideband executable"]
-    Journal[("journal.md and cursors in .git/sideband")]
+    James(["James"])
 
-    James -- prompts --> Claude
-    James -- prompts --> Codex
-    Claude -- "hook, skill, listener" --> Bin
-    Codex -- skill --> Bin
-    Bin -- "append, read, cursor" --> Journal
-    Journal -. "follow: one wake line per batch" .-> Claude
-    Bin -. "codex queue: one turn per entry" .-> Codex
+    Claude -- "request, reply, status" --> Journal
+    Codex -- "request, reply, status" --> Journal
+    Journal -. "sideband follow wakes Claude" .-> Claude
+    Journal -. "codex queue wakes Codex" .-> Codex
+    James -- "tasks, in either session" --> Claude
+    James -- "tasks, in either session" --> Codex
 ```
 
 The executable is the only thing that parses or writes the journal, takes the
@@ -95,36 +98,36 @@ participants and not the user, and the minimal steps to act on it. This is
 what lets a conversation whose context was cleared, while its listener kept
 running, still handle what arrives.
 
-### One exchange, end to end
+### One task, two agents
 
 ```mermaid
 sequenceDiagram
     actor James
     participant Claude as Claude Code
-    participant Bin as sideband
     participant J as journal.md
     participant Codex
 
-    James->>Claude: "@codex review the locking behavior"
-    Claude->>Bin: hook prompt (before the model sees it)
-    Bin->>J: append instruction from human:james to codex
-    Bin->>Codex: codex queue --thread (thread id) --message (envelope)
-    Note over Codex: A new turn starts in the idle session. The entry is already marked delivered.
-    Codex->>Bin: append-agent --to human:james --type reply --reply-to (id)
-    Bin->>J: append reply from codex
-    Codex->>Bin: resolve --as acted (id)
-    Note over Bin,Claude: The human typed through Claude, so Claude's listener carries the reply
-    J-->>Claude: Monitor emits one wake line
-    Claude->>Bin: pending
-    Bin-->>Claude: reply with handling steps
-    Claude->>Bin: mark-delivered, then resolve --as presented
-    Claude->>James: Codex's review, attributed to Codex
+    James->>Claude: "Add retries to the uploader, have Codex review the tests"
+    Claude->>J: hook journals the prompt as an instruction from James
+    Note over Claude: Claude implements the change
+    Claude->>J: append-agent --to codex --type request --caused-by (James's entry)
+    J->>Codex: codex queue starts a turn with the envelope
+    Note over Codex: Codex reviews the tests and runs them
+    Codex->>J: append-agent --to claude --type reply --reply-to (the request)
+    Codex->>J: resolve --as acted
+    J-->>Claude: follow emits a wake line into the idle conversation
+    Claude->>J: pending, mark-delivered
+    Note over Claude: Claude fixes what Codex found
+    Claude->>J: resolve --as acted, resolve-outgoing --as answered
+    Claude->>James: The change, with Codex's review folded in
 ```
 
-Delegation works the same way in reverse. Claude appends a request to Codex
-with `--caused-by` naming the human entry that authorized it, Codex answers
-with `--reply-to`, and the executable correlates the reply with the outgoing
-request it answers.
+The request carries `--caused-by`, naming the human entry that authorized the
+delegation, and the reply carries `--reply-to`, naming the request. Nothing
+here needed James to relay anything, and James could have spoken to Codex in
+its own session at any point, including to redirect the review while Claude
+was still waiting for it. Waiting costs nothing: Claude's conversation stays
+free for James until the reply arrives.
 
 ### What a recipient records about an entry
 
