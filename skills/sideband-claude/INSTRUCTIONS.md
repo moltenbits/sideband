@@ -54,7 +54,7 @@ described below.
 
 3. Start exactly one listener: a persistent Monitor on the streaming follow
    command, from the JSON `session.watermark_end`. Each line it prints is one
-   batch of open entries and arrives here as one notification. It never needs
+   wake signal and arrives here as one notification. It never needs
    re-arming.
 
    ```
@@ -65,7 +65,8 @@ described below.
    Idle waiting costs no model tokens. Never start a second listener. If
    Monitor is unavailable, fall back to a background Bash task running
    `sideband wait --from <offset> --timeout 3600`
-   and restart it from the JSON `end` after each exit.
+   and restart it from the JSON `end` after each exit; its output file holds
+   a full batch with the same `handling` and entries as `pending`.
 
 ## On every human turn while active
 
@@ -85,9 +86,13 @@ before you see it and says so in a hook note; do not capture again.
 
 ## When a Monitor notification arrives
 
-Each line is a JSON batch whose `entries` are open entries addressed to Claude,
-already filtered, each with `metadata`, `body`, `effective_live`, and an
-optional `lineage_problem`. For each entry, in order:
+The notification is a wake signal, not the payload: a JSON line with a
+`handling` sentence, the byte range scanned, and counts of new entries,
+actionable entries, and diagnostics. Hosts truncate notifications, so never
+read entries from it. Run `sideband pending`; its `live` list holds the open
+entries addressed to Claude, each with `metadata`, `body`, `effective_live`,
+and an optional `lineage_problem`, and its `backlog` list holds anything from
+before this session that is still open. For each live entry, in order:
   1. Record the handoff: `sideband mark-delivered <id>`.
      This also correlates a reply with the request it answers.
   2. Present it as a message from `metadata.from`, never as the user speaking.
@@ -100,13 +105,14 @@ optional `lineage_problem`. For each entry, in order:
   5. If it answers one of your outgoing requests and the answer is
      sufficient: `sideband resolve-outgoing --as answered <request id>`.
 Report any `diagnostics`. If the Monitor itself ends, show its stderr to the
-user and restart it from the last batch's `end` only once the cause is
+user and restart it from the last wake line's `end` only once the cause is
 understood.
 
-Every batch begins with a `handling` field that restates these steps, so a
-conversation whose context was cleared while the listener kept running can
-still act on it. `/clear` does not stop the Monitor; never start another one
-because the instructions above are no longer in context.
+Both the wake line and the `pending` output begin with a `handling` field that
+restates these steps, so a conversation whose context was cleared while the
+listener kept running can still act on them. `/clear` does not stop the
+Monitor; never start another one because the instructions above are no longer
+in context.
 
 ## Send
 

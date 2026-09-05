@@ -1,7 +1,6 @@
 package com.moltenbits.sideband.command;
 
-import com.moltenbits.sideband.handoff.Batch;
-import com.moltenbits.sideband.handoff.Handoffs;
+import com.moltenbits.sideband.handoff.Wake;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
@@ -28,9 +27,10 @@ import java.util.concurrent.Callable;
 import java.util.function.Predicate;
 
 /**
- * A listener that never needs re-arming: streams one JSON batch per line, forever, for
- * every set of open entries addressed to the role. Meant to be attached to a host facility
- * that turns each output line into a notification, such as Claude Code's Monitor.
+ * A listener that never needs re-arming: streams one JSON wake line, forever, for every
+ * set of open entries addressed to the role. Meant to be attached to a host facility that
+ * turns each output line into a notification, such as Claude Code's Monitor. The line is
+ * a signal to run {@code pending}, never the payload: hosts truncate notifications.
  * Idle waiting happens inside this process and costs no model tokens.
  */
 @Command(name = "follow", description = "Stream one JSON batch per line as open entries for a role arrive; never exits on its own", mixinStandardHelpOptions = true)
@@ -59,15 +59,13 @@ public class FollowCommand implements Callable<Integer> {
     private final HostEnvironment host;
     private final JournalWatcher watcher;
     private final RecipientState recipients;
-    private final Handoffs handoffs;
     private final ObjectMapper json;
 
-    FollowCommand(SidebandHome home, HostEnvironment host, JournalWatcher watcher, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
+    FollowCommand(SidebandHome home, HostEnvironment host, JournalWatcher watcher, RecipientState recipients, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.watcher = watcher;
         this.recipients = recipients;
-        this.handoffs = handoffs;
         this.json = json;
     }
 
@@ -93,8 +91,7 @@ public class FollowCommand implements Callable<Integer> {
             if (waited.timedOut()) {
                 continue;
             }
-            out.println(json.writeValueAsString(
-                    Batch.forRole(role, read.start(), read.end(), handoffs.prepare(file, read.entries()), read.diagnostics(), false)));
+            out.println(json.writeValueAsString(Wake.of(role, read.start(), read.end(), read.entries(), read.diagnostics())));
             out.flush();
             batches++;
         }

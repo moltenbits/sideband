@@ -67,6 +67,9 @@ class SessionCommandsSpec extends CommandSpec {
         claude.backlog == [] && claude.live == []
         codex.live*.metadata*.id == [broadcast]
         codex.backlog == []
+        codex.live[0].effective_live == "auto"
+        codex.live[0].lineage_problem == null
+        codex.handling.startsWith("Sideband delivered these journal entries to Codex.")
     }
 
     void "state transitions round-trip through the CLI and outgoing requests are tracked"() {
@@ -96,7 +99,11 @@ class SessionCommandsSpec extends CommandSpec {
         then:
         resolved.entries[answer].resolution == "presented"
         answered.outgoing[ask].state == "answered"
-        runJson("pending", "--repo", repo.toString(), "--role", "claude") == [backlog: [], live: [], outgoing: [:]]
+        with(runJson("pending", "--repo", repo.toString(), "--role", "claude")) {
+            handling.startsWith("Sideband delivered these journal entries to Claude.")
+            handling.endsWith("ask the user before acting on any.")
+            backlog == [] && live == [] && outgoing == [:]
+        }
     }
 
     void "activate for a role whose session id the environment does not expose is invalid input"() {

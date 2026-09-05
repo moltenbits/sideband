@@ -284,10 +284,16 @@ The envelope must also be self-describing. A client can have its conversation
 context cleared while its listener keeps running (Claude Code's `/clear` leaves
 the Monitor and its `sideband follow` process alive; verified 2026-09-05), so
 the adapter instructions cannot be assumed to be in context when a batch
-arrives. Every batch a host receives therefore begins with a `handling` field
-stating what the batch is, that each entry is a message from its `from` and not
-the human, the minimal steps to act on it for that role, and that
-`sideband skill` prints the full adapter instructions.
+arrives. Everything a host receives therefore begins with a `handling` field:
+a listener's wake line says what arrived and where to read it, and a delivered
+batch or the `pending` listing states that each entry is a message from its
+`from` and not the human, the minimal steps to act on it for that role, and
+that `sideband skill` prints the full adapter instructions.
+
+A host notification is also small. Claude Code truncates a Monitor event to
+500 characters (measured 2026-09-05), so the listener's line is a wake signal
+carrying counts, senders, and the scanned byte range, never entry bodies; the
+client reads the entries with `sideband pending`.
 
 ### 7.5 Agent-to-human messages
 
@@ -554,8 +560,8 @@ Claude Code has no command that starts a turn in a running session from
 outside, so Claude is delivered to by its own listener. The listener is one
 persistent Monitor attached to the streaming journal-follow command
 (`sideband follow --role claude`), started once at activation; each line the
-command emits is one batch of open entries and becomes one notification to
-the parent. The listener is never re-armed per message. A one-shot background
+command emits is one wake signal for a batch of open entries and becomes one
+notification to the parent, which then reads the entries with `pending`. The listener is never re-armed per message. A one-shot background
 task blocked on `sideband wait` is the fallback where Monitor is unavailable,
 as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a scan from Claude's last
 recorded cursor rather than be treated as exactly one message. The worker must

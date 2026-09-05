@@ -460,8 +460,8 @@ simultaneous instances of the same role.
 
 The executable hands the parent one JSON batch: the marker line, then the batch
 with a self-describing `handling` preamble first and the verbatim bodies inside
-`entries`. The same shape is one line of `sideband follow` output for Claude and
-the `codex queue` message for Codex:
+`entries`. The same shape is the `sideband wait` output for Claude and the `codex queue`
+message for Codex:
 
 ```text
 [Sideband message]
@@ -470,7 +470,12 @@ the `codex queue` message for Codex:
 
 The `handling` text exists because a client's context can be cleared while its
 listener keeps running; the batch must say what it is and how to act on it
-without the skill instructions in context.
+without the skill instructions in context. Claude's listener does not print
+this batch: Claude Code truncates a Monitor event to 500 characters, so
+`sideband follow` prints a short wake line (`handling`, byte range, counts of
+entries, actionable entries, and diagnostics, and the senders) and the parent
+reads the batch with `sideband pending`, whose output carries the same
+`handling` and handoffs.
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the

@@ -23,7 +23,7 @@ class FollowCommandSpec extends CommandSpec {
         stdout.toString().readLines().findAll { it.trim() }.collect { context.getBean(ObjectMapper).readValue(it, Map) }
     }
 
-    void "streams one batch per line as entries for the role arrive, and skips everything else"() {
+    void "streams one wake line per batch as entries for the role arrive, and skips everything else"() {
         given:
         def following = CompletableFuture.supplyAsync {
             run("follow", "--repo", repo.toString(), "--role", "claude", "--from", "0", "--max-batches", "2")
@@ -42,14 +42,19 @@ class FollowCommandSpec extends CommandSpec {
         code == ExitCode.OK
         List<Map> batches = lines()
         batches.size() == 2
-        batches[0].entries*.body == ["@claude first"]
-        batches[0].entries[0].effective_live == "auto"
-        batches[1].entries*.body == ["@claude second"]
+        batches[0].entries == 1
+        batches[0].actionable == 1
+        batches[0].from == ["human:james"]
+        batches[0].diagnostics == 0
+        batches[1].entries == 1
         batches[1].start == batches[0].end
         batches[1].end == Files.size(journalFile)
-        batches.every { it.timed_out == false }
-        batches.every { it.handling.startsWith("Sideband delivered these journal entries to Claude.") }
         batches.every { it.keySet().first() == "handling" }
+        batches.every { it.handling.startsWith("Sideband: new journal entries for Claude") }
+        batches.every { it.handling.contains("Run `sideband pending`") }
+
+        and: "a wake line fits inside a host notification, which Claude Code caps at 500 characters"
+        stdout.toString().readLines().findAll { it.trim() }.every { it.length() < 400 }
     }
 
     void "the offset must not be negative"() {
