@@ -83,7 +83,11 @@ redelivered.
 sideband capture-human --human <id> --body-file <prompt.md>
 ```
 
-Only capture text the human typed. Never capture a listener delivery.
+Only capture text the human typed. Never capture a listener delivery. When the
+prompt hook is installed (`.claude/settings.json` in this repository), it has
+already captured the prompt before you see it and says so in a hook note; do
+not capture again. The hook also answers `/sideband help`, `status`, and
+`pending` itself, so those never reach you.
 
 ## When a Monitor notification arrives
 
