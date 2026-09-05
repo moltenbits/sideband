@@ -247,7 +247,7 @@ channel. Illustrative IDs below are abbreviated:
     "request-id": {
       "state": "pending",
       "acknowledged_at": null,
-      "ack_id": null,
+      "ack_ids": [],
       "reply_ids": [],
       "overdue_notified_at": null,
       "resolved_at": null
@@ -280,15 +280,15 @@ and bodies remain authoritative in the journal rather than being duplicated.
 For multi-recipient requests, the parent assesses which recipients have answered
 from those entries before deciding whether the overall request is satisfied.
 
-`acknowledged_at` and `ack_id` are set by the executable when the recipient
-appends an `ack` for the request (requirements 9.8); they are facts about the
-recipient's model having received it, distinct from `reply_ids`.
-`overdue_notified_at` records that the listener has already emitted a wake
-line for the request's current overdue condition, so a restarted listener does
-not repeat it. Overdue itself is never stored: `pending` and `follow` derive it
-from `created_at`, `acknowledged_at`, and the two timeouts in `config.json`
-(`ack_timeout`, default 5 minutes; `reply_timeout`, default 60 minutes,
-counted from the ack).
+`acknowledged_at` and `ack_ids` are set by the executable each time the
+recipient appends an `ack` for the request (requirements 9.8); they are facts
+about the recipient's model having received it and still being responsive,
+distinct from `reply_ids`. `overdue_notified_at` is reserved for the automatic
+wake, if adopted, so a restarted listener does not repeat a notice. Overdue
+itself is never stored: `pending` derives it from `created_at`, the latest
+`acknowledged_at`, and the two timeouts in `config.json` (`ack_timeout`,
+default 5 minutes; `reply_timeout`, default 60 minutes, counted from the
+latest ack).
 
 Appending a request and registering its outgoing state happen under the shared
 lock. Because the journal and cursor are separate files, recovery rescans the
@@ -443,9 +443,10 @@ self-redelivery if that cursor update was interrupted.
 both relationships, including a human-directed follow-up. It validates
 provenance and records actionable outgoing requests before returning their IDs.
 With `--type ack` it requires `--reply-to`, forces `expects_reply` false,
-accepts an empty body, stamps `acknowledged_at` and `ack_id` on the author of
-the acknowledged entry's outgoing record, and resolves the ack for every
-recipient at once so it is never delivered as an open entry.
+accepts an empty body, stamps `acknowledged_at` and appends to `ack_ids` on
+the author of the acknowledged entry's outgoing record when that entry is an
+agent request, and resolves the ack for every recipient at once so it is
+never delivered as an open entry. Repeated acks for one request are allowed.
 `pending` reports unresolved incoming entries and pending outgoing requests
 separately. `resolve-outgoing` records the parent's disposition, not a delivery
 acknowledgement or a time-based decision.
@@ -580,17 +581,18 @@ permission to execute actionable backlog. Newer human instructions govern any
 resumed work. Passage of time changes no request state.
 
 Receipt is acknowledged before work starts. When the parent takes up an
-actionable entry it appends an `ack` first (requirements 9.8); the executable
-turns that into `acknowledged_at` on the requester's outgoing record without
-waking the requester. `follow` evaluates pending outgoing requests on each of
-its periodic cursor re-reads: a request unacknowledged past `ack_timeout`, or
-acknowledged but unanswered past `reply_timeout`, produces one wake line
-carrying the request id, the condition, and whether the recipient's session is
-alive, recorded in `overdue_notified_at` so it fires once per condition. A
-running `follow` does this for both roles, pushing Codex's notices with
-`codex queue`, because Codex has no listener of its own; absent any listener,
-Codex sees the derived `overdue` field at its next `pending`. The parent's
-response is a report to the human, never an automatic resend or resolution.
+agent request it appends an `ack` first (requirements 9.8), and may append
+another while the work runs to show it is still responsive; the executable
+turns each into `acknowledged_at` on the requester's outgoing record without
+waking the requester. `pending` reports, per outgoing request, the latest
+acknowledgement, a derived `overdue` condition (`none`, `ack`, or `reply`),
+and the recipient's session liveness. The sending parent decides what to do
+with that: keep waiting, move on, or tell the human the other agent may be
+stalled. Sideband never resends or resolves on its own. How an idle requester
+comes to look is open (requirements section 15); if the automatic wake is
+adopted, `follow` evaluates outgoing requests on its periodic cursor re-reads
+and emits one wake line per newly overdue condition, recorded in
+`overdue_notified_at`.
 
 ### 7.6 Human-directed follow-ups
 
@@ -630,9 +632,10 @@ Both `SKILL.md` files must instruct their host to:
     ordinary linked follow-ups without restarting the listener.
 13. Verify the shared executable's compatibility and report whether human
     capture is hook-backed or best effort at activation and through `doctor`.
-14. Acknowledge every actionable entry with an `ack` before starting on it,
-    and report overdue outgoing requests to the human as a possible
-    disconnection (unacknowledged) or slow work (acknowledged).
+14. Acknowledge every agent request with an `ack` before starting on it,
+    acknowledge again during long work, and, when checking outgoing requests,
+    decide whether to keep waiting, move on, or report a possible
+    disconnection (unacknowledged) or slow work (acknowledged) to the human.
 
 Neither skill should contain its own journal parser, lock implementation, or
 routing logic.
