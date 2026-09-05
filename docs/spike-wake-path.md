@@ -26,7 +26,7 @@ in `.git/sideband/journal.md`, which `git status` does not show.
 Observed detail worth carrying into the design: the delivery is the task's
 stdout, so the JSON shape of `wait` is the delivery envelope on this host.
 
-## Codex: experiment prepared; idle wake not yet verified
+## Codex: failed idle wake via subagent message (2026-09-05 UTC)
 
 Experiment ID: `sideband-codex-wake.R0qG3u`. Prepared on 2026-09-05 UTC
 (2026-09-04 in the session's America/Bogota timezone).
@@ -80,6 +80,100 @@ describes interactive subagents and returned results, but does not establish
 this post-final idle-parent wake guarantee. The OpenAI Docs check therefore
 does not substitute for this live experiment.
 
-Outcome: pending observation. Implementation beyond the spike remains gated
-by REQUIREMENTS.md sections 10.6 and 17.1. No daemon, hook, MCP server, or
-headless Codex invocation is introduced.
+### Observed outcome
+
+The journal transport succeeded, but `collaboration.send_message` did not
+start a new turn in the idle parent in this experiment. The user supplied a
+new message reporting the missing wake; only during that user-triggered turn
+did the parent receive the listener's queued message. This is a failed wake
+test, not a successful delayed automatic wake.
+
+Evidence (all timestamps UTC on 2026-09-05):
+
+- Listener readiness: 03:51:08, shell session `90979`, starting offset 141.
+- Detached writer launch: 03:52:01.738, PID `28381`.
+- Writer log: append started and finished at 03:54:01, exit code 0,
+  stdout `{"start":141,"end":313}`.
+- Listener reported exit code 0 and observation time 03:54:05, then sent
+  the following through `collaboration.send_message` to `/root`:
+
+  ```text
+  [Sideband message]
+  {"start":141,"end":313,"entries":["Codex wake-path probe sideband-codex-wake.R0qG3u. This entry was appended by a detached shell process. Transport test only; no project action requested."],"timed_out":false}
+  ```
+
+- The delivered message also included the listener's observation timestamp,
+  command exit code, originating shell session, and notice that it was
+  continuing from offset 313. It appeared as a host agent `MESSAGE` from
+  `/root/sideband_listener` in the parent's internal agent context, not as a
+  user-visible chat message, user input, or a new automatic parent turn.
+- First diagnostic timestamp after the user's intervention: 03:57:49.
+  The journal was 313 bytes and contained the probe. A subsequent native wait
+  from offset 313 was still running (PID `28473`), independently confirming
+  that the listener had progressed beyond the first append while the parent
+  was idle.
+
+Capability conclusions:
+
+| Capability | Result in this attempt |
+| --- | --- |
+| Subagent survives the parent's turn ending | Passed for the observed interval |
+| Native wait survives shell-tool yielding and returns the external entry | Passed for the observed interval; not a full 3600-second endurance test |
+| Subagent message automatically starts an idle parent turn | Failed; user input was needed |
+
+The listener was interrupted and its remaining native wait terminated during
+cleanup. The journal probe and temporary writer logs were retained. No
+subagent-completion wake test was performed; this result does not establish
+that every other supported native notification path is impossible. It does
+establish that the tested persistent-listener/message path does not satisfy
+the gate on this host.
+
+Implementation beyond the spike remains blocked by REQUIREMENTS.md sections
+10.6 and 17.1. Bring this result back to the requirements decision; no daemon,
+hook, MCP server, or headless Codex invocation was introduced as a fallback.
+
+## Codex: completion-based attempt prepared (2026-09-05 UTC)
+
+Experiment ID: `sideband-codex-completion.TSCxXJ`. The user authorized this
+separate test after discussing the first attempt and hooks. The installed CLI
+still reports `codex-cli 0.153.3`; the starting journal size is 313 bytes.
+
+This changes one behavior from the persistent-listener attempt: after the
+native wait returns an entry, the subagent finishes with that entry in its
+final answer. It does not send the entry through `collaboration.send_message`
+and does not start another wait. The parent prepares the writer and this
+record while the subagent starts waiting, then ends its turn.
+
+Procedure:
+
+1. Start `/root/sideband_completion` through `collaboration.spawn_agent` with
+   exactly one native wait:
+
+   ```sh
+   /Users/jamesdh/.local/bin/sideband wait --repo /Users/jamesdh/Projects/moltenbits/sideband --from 313 --timeout 3600
+   ```
+
+2. Receive a readiness message while the parent is still active. Launch a
+   detached shell writer that sleeps 120 seconds, then appends the body in
+   `/tmp/sideband-codex-completion.TSCxXJ/body.md`. Writer output is retained in
+   `append.log` in that directory. This delay is experimental separation of
+   setup and delivery, not a production timeout or retry policy.
+3. End the parent turn without waiting in a parent tool. No user input should
+   be sent during the observation interval.
+4. On receipt, the subagent returns `[Sideband completion]`, the native
+   command's stdout JSON verbatim, and its observed timestamp and exit code
+   in its final answer. Its completion, not an intermediate message, is the
+   candidate wake mechanism. Do not retry on timeout or failure.
+5. Count success only if completion automatically starts another parent turn
+   without user input. The parent should then visibly report the probe and
+   record the outcome. A result available only after another user message
+   fails this test, even if a completed-subagent indicator appears in the UI.
+
+As before, shell-tool waits are capped at 60 seconds in this environment;
+this does not establish zero idle model work or full-hour endurance. No hooks,
+daemon, headless invocation, skill changes, or feature implementation are part
+of this attempt. A successful single completion would still require testing
+listener rearming before calling the ongoing delivery design proven.
+
+Outcome: prepared, pending post-final observation. The feasibility gate
+remains blocked; the first attempt's failed result is preserved above.
