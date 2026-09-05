@@ -8,6 +8,7 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
+import com.moltenbits.sideband.recipient.Pending;
 import com.moltenbits.sideband.recipient.RecipientState;
 import com.moltenbits.sideband.recipient.Session;
 import com.moltenbits.sideband.recipient.SessionRefresh;
@@ -23,6 +24,7 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.concurrent.Callable;
@@ -70,8 +72,12 @@ public class HookCommand {
             try {
                 return capturePrompt();
             } catch (IOException | RuntimeException e) {
-                spec.commandLine().getErr().println("sideband hook: capture failed: " + e.getMessage());
-                return ExitCode.OK;
+                try {
+                    return failed("capture failed: " + e.getMessage());
+                } catch (IOException unreportable) {
+                    spec.commandLine().getErr().println("sideband hook: could not report the failure: " + unreportable.getMessage());
+                    return ExitCode.OK;
+                }
             }
         }
 
@@ -80,8 +86,7 @@ public class HookCommand {
             try {
                 payload = json.readValue(new String(System.in.readAllBytes(), UTF_8), Payload.class);
             } catch (IOException e) {
-                spec.commandLine().getErr().println("sideband hook: unreadable payload: " + e.getMessage());
-                return ExitCode.OK;
+                return failed("unreadable payload: " + e.getMessage());
             }
             if (payload == null || (payload.hookEventName() != null
                     && !payload.hookEventName().equals("UserPromptSubmit"))) {
@@ -92,10 +97,12 @@ public class HookCommand {
             if (trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER) || trimmed.startsWith("/") || trimmed.startsWith("!")) {
                 return ExitCode.OK;
             }
-            Path cwd = payload.cwd() == null ? Path.of(System.getProperty("user.dir")) : Path.of(payload.cwd());
             Path stateDirectory;
             try {
+                Path cwd = payload.cwd() == null ? Path.of(System.getProperty("user.dir")) : Path.of(payload.cwd());
                 stateDirectory = home.locate(cwd);
+            } catch (InvalidPathException e) {
+                return skipped("invalid working directory in the hook payload");
             } catch (NotARepositoryException e) {
                 return ExitCode.OK;
             }
@@ -121,9 +128,9 @@ public class HookCommand {
             SessionRefresh refreshed = recipients.refreshSession(stateDirectory, role, payload.sessionId(),
                     host.parentPid(role).orElse(null));
             switch (refreshed) {
-                case NOT_ACTIVE -> { return skipped("Sideband is not activated for " + role.id()); }
-                case SESSION_MISMATCH -> { return skipped("the caller does not own the recorded " + role.id() + " session"); }
-                case CALLER_UNAVAILABLE -> { return skipped("recorded host is dead and a living caller process could not be identified; reactivate Sideband"); }
+                case NOT_ACTIVE -> { return inactive(stateDirectory, role); }
+                case SESSION_MISMATCH -> { return failed("another " + role.displayName() + " session owns Sideband in this repository"); }
+                case CALLER_UNAVAILABLE -> { return failed("the recorded " + role.displayName() + " host is dead and a living caller process could not be identified; reactivate Sideband"); }
                 case READY, REFRESHED -> { /* capture below */ }
             }
             Captured captured = capture.capture(stateDirectory, role, prompt);
@@ -131,8 +138,40 @@ public class HookCommand {
             return ExitCode.OK;
         }
 
+        /** A prompt that was never meant to be captured, or a repository where Sideband is not in use: stderr only. */
         private int skipped(String reason) {
             spec.commandLine().getErr().println("sideband hook: capture skipped: " + reason);
+            return ExitCode.OK;
+        }
+
+        /**
+         * A prompt that should have been journaled and was not. The host shows the model only
+         * the context field, so a failure must go there too or the loss is invisible.
+         */
+        private int failed(String reason) throws IOException {
+            spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
+            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit",
+                    "Sideband could not journal this prompt: " + reason + ". Tell the user; the prompt is not in the journal.")));
+            return ExitCode.OK;
+        }
+
+        /**
+         * Sideband is not active for the caller, which is normal in a repository that has it
+         * installed but is not using it right now. The model hears about it only when entries
+         * addressed to the caller are waiting, so nothing sits unread in silence.
+         */
+        private int inactive(Path stateDirectory, Role role) throws IOException {
+            Pending pending = recipients.pending(stateDirectory, role);
+            int waiting = pending.backlog().size() + pending.live().size();
+            if (waiting == 0) {
+                return skipped("Sideband is not activated for " + role.id());
+            }
+            spec.commandLine().getErr().println("sideband hook: capture skipped: Sideband is not activated for " + role.id()
+                    + "; " + waiting + " waiting");
+            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit",
+                    "Sideband is not active in this session and " + waiting + (waiting == 1 ? " entry" : " entries")
+                    + " addressed to " + role.displayName() + " " + (waiting == 1 ? "is" : "are")
+                    + " waiting. Tell the user; /sideband activates and reviews them.")));
             return ExitCode.OK;
         }
 

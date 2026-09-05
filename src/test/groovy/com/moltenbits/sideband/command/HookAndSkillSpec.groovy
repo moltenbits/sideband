@@ -90,6 +90,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         run("hook", "prompt") == ExitCode.OK
         stderr.toString().contains("unreadable payload")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
 
         cleanup:
         System.in = original
@@ -184,8 +185,6 @@ class HookAndSkillSpec extends CommandSpec {
 
         where:
         detected    | flag     | session | ambiguous
-        Role.CODEX  | null     | "other" | false
-        Role.CODEX  | "codex"  | "other" | false
         Role.CODEX  | "claude" | "s1"    | false
         Role.CLAUDE | null     | "s1"    | false
         null        | null     | "s1"    | true
@@ -260,13 +259,71 @@ class HookAndSkillSpec extends CommandSpec {
 
         expect:
         hook("resume", "s1") == ExitCode.OK
-        stdout.toString().isEmpty()
-        stderr.toString().contains("capture skipped")
-        stderr.toString().contains("caller")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
+        json().hookSpecificOutput.additionalContext.contains("caller")
+        stderr.toString().contains("capture failed")
         !Files.exists(journalFile)
 
         where:
         caller << [null, 999999998L]
+    }
+
+    void "a prompt that should have been journaled and was not is reported to the model, never only to stderr"() {
+        given:
+        run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+        Files.createDirectories(journalFile)
+
+        expect: "a directory where the journal belongs makes the append fail"
+        hook("this must not vanish") == ExitCode.OK
+        json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt: capture failed")
+        json().hookSpecificOutput.additionalContext.endsWith("Tell the user; the prompt is not in the journal.")
+        stderr.toString().contains("capture failed")
+    }
+
+    void "a caller from a second session of an active role is told another session owns Sideband"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        expect:
+        hook("hello", "other", repo.toString(), flag ? ["--agent", flag] : []) == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.contains("another Codex session owns Sideband")
+        !Files.exists(journalFile)
+
+        where:
+        flag << [null, "codex"]
+    }
+
+    void "when Sideband is not active for the caller, the model hears about it only if entries are waiting"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        if (waiting > 0) {
+            run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "c1")
+            (1..waiting).each { n ->
+                context.getBean(com.moltenbits.sideband.journal.Journal).append(journalFile,
+                        com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CODEX,
+                                to: [com.moltenbits.sideband.Fixtures.CLAUDE], type: com.moltenbits.sideband.protocol.MessageType.STATUS,
+                                causedBy: null, expectsReply: false, body: "status " + n))
+            }
+        }
+        long before = Files.exists(journalFile) ? Files.size(journalFile) : 0
+        stdout = new StringWriter()
+
+        expect:
+        hook("hello", "s1") == ExitCode.OK
+        stderr.toString().contains("not activated for claude")
+        (waiting == 0) == stdout.toString().isEmpty()
+        waiting == 0 || json().hookSpecificOutput.additionalContext == expected
+        (Files.exists(journalFile) ? Files.size(journalFile) : 0) == before
+
+        where:
+        waiting | expected
+        0       | null
+        1       | "Sideband is not active in this session and 1 entry addressed to Claude is waiting. Tell the user; /sideband activates and reviews them."
+        2       | "Sideband is not active in this session and 2 entries addressed to Claude are waiting. Tell the user; /sideband activates and reviews them."
     }
 
     void "an envelope cannot revive a dead session"() {
