@@ -76,9 +76,10 @@ described below.
    Tell the user once that setting `crossSessionInbound` to `accept` in
    their user settings (`sideband doctor` shows the file and the current
    verdict under `clients.inbound`) makes the listener unnecessary. Then
-   start exactly one listener: a persistent Monitor on the streaming form
-   of `pending`. Each line it prints is one report and arrives here as one
-   notification.
+   make sure exactly one listener runs: if this conversation already has a
+   Monitor from an earlier activation, keep it; otherwise start one, a
+   persistent Monitor on the streaming form of `pending`. Each line it
+   prints is one report and arrives here as one notification.
 
    ```
    Monitor(command: "sideband pending --wait --stream",
@@ -88,11 +89,13 @@ described below.
    Idle waiting costs no model tokens. Never start a second listener, and
    never start one when the mode is `push`. If Monitor is unavailable, fall
    back to a background Bash task running
-   `sideband pending --wait --timeout 3600`; when it exits with the
-   timed-out code (6), start it again, and when it exits any other way,
-   show the user its stderr and stop. A listener keeps running the
-   executable it started with, so after `just install` replaces the binary,
-   stop it and start it again.
+   `sideband pending --wait --timeout 3600` and treat each exit by its
+   code: 0 means something arrived, so handle it exactly like a Monitor
+   notification and start the task again; 6 means nothing arrived in time,
+   so start it again without comment; anything else is a failure, so show
+   the user its stderr and stop. A listener keeps running the executable it
+   started with, so after `just install` replaces the binary, stop it and
+   start it again.
 
    The join decides from the settings files the executable can read. If
    the user knows managed settings or `--settings` hold cross-session
