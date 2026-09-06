@@ -14,30 +14,38 @@ Exit codes are 0 ok, 2 invalid input, 3 not a repository, 4 lock contention,
 
 ## Arguments
 
-The text after `$sideband` selects what to do. With no argument, activate.
+The text after `$sideband` selects what to do. With no argument, join and resume.
 
 | Argument | What to do |
 | --- | --- |
-| `help` | Show this table and the command summaries from `sideband --help`, without activating. Remind the user that `! sideband <command>` runs it directly without a model turn. |
-| `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, journal health and skill links. Do not activate. |
+| `help` | Show this table and the command summaries from `sideband --help`, without joining. Remind the user that `! sideband <command>` runs it directly without a model turn. |
+| `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, journal health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
 | anything else | Capture the actual human prompt verbatim once, following the hook rules below. A leading routing directive is interpreted by the executable. |
 
-## Activate
+## Join
 
 ```bash
-sideband activate
+sideband join --resume
 ```
 
 The executable records the thread from `CODEX_THREAD_ID` and the host process.
 Exit 7 means another live session owns this role: report it and use `--replace`
-only when the user authorizes replacement. Do not activate again merely to
+only when the user authorizes replacement. Do not join again merely to
 check status or on each notification.
 
-Activation returns the first pending report, not a separate backlog list.
-`session.watermark` is the activation boundary; `session.offset` is the read
-position. No per-entry state is stored outside the journal.
+Use `--resume` unless the user explicitly asks to start fresh. It retains the
+previous read position (or starts at the beginning when the role has never
+joined), so unread replies and other updates are included in the first report.
+Plain `sideband join` skips earlier informational updates; unanswered requests
+remain listed. Starting fresh does not delete journal entries or close requests.
+
+Joining returns the first pending report, not a separate backlog list.
+`session.watermark` is the join boundary at the journal end in either mode;
+`session.offset` is the read position. Resuming unread updates does not grant
+permission to execute pre-session requests. No per-entry state is stored
+outside the journal.
 
 Read and present the report using the handling rules below. For requests that
 need confirmation, show a short table (id prefix, author, preview) and ask
@@ -71,8 +79,9 @@ follows, reporting problems to the user before substantive work:
 - `could not journal this prompt`: capture once only after establishing that
   this session owns the role and nothing was written. An ownership conflict
   or unidentified caller is not permission to bypass the failed check with
-  manual capture. Resolve activation/identity first.
-- `not active ... entries are waiting`: tell the user and offer `$sideband`.
+  manual capture. Resolve session ownership/identity first.
+- `not active ... entries are waiting` or `not joined as`: tell the user and
+  offer `$sideband`, which joins with `--resume`.
 
 Without any hook confirmation, capture is best effort only while this session
 is known to be active, and report that limitation:
@@ -100,7 +109,7 @@ Use this report to decide what remains unanswered. A queued envelope may still
 carry an `entries` batch rather than the report's `open` shape; it may also be
 duplicated or stale. Do not execute the raw batch independently of the report.
 
-Both `pending` and `activate` advance the read position: informational `updates`
+Both `pending` and `join` advance the read position: informational `updates`
 returned by one call need not appear again. Read and present each returned
 report before making another call. Use `doctor` for counts-only checks.
 
@@ -133,7 +142,7 @@ For each item under `open`, in journal order:
 `in_progress` uses the same item shape and holds acknowledged, unanswered
 requests. Continue only already-authorized work, without duplicating a task
 that is currently running. An ack alone never proves approval: apply the same
-confirmation checks after context loss or reactivation.
+confirmation checks after context loss or rejoining.
 
 `updates` holds informational handoffs directly (`metadata`, `body`, etc.).
 Show them as messages from their recorded authors; do not ack them or invent
