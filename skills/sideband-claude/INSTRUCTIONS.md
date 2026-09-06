@@ -88,7 +88,9 @@ sideband capture-human --body-file <prompt.md>
 Only capture text the human typed. Never capture a listener delivery. When the
 prompt hook is installed (`sideband init` registers `sideband hook prompt` in
 this repository's `.claude/settings.json`), it has already captured the prompt
-before you see it and says so in a hook note; do not capture again. Any other
+before you see it and says so in a hook note that names the entry's id; do
+not capture again, and use that id as `--caused-by` when the prompt leads you
+to delegate. Never read the journal file to find an id. Any other
 hook note is a problem to tell the user about before doing anything else, and
 each says what to do:
   - "could not record this prompt": it is not in the discussion. Capture it

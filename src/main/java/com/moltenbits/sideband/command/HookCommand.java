@@ -233,9 +233,11 @@ public class HookCommand {
                     .filter(p -> p.outcome() != PushOutcome.LISTENER_DELIVERS)
                     .map(p -> p.role().id() + "=" + p.outcome().id())
                     .collect(Collectors.joining(", "));
+            String id = captured.metadata().id();
             return delivered.isEmpty()
-                    ? "Sideband recorded this prompt. Do not capture it again."
-                    : "Sideband recorded this prompt and delivered it: " + delivered + ". Do not capture or route it again.";
+                    ? "Sideband recorded this prompt as " + id + ". Do not capture it again; cite it as --caused-by when delegating."
+                    : "Sideband recorded this prompt as " + id + " and delivered it: " + delivered
+                    + ". Do not capture or route it again; cite it as --caused-by when delegating.";
         }
 
         @Serdeable(naming = SnakeCaseStrategy.class)
