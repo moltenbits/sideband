@@ -9,7 +9,7 @@ public enum PushOutcome implements Wire {
 
     /** The host accepted the message and started a turn with it. */
     PUSHED,
-    /** The role has never activated in this repository; the entry waits as backlog. */
+    /** The role has never joined in this repository; the entry waits until it does. */
     NO_SESSION,
     /** The role's recorded session process is gone; the entry waits as backlog. */
     SESSION_DEAD,

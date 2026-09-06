@@ -236,8 +236,9 @@ read position, never a record of what was said or done:
 `watermark` is the journal size at activation: an entry ending at or before it
 predates the session, and the human confirms such a request before it is
 acted on. `offset` is the read position: informational entries ending at or
-before it have been shown to the role. `pending` and `activate` advance it to
-the end of what they report. Requests are not tracked by position at all; a
+before it have been shown to the role. `pending` and `join` advance it to the
+end of what they report; `join --resume` starts from the previous bookmark
+instead of the latest point. Requests are not tracked by position at all; a
 request to the role stays listed until the journal holds the role's ack (in
 progress) or reply (done), and the role's own requests stay listed as
 outgoing until a recipient's reply exists.
@@ -354,7 +355,7 @@ sideband append-agent --from codex --to claude --type reply \
 sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt or still working, body optional
 sideband append-agent --from claude --to codex --type request --caused-by <id> \
   --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
-sideband activate --role codex --session-id <id>            # start the session; prints the first pending report
+sideband join --role codex --session-id <id> [--resume]     # start the session; prints the first pending report
 sideband wait --role <role> --from <offset> [--timeout s]     # one batch, then exit
 sideband follow --role <role> --from <offset>                # one wake line per batch, forever
 sideband pending --role codex                                # open, in progress, updates, outgoing
@@ -430,10 +431,10 @@ sender-wait policy and must not create an idle model loop.
 
 ### 7.1 Startup watermark
 
-`activate` acquires the shared lock, parses through the last complete entry,
-stores its ID and ending byte offset as the session watermark, and releases the
-lock. It then returns all unresolved addressed entries at or before that offset
-as backlog.
+`join` acquires the shared lock, parses through the last complete entry, stores
+its ending byte offset as the session watermark, sets the bookmark there or,
+with `--resume`, leaves it where the previous session stopped, and releases the
+lock. It then prints the first pending report.
 
 The transport worker starts its first `wait` from the stored byte offset. An
 entry appended after the watermark but before the blocking wait begins is found
@@ -568,7 +569,7 @@ one; ordinary outgoing tracking and backlog policy apply.
 
 Both `SKILL.md` files must instruct their host to:
 
-1. Run `init` and `activate` once for the current parent session.
+1. Run `init` once and `join` once for the current parent session.
 2. Capture each direct human turn before substantive work while Sideband is
    active.
 3. Act on an originating direct/broadcast turn without injecting it back into
@@ -627,7 +628,7 @@ proposed adapter, subject to the uncompleted feasibility spike, should:
 - spawn a dedicated background subagent named for the Sideband listener;
 - pass the parent task/thread identity and the generated Sideband session ID to
   that worker;
-- run no listener: `sideband activate --role codex` records `CODEX_THREAD_ID`
+- run no listener: `sideband join --role codex` records `CODEX_THREAD_ID`
   as the session id, and every writer's `append` pushes entries addressed to
   Codex with `codex queue --thread <thread id> --message <envelope>` and marks
   them delivered (the `push` component in the executable); subagent messaging

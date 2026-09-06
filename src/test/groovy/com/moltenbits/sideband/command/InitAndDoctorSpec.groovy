@@ -70,7 +70,7 @@ class InitAndDoctorSpec extends CommandSpec {
         given:
         runJson("init", "--repo", repo.toString(), "--human", "james", "--skip-clients")
         runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
-        runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
         Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
 
         when:

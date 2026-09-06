@@ -57,18 +57,19 @@ class FileSessions implements Sessions {
     }
 
     @Override
-    public Session activate(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace) {
+    public Session join(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace, boolean resume) {
         try (Lock ignored = locks.acquire(stateDirectory)) {
             Optional<Session> existing = load(stateDirectory, role);
             if (existing.isPresent() && !existing.get().id().equals(sessionId) && !replace && existing.get().isLive()) {
                 throw new SessionConflictException(existing.get());
             }
             long end = journal.readCompleteFrom(stateDirectory.resolve(Journal.FILE_NAME), 0).end();
-            Session session = new Session(sessionId, now(), parentPid, end, end);
+            long offset = resume ? Math.min(existing.map(Session::offset).orElse(0L), end) : end;
+            Session session = new Session(sessionId, now(), parentPid, end, offset);
             save(stateDirectory, role, session);
             return session;
         } catch (IOException e) {
-            throw new UncheckedIOException("could not activate " + role.id() + " in " + stateDirectory, e);
+            throw new UncheckedIOException("could not join as " + role.id() + " in " + stateDirectory, e);
         }
     }
 

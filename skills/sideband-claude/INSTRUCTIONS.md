@@ -22,17 +22,20 @@ described below.
 | `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. Remind the user that `! sideband <command>` runs any command directly with no model turn. |
 | `status` | Run `sideband doctor` and summarize it: both roles' sessions and whether they are live, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
-| `off` | Stop the listener (TaskStop on the Monitor) and tell the user the session stays recorded, so a later `/sideband` resumes with confirmation of whatever arrived meanwhile. |
+| `off` | Stop the listener (TaskStop on the Monitor) and tell the user the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | Treat it as a message: capture it with `capture-human` exactly as a human turn, so `/sideband @codex look at this` routes to Codex. |
 
 ## Activate
 
-1. Start the session. The executable recognizes Claude Code from its shell
-   environment and records this conversation's session id and process id, so a
-   later session can supersede this one automatically if it dies.
+1. Join. The executable recognizes Claude Code from its shell environment
+   and records this conversation's session id and process id, so a later
+   session can supersede this one automatically if it dies. Plain `join`
+   starts at the latest point; `--resume` picks up from where Claude last
+   left off, so replies and other updates written for it since are shown.
+   Use `--resume` unless the user says to start fresh.
 
    ```bash
-   sideband activate
+   sideband join --resume
    ```
 
    Exit 7 means another live Claude session owns this repository. Tell the

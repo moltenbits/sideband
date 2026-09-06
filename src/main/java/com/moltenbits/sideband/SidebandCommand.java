@@ -1,6 +1,6 @@
 package com.moltenbits.sideband;
 
-import com.moltenbits.sideband.command.ActivateCommand;
+import com.moltenbits.sideband.command.JoinCommand;
 import com.moltenbits.sideband.command.AppendAgentCommand;
 import com.moltenbits.sideband.command.CaptureHumanCommand;
 import com.moltenbits.sideband.command.DoctorCommand;
@@ -29,7 +29,7 @@ import picocli.CommandLine.IVersionProvider;
         versionProvider = SidebandCommand.Version.class,
         subcommands = {
                 InitCommand.class,
-                ActivateCommand.class,
+                JoinCommand.class,
                 CaptureHumanCommand.class,
                 AppendAgentCommand.class,
                 WaitCommand.class,

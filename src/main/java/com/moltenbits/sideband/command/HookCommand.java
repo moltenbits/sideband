@@ -139,7 +139,7 @@ public class HookCommand {
                         .filter(candidate -> matchesSession(stateDirectory, candidate, payload.sessionId()))
                         .toList();
                 if (matching.size() != 1) {
-                    String reason = matching.isEmpty() ? "no recorded session matches this caller; activate Sideband"
+                    String reason = matching.isEmpty() ? "no recorded session matches this caller; join Sideband"
                             : "session matches multiple roles; use --agent to identify the caller";
                     return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
                 }
@@ -150,7 +150,7 @@ public class HookCommand {
             switch (refreshed) {
                 case NOT_ACTIVE -> { return inactive(stateDirectory, role); }
                 case SESSION_MISMATCH -> { return failed("another " + role.displayName() + " session owns Sideband in this repository"); }
-                case CALLER_UNAVAILABLE -> { return failed("the recorded " + role.displayName() + " host is dead and a living caller process could not be identified; reactivate Sideband"); }
+                case CALLER_UNAVAILABLE -> { return failed("the recorded " + role.displayName() + " host is dead and a living caller process could not be identified; join Sideband again"); }
                 case READY, REFRESHED -> { /* capture below */ }
             }
             Captured captured = capture.capture(stateDirectory, role, prompt);
@@ -201,14 +201,14 @@ public class HookCommand {
         private int inactive(Path stateDirectory, Role role) throws IOException {
             int waiting = pending.report(stateDirectory, role).waiting();
             if (waiting == 0) {
-                return skipped("Sideband is not activated for " + role.id());
+                return skipped("Sideband is not joined as " + role.id());
             }
-            spec.commandLine().getErr().println("sideband hook: capture skipped: Sideband is not activated for " + role.id()
+            spec.commandLine().getErr().println("sideband hook: capture skipped: Sideband is not joined as " + role.id()
                     + "; " + waiting + " waiting");
             String invocation = role == Role.CLAUDE ? "/sideband" : "$sideband";
             return report("Sideband is not active in this session and " + waiting + (waiting == 1 ? " entry" : " entries")
                     + " addressed to " + role.displayName() + " " + (waiting == 1 ? "is" : "are")
-                    + " waiting. Tell the user; " + invocation + " activates and reviews them.");
+                    + " waiting. Tell the user; " + invocation + " joins and reviews them.");
         }
 
         private boolean matchesSession(Path stateDirectory, Role role, String sessionId) {

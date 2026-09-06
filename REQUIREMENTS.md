@@ -504,8 +504,11 @@ not be presented as pending work when `expects_reply` is false.
 ### 9.5 Session record
 
 The only state a role keeps outside the journal is its session record: the
-host's session identifier and process, when it was activated, the journal
-size at activation (its watermark), and its read position. The read position
+host's session identifier and process, when it joined, the journal size at
+that moment (its watermark), and its read position, the bookmark. `join`
+starts the bookmark at the latest point; `join --resume` keeps the previous
+one (or the start of the journal for a role that never had one), so
+everything written for the role while it was away is shown. The read position
 is the byte offset up to which entries have been shown to the role. Nothing
 about what a role has done with an entry is stored; that is in the journal,
 as the role's own acks and replies.
@@ -696,7 +699,7 @@ step exists; each batch carries its own handling preamble (section 7.4) instead.
 Codex offers `codex queue --thread <thread id> --message <text>`, which
 starts a new turn in an existing idle session
 ([docs/spike-wake-path.md](docs/spike-wake-path.md)). Codex therefore runs no
-listener. At activation, `sideband activate --role codex` records the
+listener. On joining, `sideband join --role codex` records the
 session's thread id from `CODEX_THREAD_ID`; from then on every writer that
 appends an entry addressed to Codex pushes the envelope with `codex queue`
 and marks it delivered. Subagent messaging and subagent completion were

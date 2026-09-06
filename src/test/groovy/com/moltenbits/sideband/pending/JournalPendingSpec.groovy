@@ -64,7 +64,7 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).open()*.beforeSession() == [true]
 
         when:
-        sessions.activate(dir, Role.CODEX, "s1", null, false)
+        sessions.join(dir, Role.CODEX, "s1", null, false)
         Entry after = human("@codex after")
 
         then:
@@ -74,7 +74,7 @@ class JournalPendingSpec extends Specification {
 
     void "informational entries are updates until the read position passes them"() {
         given:
-        sessions.activate(dir, Role.CLAUDE, "s1", null, false)
+        sessions.join(dir, Role.CLAUDE, "s1", null, false)
         Entry status = agent(Role.CODEX, Role.CLAUDE, MessageType.STATUS)
 
         expect:

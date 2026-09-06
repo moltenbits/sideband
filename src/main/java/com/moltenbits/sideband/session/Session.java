@@ -11,7 +11,7 @@ import java.time.OffsetDateTime;
  * it has read. Nothing else about a role is stored; everything it has done is in the journal.
  *
  * @param id        the host's session identifier (Codex's thread id, Claude Code's session id)
- * @param startedAt when Sideband was activated for it
+ * @param startedAt when the role joined
  * @param parentPid the host process, when known, so a dead session can be superseded
  * @param watermark the journal size at activation; entries ending at or before it predate the session
  * @param offset    the read position: entries ending at or before it have been shown to the role

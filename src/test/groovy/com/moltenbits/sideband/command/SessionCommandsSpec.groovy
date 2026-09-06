@@ -33,7 +33,7 @@ class SessionCommandsSpec extends CommandSpec {
         capture("claude", "just for claude")
 
         when:
-        Map activation = runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1",
+        Map activation = runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1",
                 "--parent-pid", ProcessHandle.current().pid().toString())
 
         then:
@@ -49,19 +49,19 @@ class SessionCommandsSpec extends CommandSpec {
         activation.handling.startsWith("Sideband delivered these journal entries to Codex.")
 
         when:
-        int code = run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2")
+        int code = run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2")
 
         then:
         code == ExitCode.ALREADY_ACTIVE
         stderr.toString().contains("--replace")
 
         expect:
-        runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2", "--replace").session.id == "s2"
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2", "--replace").session.id == "s2"
     }
 
     void "the originating client never sees its own human turn"() {
         given:
-        runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
         capture("claude", "fix the typo")
         String broadcast = capture("claude", "@all review this")
 
@@ -114,9 +114,22 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("pending", "--repo", repo.toString(), "--role", "claude").updates*.metadata*.id == [answer]
     }
 
+    void "a reply that arrived while the role was away is shown by join --resume and hidden by a plain join"() {
+        given:
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "away", "--parent-pid", "999999999")
+        String h = capture("codex", "ask claude")
+        String ask = appendAgent("--from", "codex", "--to", "claude", "--type", "request", "--caused-by", h)
+        String answer = appendAgent("--from", "claude", "--to", "codex", "--type", "reply", "--reply-to", ask)
+
+        expect:
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates*.metadata*.id == [answer]
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates == []
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "again", "--replace").updates == []
+    }
+
     void "pending advances the read position, so an update is shown once"() {
         given:
-        runJson("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         appendAgent("--from", "codex", "--to", "claude", "--type", "status")
 
         expect:
@@ -126,7 +139,7 @@ class SessionCommandsSpec extends CommandSpec {
 
     void "activate for a role whose session id the environment does not expose is invalid input"() {
         when:
-        int code = run("activate", "--repo", repo.toString(), "--role", "codex")
+        int code = run("join", "--repo", repo.toString(), "--role", "codex")
 
         then:
         (System.getenv("CODEX_THREAD_ID") != null) || (code == ExitCode.INVALID_INPUT && stderr.toString().contains("--session-id"))

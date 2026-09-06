@@ -180,7 +180,7 @@ override, still subject to the active session ownership check.
 
 ## Use
 
-In Claude Code, `/sideband` activates the session; in Codex, `$sideband`. From
+In Claude Code, `/sideband` joins the journal; in Codex, `$sideband`. From
 then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
 start of a prompt routes it. The skills also accept `help`, `status`,
 `pending`, and `off` after the command name.

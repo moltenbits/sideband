@@ -16,18 +16,24 @@ public interface Sessions {
     Optional<Session> load(Path stateDirectory, Role role);
 
     /**
-     * Starts the role's session with its watermark and read position at the journal's
-     * current end. Everything already in the journal is what the session's first
-     * {@code pending} presents as predating it.
+     * Starts the role's session with its watermark at the journal's current end, so that
+     * everything already in the journal is what the first {@code pending} presents as
+     * predating it. The read position starts there too, unless {@code resume} asks to pick
+     * up where the role's previous session left off (or the start of the journal when it
+     * never had one), so everything written for it since is shown.
      *
      * @throws SessionConflictException when another live session owns the role and {@code replace} is false
      */
-    Session activate(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace);
+    Session join(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace, boolean resume);
+
+    default Session join(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace) {
+        return join(stateDirectory, role, sessionId, parentPid, replace, false);
+    }
 
     /**
      * Checks that a caller owns the role's session. The same conversation with a dead
      * recorded process, or the same host process with a new conversation id, is refreshed
-     * in place; anything else is refused. Never activates a role.
+     * in place; anything else is refused. Never joins a role.
      */
     SessionRefresh refresh(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid);
 

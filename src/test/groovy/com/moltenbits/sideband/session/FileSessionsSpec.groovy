@@ -34,7 +34,7 @@ class FileSessionsSpec extends Specification {
         sessions.load(dir, Role.CODEX).isEmpty()
 
         when:
-        Session session = sessions.activate(dir, Role.CODEX, "s1", ProcessHandle.current().pid(), false)
+        Session session = sessions.join(dir, Role.CODEX, "s1", ProcessHandle.current().pid(), false)
 
         then:
         session.id() == "s1"
@@ -47,28 +47,55 @@ class FileSessionsSpec extends Specification {
 
     void "a second live session for the role is refused unless replaced; a dead or identical one is not"() {
         given:
-        sessions.activate(dir, Role.CODEX, "s1", ProcessHandle.current().pid(), false)
+        sessions.join(dir, Role.CODEX, "s1", ProcessHandle.current().pid(), false)
 
         when:
-        sessions.activate(dir, Role.CODEX, "s2", null, false)
+        sessions.join(dir, Role.CODEX, "s2", null, false)
 
         then:
         thrown(SessionConflictException)
 
         expect:
-        sessions.activate(dir, Role.CODEX, "s1", null, false).id() == "s1"
-        sessions.activate(dir, Role.CODEX, "s2", null, true).id() == "s2"
+        sessions.join(dir, Role.CODEX, "s1", null, false).id() == "s1"
+        sessions.join(dir, Role.CODEX, "s2", null, true).id() == "s2"
 
         when: "the recorded process is dead"
-        sessions.activate(dir, Role.CODEX, "s3", 999999999L, true)
+        sessions.join(dir, Role.CODEX, "s3", 999999999L, true)
 
         then:
-        sessions.activate(dir, Role.CODEX, "s4", null, false).id() == "s4"
+        sessions.join(dir, Role.CODEX, "s4", null, false).id() == "s4"
+    }
+
+    void "join starts at the latest point unless resuming, which keeps the previous bookmark"() {
+        given:
+        journal.append(file, Fixtures.humanDraft("@codex one", [Fixtures.CODEX]))
+        long first = Files.size(file)
+
+        expect: "a first join with --resume starts at the beginning of the journal"
+        sessions.join(dir, Role.CODEX, "s1", null, false, true).offset() == 0
+
+        when:
+        sessions.advance(dir, Role.CODEX, first)
+        journal.append(file, Fixtures.humanDraft("@codex two", [Fixtures.CODEX]))
+        long second = Files.size(file)
+        Session plain = sessions.join(dir, Role.CODEX, "s2", null, true, false)
+
+        then: "a plain join starts at the latest point"
+        plain.watermark() == second
+        plain.offset() == second
+
+        when:
+        sessions.advance(dir, Role.CODEX, first)   // no effect: never moves back
+        Session resumed = sessions.join(dir, Role.CODEX, "s3", null, true, true)
+
+        then: "a resumed join keeps the bookmark and still marks the session start"
+        resumed.watermark() == second
+        resumed.offset() == second
     }
 
     void "advance moves the read position forward only"() {
         given:
-        sessions.activate(dir, Role.CLAUDE, "s1", null, false)
+        sessions.join(dir, Role.CLAUDE, "s1", null, false)
 
         expect:
         sessions.advance(dir, Role.CLAUDE, 40).offset() == 40
@@ -88,7 +115,7 @@ class FileSessionsSpec extends Specification {
         given:
         Long me = ProcessHandle.current().pid()
         Long oldPid = oldLive ? me : 999999999L
-        if (active) sessions.activate(dir, Role.CODEX, "s1", oldPid, false)
+        if (active) sessions.join(dir, Role.CODEX, "s1", oldPid, false)
         Long caller = callerLive ? me : suppliedPid
 
         expect:
@@ -109,7 +136,7 @@ class FileSessionsSpec extends Specification {
         given:
         Long me = ProcessHandle.current().pid()
         journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
-        Session before = sessions.activate(dir, Role.CODEX, "s1", me, false)
+        Session before = sessions.join(dir, Role.CODEX, "s1", me, false)
         sessions.advance(dir, Role.CODEX, before.offset() + 5)
 
         when: "the same process shows up with a new conversation id"

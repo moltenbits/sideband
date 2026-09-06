@@ -19,13 +19,16 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /**
- * Starts a Sideband session for a role and prints its first pending report. Everything
- * already in the journal is marked as predating the session, so the human confirms it
- * before anything actionable is acted on. The listener starts from {@code session.watermark}.
+ * Joins the journal as this client and prints the first pending report. By default the
+ * bookmark starts at the latest point, so only requests still unanswered are shown; with
+ * {@code --resume} it starts where this role last left off, so everything written for it
+ * since then is shown too. Anything already in the journal is marked as predating the
+ * session, so the human confirms it before it is acted on. The listener starts from
+ * {@code session.watermark}.
  */
-@Command(name = "activate", description = "Start a session for a role and list what is waiting for it", mixinStandardHelpOptions = true)
+@Command(name = "join", description = "Join the journal as this client and list what is waiting; --resume picks up from the last bookmark", mixinStandardHelpOptions = true)
 @Prototype
-public class ActivateCommand implements Callable<Integer> {
+public class JoinCommand implements Callable<Integer> {
 
     @Spec
     CommandSpec spec;
@@ -45,13 +48,16 @@ public class ActivateCommand implements Callable<Integer> {
     @Option(names = "--replace", description = "Supersede a live session that already owns the role")
     boolean replace;
 
+    @Option(names = "--resume", description = "Start from where this client last left off, showing everything written for it since; otherwise start at the latest point")
+    boolean resume;
+
     private final SidebandHome home;
     private final HostEnvironment host;
     private final Sessions sessions;
     private final Pending pending;
     private final ObjectMapper json;
 
-    ActivateCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
+    JoinCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.sessions = sessions;
@@ -66,7 +72,7 @@ public class ActivateCommand implements Callable<Integer> {
                 "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
         Long pid = parentPid != null ? parentPid : host.parentPid(who).orElse(null);
         Path stateDirectory = repository.stateDirectory(home);
-        sessions.activate(stateDirectory, who, id, pid, replace);
+        sessions.join(stateDirectory, who, id, pid, replace, resume);
         PendingReport report = pending.report(stateDirectory, who);
         sessions.advance(stateDirectory, who, report.end());
         Output.print(spec, json, report);
