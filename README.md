@@ -184,8 +184,9 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
 `! sideband pending`. Commands print one JSON object, except that `skill`
-prints Markdown, `--help` prints text, and the streaming `pending` prints one
-report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
+prints Markdown, `--help` prints text, the hook follows its host's contract
+and may print nothing, and the streaming `pending` prints one report per
+line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
 contention, 5 I/O failure, 6 timed out, 7 another live session already owns
 the role.
 
