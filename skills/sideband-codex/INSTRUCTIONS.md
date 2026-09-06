@@ -158,10 +158,10 @@ For each item under `open`, in journal order:
 1. Its message is `item.entry`: metadata, body, `effective_live` and
    `lineage_problem`. `item.before_session` and `item.acknowledged_at` are on
    the outer item. Acknowledge receipt as the first journal action, addressing
-   the original author (the current CLI requires `--to`):
+   the original author (inferred from `--reply-to`):
 
    ```bash
-   sideband append-agent --to <author> --type ack --reply-to <id>
+   sideband append-agent --type ack --reply-to <id>
    ```
 
    No body is needed. An ack is not acceptance, permission, or completion.
@@ -209,9 +209,9 @@ be used; acknowledgement and reply entries now record the workflow.
 
 ```bash
 sideband append-agent --to claude --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --to claude --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --to <author> --type ack --reply-to <id>
+sideband append-agent --type ack --reply-to <id>
 ```
 
 Use a `request` for work, an `ack` for receipt or continued progress, a `status`
@@ -222,6 +222,9 @@ it, not a completion reply.
 
 `--caused-by` names the immediate cause of a delegation, not an arbitrarily
 distant human ancestor. `--reply-to` names the message being answered.
+With `--reply-to`, omitted `--to` defaults to that entry's author. An explicit
+`--to` replaces the default recipient list; to copy the operator, include both
+the original author and `operator`. Without `--reply-to`, supply `--to`.
 Acks never trigger another wake. Inspect `pushes` for delivery failures.
 Claude's `listener-delivers` result is not proof its model has read the entry.
 
