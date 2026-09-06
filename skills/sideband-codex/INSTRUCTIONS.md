@@ -92,8 +92,11 @@ both the new "recorded/record" and older "journaled/journal" forms during
 the installed-binary transition; neither wording alone indicates a missing
 capture. Distinguish the complete note, including uncertainty or failure:
 
-- `Sideband recorded this prompt` (older: `Sideband journaled this prompt`):
-  do not capture or route it again.
+- `Sideband recorded this prompt as <id>` (including the `and delivered it`
+  variant): do not capture or route it again. Take the ID from this hook note
+  as the current human prompt's entry ID. Older confirmations without an ID
+  (`Sideband recorded this prompt` or `Sideband journaled this prompt`) still
+  mean the prompt was captured, not permission to capture it again.
 - `recorded this prompt as <id> but could not finish` (older:
   `journaled this prompt as <id> but could not finish`): do not recapture;
   report the ID and the incomplete delivery or other follow-up step.
@@ -108,6 +111,15 @@ capture. Distinguish the complete note, including uncertainty or failure:
   manual capture. Resolve session ownership/identity first.
 - `not active ... entries are waiting` or `not joined as`: tell the user and
   offer `$sideband`, which joins with `--resume`.
+
+When this human prompt directly causes a delegation, use its hook-provided ID
+as `append-agent --caused-by`; use `--reply-to` with that ID when answering
+the prompt to `operator`. When manual capture is permitted below, take the ID
+from the capture result instead. Never read the journal file, recapture a
+recorded prompt, or guess an older ancestor to obtain an ID. If an older hook
+note lacks an ID and no supported result supplies it, report that limitation
+before attempting a linked send. A peer message remains the immediate cause
+when it, rather than the human prompt, initiates the delegation.
 
 Without any hook confirmation, capture is best effort only while this session
 is known to be active, and report that limitation:
