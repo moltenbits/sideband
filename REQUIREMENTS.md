@@ -810,16 +810,7 @@ agent. Both skills invoke the same installed binary.
 - A writer crash must not interleave two entries.
 - Readers must wait for a closing marker before delivering a new entry.
 - Lock ownership must include enough information to detect and recover a stale
-  lock without disrupting a live writer: the lock file holds a random token, the
-  owner's process id and start fingerprint, its host, and the acquisition time.
-  A contender on the same host reclaims a lock only when the owner is dead or
-  its fingerprint does not match, by renaming the stale file before retrying;
-  it never takes a lock from a verified live process, whatever the lock's age,
-  and reports foreign-host ownership rather than stealing it.
-- A writer encodes the complete entry before taking the lock, rescans the tail
-  while holding it, closes any incomplete fragment a crashed writer left with an
-  explicit abort marker without rewriting existing bytes, appends, syncs, and
-  releases the lock only if its token still matches.
+  lock without disrupting a live writer.
 - A write failure must leave prior journal content intact.
 - Malformed metadata must be reported and skipped, not interpreted
   heuristically as an instruction.
