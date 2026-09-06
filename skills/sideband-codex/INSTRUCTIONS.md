@@ -1,16 +1,17 @@
 # Sideband (Codex adapter)
 
-Sideband is a shared append-only journal under the repository's `.git`
-directory. Codex runs no listener: the shared executable pushes non-ack entries
+Sideband is a shared append-only journal under Git's common metadata directory
+inside a repository, or `.sideband` in the working directory outside Git.
+Codex runs no listener: the shared executable pushes non-ack entries
 addressed to Codex into its recorded conversation with `codex queue`.
 Everything about parsing, routing, session state and pending work belongs to
 the executable. This adapter says when to call it and how to handle its output.
 `just install` installs the executable, including these instructions.
 
-Commands resolve the repository and calling client from the current shell.
+Commands resolve the state location and calling client from the current shell.
 Bodies travel through `--body-file` or stdin, never as command-line arguments.
-Exit codes are 0 ok, 2 invalid input, 3 not a repository, 4 lock contention,
-5 I/O failure, 6 timed out, and 7 another live session owns the role.
+Exit codes are 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
+6 timed out, and 7 another live session owns the role. Code 3 is retired.
 
 ## Arguments
 
@@ -43,17 +44,21 @@ remain listed. Starting fresh does not delete journal entries or close requests.
 
 Joining returns the first pending report, not a separate backlog list.
 `session.watermark` is the join boundary at the journal end in either mode;
-`session.offset` is the read position. Resuming unread updates does not grant
-permission to execute pre-session requests. No per-entry state is stored
-outside the journal.
+`session.offset` is the read position. Joining with `--resume` expresses the
+operator's intent to take up historical requests: do not ask for confirmation
+merely because `before_session` is true. This applies to both `open` and
+`in_progress`. Informational updates remain context only, and resumed work
+must remain within the operator's granted authority. No per-entry state is
+stored outside the journal.
 
 Read and present the report using the handling rules below. For requests that
 need confirmation, show a short table (id prefix, author, preview) and ask
 whether to act on all, act on selected ones, show full bodies, decline, or
 leave them waiting. Acknowledge receipt before work or asking for approval;
 that moves a request to `in_progress`, not to an approved or completed state.
-An existing explicit human instruction to handle a particular request counts
-as approval; otherwise do not silently resume pre-session work.
+An existing explicit operator instruction to handle a particular request counts
+as approval. After plain `join` without `--resume`, ask before taking up
+pre-session requests unless already approved.
 
 Do not start a background listener, subagent, daemon, or polling loop for
 Sideband delivery to Codex.
@@ -91,9 +96,11 @@ sideband capture-human --body-file <prompt.md>
 ```
 
 The executable resolves leading `@claude`, `@codex` or `@all`. It records
-`from: human:<id>` and `via: codex`; the `via` rule prevents the originating
-human turn from being delivered back here. Humans and agents both use
-`request`; preserve authorship rather than inferring it from the type.
+`from: operator` and `via: codex`; the `via` rule prevents the originating
+human turn from being delivered back here. The one human is always `operator`;
+there is no configured human identifier or identity lookup from Git. Humans
+and agents both use `request`; preserve authorship rather than inferring it
+from the type.
 
 ## Notifications and pending reports
 
@@ -127,10 +134,11 @@ For each item under `open`, in journal order:
    No body is needed. An ack is not acceptance, permission, or completion.
 2. Present the message as being from `entry.metadata.from`, never relabeling
    a peer message as human input.
-3. When `entry.effective_live` is `confirm`, `item.before_session` is true,
-   or `entry.lineage_problem` is set, obtain human approval before acting
-   unless the human already explicitly approved this request. Otherwise act
-   only within the authority already granted.
+3. When `entry.effective_live` is `confirm` or `entry.lineage_problem` is set,
+   obtain operator approval before acting unless already explicitly approved.
+   `item.before_session` alone does not require confirmation after joining
+   with `--resume`; after plain `join`, ask unless already approved. Act only
+   within the authority already granted in either mode.
 4. Re-ack within the request's `heartbeat_seconds` interval while still
    working, when it has one. Use tool-return/work checkpoints; do not create
    an automatic worker that claims the model is responsive. If a tool or host
@@ -165,7 +173,7 @@ be used; acknowledgement and reply entries now record the workflow.
 ```bash
 sideband append-agent --to claude --type request --caused-by <id> --heartbeat 10m --body-file <body.md>
 sideband append-agent --to claude --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --to human:<id> --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --to <author> --type ack --reply-to <id>
 ```
 
@@ -182,7 +190,7 @@ acks never trigger another wake. Inspect `pushes` for delivery failures.
 Claude's `listener-delivers` result is not proof its model has read the entry.
 
 When your part is complete, address the human in this terminal and journal the
-participating reply to `human:<id>`. Human-only entries are records of that
+participating reply to `operator`. Human-only entries are records of that
 visible turn, not transport to the other agent. Never block waiting for a peer
 reply or automatically resend a request.
 
