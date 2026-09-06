@@ -4,7 +4,6 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.locking.Lock;
 import com.moltenbits.sideband.locking.Locks;
 import com.moltenbits.sideband.protocol.Role;
-import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
 import jakarta.inject.Singleton;
 
@@ -57,12 +56,12 @@ class FileSessions implements Sessions {
     }
 
     @Override
-    public Session join(Path stateDirectory, Role role, String sessionId, boolean resume, @Nullable Delivery delivery) {
+    public Session join(Path stateDirectory, Role role, String sessionId, boolean resume) {
         try (Lock ignored = locks.acquire(stateDirectory)) {
             Optional<Session> existing = load(stateDirectory, role);
             long end = journal.readCompleteFrom(stateDirectory.resolve(Journal.FILE_NAME), 0).end();
             long offset = resume ? Math.min(existing.map(Session::offset).orElse(0L), end) : end;
-            Session session = new Session(sessionId, now(), end, offset, resume, delivery);
+            Session session = new Session(sessionId, now(), end, offset, resume);
             save(stateDirectory, role, session);
             return session;
         } catch (IOException e) {

@@ -1,6 +1,5 @@
 package com.moltenbits.sideband.session;
 
-import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.annotation.Serdeable;
 import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 
@@ -17,7 +16,6 @@ import java.time.OffsetDateTime;
  * @param watermark the journal size at activation; entries ending at or before it predate the session
  * @param offset    the read position: entries ending at or before it have been shown to the role
  * @param resumed   joined with --resume: a lone waiting request is acted on, several are confirmed
- * @param delivery  for Claude, how entries reach the session, fixed at join; null for Codex and for records older than the field
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record Session(
@@ -25,10 +23,9 @@ public record Session(
         OffsetDateTime startedAt,
         long watermark,
         long offset,
-        boolean resumed,
-        @Nullable Delivery delivery) {
+        boolean resumed) {
 
     Session withOffset(long newOffset) {
-        return new Session(id, startedAt, watermark, Math.max(offset, newOffset), resumed, delivery);
+        return new Session(id, startedAt, watermark, Math.max(offset, newOffset), resumed);
     }
 }

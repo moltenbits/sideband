@@ -4,9 +4,6 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.session.Delivery;
-import com.moltenbits.sideband.session.Session;
-import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -62,19 +59,18 @@ class ClaudeSocketPusher implements HostPusher {
     private final Path homeDirectory;
     private final SidebandHome home;
     private final Installer installer;
-    private final Sessions sessions;
     private final ObjectMapper json;
     private final Duration timeout;
 
     @Inject
     ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry,
                        @Value("${sideband.home-directory:}") String homeDirectory,
-                       SidebandHome home, Installer installer, Sessions sessions, ObjectMapper json,
+                       SidebandHome home, Installer installer, ObjectMapper json,
                        @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
-        this(registry, homeDirectory, home, installer, sessions, json, Duration.ofSeconds(timeoutSeconds));
+        this(registry, homeDirectory, home, installer, json, Duration.ofSeconds(timeoutSeconds));
     }
 
-    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, Sessions sessions, ObjectMapper json, Duration timeout) {
+    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, ObjectMapper json, Duration timeout) {
         this.homeDirectory = homeDirectory == null || homeDirectory.isBlank()
                 ? Path.of(System.getProperty("user.home")) : Path.of(homeDirectory);
         this.registry = registry == null || registry.isBlank()
@@ -82,7 +78,6 @@ class ClaudeSocketPusher implements HostPusher {
                 : Path.of(registry);
         this.home = home;
         this.installer = installer;
-        this.sessions = sessions;
         this.json = json;
         this.timeout = timeout;
     }
@@ -98,43 +93,28 @@ class ClaudeSocketPusher implements HostPusher {
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
         }
-        // A recorded mode belongs to the session that joined, never to a later one: the record's
-        // id is the host's session id, which the registry carries too. Each candidate is judged
-        // as it is tried, so a stale registration ahead of the joined session changes nothing.
-        Session record = sessions.load(stateDirectory, Role.CLAUDE).orElse(null);
-        InstallReport.Item inbound = null;
-        byte[] bytes = null; // the frame and its cap are socket concerns, encoded only once a push is due
+        // Claude Code holds a frame from a process that is not the session's child unless the
+        // operator's settings accept cross-session messages, and a held frame is an approval
+        // dialog on every entry. The settings are read here, on each append, so nothing is
+        // posted while they say hold; Claude's own listener delivers then.
+        InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
+        if (!inbound.state().equals("installed")) {
+            return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+                    "Claude Code would hold the push (inbound " + inbound.state() + " per " + inbound.path() + "); " + inbound.note());
+        }
+        String frame;
+        try {
+            frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
+        } catch (IOException e) {
+            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
+        }
+        if (frame.length() > FRAME_CAP) {
+            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
+                    + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
+        }
+        byte[] bytes = frame.getBytes(UTF_8);
         String failure = null;
-        String held = null;
         for (Registration candidate : candidates) {
-            boolean joined = record != null && record.delivery() != null && record.id().equals(candidate.sessionId());
-            if (joined && record.delivery() == Delivery.LISTEN) {
-                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
-                        "Claude joined listening; its Monitor delivers. Rejoin with --deliver push, or with crossSessionInbound accepted, to be pushed to");
-            }
-            if (!joined) {
-                if (inbound == null) {
-                    inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
-                }
-                if (!inbound.state().equals("installed")) {
-                    held = "Claude Code would hold the push to a session that has not joined (inbound " + inbound.state()
-                            + " per " + inbound.path() + "); the entry waits for its join. " + inbound.note();
-                    continue;
-                }
-            }
-            if (bytes == null) {
-                String frame;
-                try {
-                    frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
-                } catch (IOException e) {
-                    return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
-                }
-                if (frame.length() > FRAME_CAP) {
-                    return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
-                            + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
-                }
-                bytes = frame.getBytes(UTF_8);
-            }
             try {
                 post(Path.of(candidate.messagingSocketPath()), bytes);
                 return new PushResult(Role.CLAUDE, PushOutcome.PUSHED,
@@ -144,10 +124,7 @@ class ClaudeSocketPusher implements HostPusher {
                         + " did not accept the connection: " + e.getMessage();
             }
         }
-        if (failure != null) {
-            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
-        }
-        return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, held);
+        return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
     }
 
     /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */
@@ -243,7 +220,7 @@ class ClaudeSocketPusher implements HostPusher {
 
     /** The fields of a Claude Code session registration this pusher reads; the rest are ignored. */
     @Serdeable
-    record Registration(@Nullable Long pid, @Nullable String sessionId, @Nullable String cwd, @Nullable String messagingSocketPath,
+    record Registration(@Nullable Long pid, @Nullable String cwd, @Nullable String messagingSocketPath,
                         @Nullable String name, @Nullable Long startedAt) {
     }
 

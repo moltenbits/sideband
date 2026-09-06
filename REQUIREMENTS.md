@@ -746,22 +746,19 @@ refused, or missing following the same resolution, naming the deciding file
 and saying where accept must go. Managed settings and `--settings` are not
 inspected, and the report says so.
 
-A Claude join fixes the mode for the session and records it as `delivery`
-in the session record: `push` when the files say pushes are accepted,
-`listen` otherwise, or whatever `--deliver` says, which is how an operator
-whose session is held by managed settings or `--settings`, which no file
-shows, chooses the honest fallback. Writers read the record: in `listen`
-mode they do not post to Claude at all, since each frame would be an
-approval dialog, and report `listener-delivers`; in `push` mode they post
-whatever the files say at that moment, so the two sides never disagree
-within a session, and a settings change takes effect at the next join. The
-adapter, reading the same field from the join output, starts the fallback in
-`listen` mode: one persistent Monitor on `sideband pending --wait --stream`,
-whose lines are wake signals (host notifications truncate at about 500
-characters) after which Claude reads the entries with `pending`. A session
-that never joined has no record, and writers use the file verdict for it.
-The fallback costs a re-run of the skill after every restart and a `pending`
-read per delivery, which is why the push is the default wherever the
+The socket is used whenever the files say it will be delivered to, and the
+listener is the automatic fallback otherwise. On every append addressed to
+Claude the executable reads that verdict: accepted means it posts the
+frame; anything else means it posts nothing, since each frame would be an
+approval dialog, and reports `listener-delivers`. The Claude adapter reads
+the same verdict from `doctor` at activation and starts the fallback only
+then: one persistent Monitor on `sideband pending --wait --stream`, whose
+lines are wake signals (host notifications truncate at about 500
+characters) after which Claude reads the entries with `pending`. Nothing is
+recorded for this; the two sides agree because they read the same files,
+and an operator who changes the setting under a running session re-runs the
+skill. The fallback costs a re-run of the skill after every restart and a
+`pending` read per delivery, which is why the push is used wherever the
 operator has accepted it.
 
 ### 10.3 Codex

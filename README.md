@@ -105,17 +105,19 @@ session that has never run `/sideband` is reached too; it loads the skill from
 the envelope's first line. A socket that refuses the connection belongs to a
 session that has ended, and the entry then waits in the journal.
 
-Claude Code delivers such a frame only when your user settings accept
-cross-session messages (see Install); otherwise it would hold every one for
-your approval. So a Claude join fixes how the session is delivered to, from
-the settings files `doctor` can read or from `--deliver push|listen`, and
-records it beside the bookmark; writers follow the record. In `listen` mode
-nobody pushes to Claude, and the Claude skill starts one persistent Monitor
-on `sideband pending --wait --stream`, a native process that blocks on the
-journal and prints one line per batch of new entries; the host turns each
-line into a notification, and Claude then reads the entries with
-`sideband pending`. A Claude Code session that has not joined is pushed to
-whenever the files say pushes are accepted.
+The socket is used whenever it can be, and the executable falls back to a
+listener when it cannot. Claude Code delivers such a frame only when your
+user settings accept cross-session messages (see Install); otherwise it
+would hold every one for your approval. So each time an entry for Claude is
+appended, the executable checks your settings: if they accept, it posts the
+frame; if not, it posts nothing and reports that Claude's listener delivers.
+The Claude skill makes the same check when it activates, through
+`sideband doctor`, and starts a listener only in the second case: one
+persistent Monitor on `sideband pending --wait --stream`, a native process
+that blocks on the journal and prints one line per batch of new entries;
+the host turns each line into a notification, and Claude then reads the
+entries with `sideband pending`. Nothing is configured for this beyond your
+settings, and changing them takes effect the next time `/sideband` runs.
 
 Codex has no such registry. It records its thread id when it joins, and the
 writer pushes the envelope into that thread with `codex queue`.
