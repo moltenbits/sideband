@@ -60,11 +60,16 @@ described below.
    whole session, so every writer follows the same choice; a change to the
    user's settings takes effect at the next `/sideband`.
 
-   `push` means Claude Code delivers pushes: whoever appends an entry for
-   Claude posts the complete envelope into this conversation over Claude
-   Code's inbox socket, which starts a turn here when the conversation is
-   idle and is read between tool calls when it is busy. That also works for
-   a Claude Code session that has not joined. Start nothing.
+   `push` means writers will post to this session: whoever appends an
+   entry for Claude posts the complete envelope into this conversation over
+   Claude Code's inbox socket, which starts a turn here when the
+   conversation is idle and is read between tool calls when it is busy.
+   That also works for a Claude Code session that has not joined. The mode
+   is the transport selected from the files the executable can read, not
+   proof that managed settings or `--settings` allow it; if pushes still
+   show up as approval dialogs, rejoin with `--deliver listen`. If a
+   listener from an earlier activation of this conversation is running,
+   stop it (TaskStop on the Monitor); otherwise start nothing.
 
    `listen` means Claude Code would hold every push for the user's
    approval, so writers do not push to Claude and Claude listens instead.
