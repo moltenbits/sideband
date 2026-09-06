@@ -22,7 +22,7 @@ described below.
 | `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. Remind the user that `! sideband <command>` runs any command directly with no model turn. |
 | `status` | Run `sideband doctor` and summarize it: both roles' sessions, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
-| `off` | Explain that nothing runs in the background to stop: entries for Claude are pushed into this conversation by whoever writes them, for as long as this Claude Code session is open. The bookmark stays, so a later `/sideband` resumes from it. |
+| `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
 
 ## Activate
@@ -56,12 +56,34 @@ described below.
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 
-3. There is no listener to start. Whoever appends an entry for Claude posts
-   the complete envelope into this conversation over Claude Code's inbox
-   socket, which starts a turn here when the conversation is idle and is
-   read between tool calls when it is busy. That works before this
-   conversation has joined, so a fresh Claude Code session is reached too.
-   Never start a Monitor, background task, or polling loop for Sideband.
+3. Decide how entries reach this conversation. Run `sideband doctor` and
+   read `clients.inbound.state`.
+
+   `installed` means Claude Code delivers pushes: whoever appends an entry
+   for Claude posts the complete envelope into this conversation over Claude
+   Code's inbox socket, which starts a turn here when the conversation is
+   idle and is read between tool calls when it is busy. That works before
+   this conversation has joined, so a fresh Claude Code session is reached
+   too. Start nothing.
+
+   Anything else (`missing`, `held`, `refused`, ...) means Claude Code would
+   hold every push for the user's approval, so the executable does not push
+   to Claude at all and Claude listens instead. Tell the user once, quoting
+   the item's `note`, that setting `crossSessionInbound` to `accept` in
+   their user settings makes the listener unnecessary. Then start exactly
+   one listener: a persistent Monitor on the streaming form of `pending`.
+   Each line it prints is one report and arrives here as one notification.
+
+   ```
+   Monitor(command: "sideband pending --wait --stream",
+           description: "Sideband entries for Claude", persistent: true)
+   ```
+
+   Idle waiting costs no model tokens. Never start a second listener, and
+   never start one when pushes are delivered. If Monitor is unavailable,
+   fall back to a background Bash task running
+   `sideband pending --wait --timeout 3600` and restart it after each exit,
+   treating its completion exactly like a Monitor notification.
 
 ## On every human turn while active
 
@@ -79,6 +101,17 @@ this prompt as <id> but could not deliver it" means it is, but the push to
 its recipient failed; "not active in this session and N entries
 are waiting" means offer `/sideband`. Never record a prompt yourself; the
 hook records prompts, and reporting a failure is the whole recovery.
+
+## When a listener notification arrives
+
+A notification from the listener is a wake signal, not the payload: hosts
+truncate notifications, and a waited report never advances the bookmark, so
+never act from the notification text. Run `sideband pending`; its report has
+the shape described at the end of the next section, and its `open` entries
+are handled exactly like the entries of a pushed envelope below. `/clear`
+does not stop the Monitor; never start another one because these
+instructions are no longer in context. If the Monitor itself ends, show its
+stderr to the user and restart it only once the cause is understood.
 
 ## When a pushed envelope arrives
 

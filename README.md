@@ -90,10 +90,11 @@ it is live.
 
 ### How each client is reached
 
-Neither client runs a listener. Whoever appends an entry pushes the complete
-envelope into the recipient's running session, which starts a new turn there
-when the session is idle; the recipient reads the entry from that message and
-acts on it directly.
+Whoever appends an entry pushes the complete envelope into the recipient's
+running session, which starts a new turn there when the session is idle; the
+recipient reads the entry from that message and acts on it directly. Neither
+client needs a listener for that, though Claude keeps one as a fallback,
+described below.
 
 Claude Code registers every session in `~/.claude/sessions/<pid>.json` with
 its working directory and an inbox socket, the channel its own cross-session
@@ -103,6 +104,15 @@ newline-terminated frame. No Sideband record is involved, so a Claude Code
 session that has never run `/sideband` is reached too; it loads the skill from
 the envelope's first line. A socket that refuses the connection belongs to a
 session that has ended, and the entry then waits in the journal.
+
+Claude Code delivers such a frame only when your user settings accept
+cross-session messages (see Install); otherwise it would hold every one for
+your approval. So when `doctor` says pushes are not accepted, the writer does
+not push to Claude, and the Claude skill instead starts one persistent Monitor
+on `sideband pending --wait --stream`, a native process that blocks on the
+journal and prints one line per batch of new entries; the host turns each
+line into a notification, and Claude then reads the entries with
+`sideband pending`.
 
 Codex has no such registry. It records its thread id when it joins, and the
 writer pushes the envelope into that thread with `codex queue`.
@@ -167,10 +177,11 @@ and registers the `sideband hook prompt` command in the repository's
 `.claude/settings.json` and `.codex/hooks.json`, each naming its client with
 `--agent claude` or `--agent codex`. Rerunning it is safe.
 
-One setting is yours to make. A pushed envelope reaches Claude Code from a
-process that is not the session's own child, and a session run with bypass
-permissions holds such a message for your approval unless
-`crossSessionInbound` is `accept` in your user settings,
+One setting is yours to make, and without it Claude falls back to listening.
+A pushed envelope reaches Claude Code from a process that is not the
+session's own child, and a session run with bypass permissions holds such a
+message for your approval unless `crossSessionInbound` is `accept` in your
+user settings,
 `~/.claude/settings.json` (or `/config`, "Messages from your other
 sessions"). Claude Code lets a repository's `.claude/settings.json` and
 `.claude/settings.local.json` only tighten that value, so `init` does not

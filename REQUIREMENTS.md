@@ -67,10 +67,11 @@ invocations such as `claude -p` or `codex exec resume`.
   watermark (section 9.3), so it is pushed into the running session.
 - **Listener**: where this document says a role's listener delivers an entry,
   read the role's delivery path. Since 2026-09-06 that path is a push by the
-  writer in both directions (sections 10.2 and 10.3); no client runs a
-  background listener. The word survives in the workflow sections because the
-  properties they state, one delivery path per role, no per-request wait, no
-  timer, no retry, are unchanged.
+  writer in both directions (sections 10.2 and 10.3); Claude runs a
+  background listener only as the fallback when its host would not deliver
+  pushes. The word survives in the workflow sections because the properties
+  they state, one delivery path per role, no per-request wait, no timer, no
+  retry, are unchanged.
 - **Backlog message**: an addressed message already present when a recipient's
   session established its startup watermark.
 - **Journal**: the append-only Markdown file containing the shared history.
@@ -738,10 +739,16 @@ operator sets accept in the user file, and `doctor` reports installed, held,
 refused, or missing following the same resolution, naming the deciding file
 and saying where accept must go. Managed settings and `--settings` are not
 inspected, and the report says so.
-The earlier design, a persistent Monitor on `sideband pending --wait --stream`
-started at activation, is retired: a fresh Claude Code session was unreachable
-until the operator re-ran the skill, and every delivery cost a wake plus a
-`pending` read because host notifications truncate.
+
+When that verdict is anything but accepted, the writer does not post to
+Claude at all, since each frame would be an approval dialog, and reports
+`listener-delivers`; the Claude adapter, seeing the same verdict at
+activation, starts the fallback: one persistent Monitor on
+`sideband pending --wait --stream`, whose lines are wake signals (host
+notifications truncate at about 500 characters) after which Claude reads the
+entries with `pending`. The fallback costs a re-run of the skill after every
+restart and a `pending` read per delivery, which is why the push is the
+default wherever the operator has accepted it.
 
 ### 10.3 Codex
 
@@ -801,8 +808,9 @@ blocker. It must be surfaced for a requirements decision rather than bypassed
 with a prohibited fallback.
 
 Outcome: both directions are pushes. Codex through `codex queue`, and, since
-2026-09-06, Claude through Claude Code's inbox socket (section 10.2), which
-replaced the Monitor listener the spike had settled on.
+2026-09-06, Claude through Claude Code's inbox socket (section 10.2), with
+the Monitor listener the spike had settled on kept as the fallback for a
+session whose settings would hold pushes.
 
 ## 11. Writing and concurrency
 
