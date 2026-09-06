@@ -111,6 +111,27 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CLAUDE).updates().isEmpty()
     }
 
+    void "a reply addressed to the operator alone does not close an agent's request; one addressed to the agent does"() {
+        given:
+        Entry h = human("@codex ask claude", Role.CODEX, Role.CODEX)
+        Entry ask = agent(Role.CODEX, Role.CLAUDE, MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CLAUDE, Role.CODEX, MessageType.ACK, [replyTo: ask.metadata().id()])
+
+        when: "Claude reports the result to the operator only"
+        agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id(), to: [Fixtures.OPERATOR]])
+
+        then: "Codex is still waiting, and Claude still has it in progress"
+        pending.report(dir, Role.CODEX).outgoing()*.id() == [ask.metadata().id()]
+        pending.report(dir, Role.CLAUDE).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
+
+        when: "Claude replies to Codex, copying the operator"
+        agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id(), to: [Fixtures.CODEX, Fixtures.OPERATOR]])
+
+        then:
+        pending.report(dir, Role.CODEX).outgoing().isEmpty()
+        pending.report(dir, Role.CLAUDE).inProgress().isEmpty()
+    }
+
     void "the role's own human turn, entries it authored, and acks are never listed"() {
         given:
         Entry typedIntoCodex = human("typed into codex", Role.CODEX, Role.CODEX)

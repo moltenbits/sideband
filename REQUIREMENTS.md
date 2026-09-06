@@ -558,6 +558,9 @@ entry reachable through its `reply_to` links that someone else wrote, so a
 reply to a clarification still answers the original request. A reply that
 itself expects a reply is a question, not an answer: it closes nothing, and
 the original request stays open until a reply that expects nothing arrives.
+That reply must also be addressed to the requester: a result reported to the
+operator alone leaves an agent's request open, because the agent never sees
+it; to close the request and inform the operator at once, address both.
 Whether an answer is sufficient is the sender's judgment; the journal only
 records that a reply exists.
 

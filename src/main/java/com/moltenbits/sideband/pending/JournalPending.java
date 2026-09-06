@@ -65,7 +65,7 @@ class JournalPending implements Pending {
                 if (m.expectsReply()) {
                     List<EntryMetadata> mine = responses.getOrDefault(m.id(), List.of()).stream()
                             .filter(r -> r.from().equals(self)).toList();
-                    if (mine.stream().anyMatch(JournalPending::answers)) {
+                    if (mine.stream().anyMatch(r -> answers(r, m))) {
                         continue;
                     }
                     Optional<OffsetDateTime> acked = latest(mine, MessageType.ACK);
@@ -78,7 +78,7 @@ class JournalPending implements Pending {
             if (Addressing.isOutgoingRequest(m, role)) {
                 List<EntryMetadata> theirs = responses.getOrDefault(m.id(), List.of()).stream()
                         .filter(r -> !r.from().equals(self)).toList();
-                if (theirs.stream().anyMatch(JournalPending::answers)) {
+                if (theirs.stream().anyMatch(r -> answers(r, m))) {
                     continue;
                 }
                 Optional<OffsetDateTime> acked = latest(theirs, MessageType.ACK);
@@ -113,9 +113,13 @@ class JournalPending implements Pending {
         return items;
     }
 
-    /** A reply closes a request; a reply that itself expects a reply is a question and closes nothing. */
-    private static boolean answers(EntryMetadata response) {
-        return response.type() == MessageType.REPLY && !response.expectsReply();
+    /**
+     * A reply closes a request only if it expects nothing back (a reply that asks is a
+     * question) and is addressed to whoever asked: a reply sent to the operator alone about
+     * an agent's request leaves that agent's request open, since the agent never sees it.
+     */
+    private static boolean answers(EntryMetadata response, EntryMetadata request) {
+        return response.type() == MessageType.REPLY && !response.expectsReply() && response.addresses(request.from());
     }
 
     private static Optional<OffsetDateTime> latest(List<EntryMetadata> responses, MessageType type) {
