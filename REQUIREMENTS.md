@@ -689,7 +689,9 @@ Each client-specific Sideband skill must, through the shared tool:
 2. Initialize it safely when absent.
 3. Read what the journal says is still waiting for that client.
 4. Apply backlog confirmation rules.
-5. Start no listener, timer, or polling loop; delivery is the writer's push.
+5. Start no timer or polling loop; delivery is the writer's push, and the one
+   exception is the Claude listener of section 10.2, started only for a
+   session that joined in `listen` mode.
 6. Handle pushed entries in the parent conversation directly from the envelope.
 7. Append participant messages using the shared writer.
 8. Keep the session record current and deduplicate by message ID.
@@ -703,11 +705,15 @@ Delivery is performed by the writer, which wakes the recipient's host
 natively: the writer of an entry pushes the envelope immediately after the
 append, for each client recipient it can reach, through whatever the host
 offers for starting a new turn in an existing session (sections 10.2 and
-10.3). Neither recipient runs a listener. The journal remains the only
-coupling between clients: a push that fails or finds no session leaves the
-entry pending, and it surfaces as backlog at the recipient's next activation.
-A push is transport; the recipient's ack and reply are the record of what was
-done with the entry.
+10.3). Codex never runs a listener; Claude runs one only as the fallback of
+section 10.2. The journal remains the only coupling between clients: a push
+that fails or finds no session leaves the entry pending, and it surfaces as
+backlog at the recipient's next activation. A push is transport; the
+recipient's ack and reply are the record of what was done with the entry.
+
+A listener keeps running the executable it started with, because the process
+holds its inode. After an install that replaces the executable, a running
+listener is stopped and started again.
 
 ### 10.2 Claude Code
 
@@ -740,15 +746,23 @@ refused, or missing following the same resolution, naming the deciding file
 and saying where accept must go. Managed settings and `--settings` are not
 inspected, and the report says so.
 
-When that verdict is anything but accepted, the writer does not post to
-Claude at all, since each frame would be an approval dialog, and reports
-`listener-delivers`; the Claude adapter, seeing the same verdict at
-activation, starts the fallback: one persistent Monitor on
-`sideband pending --wait --stream`, whose lines are wake signals (host
-notifications truncate at about 500 characters) after which Claude reads the
-entries with `pending`. The fallback costs a re-run of the skill after every
-restart and a `pending` read per delivery, which is why the push is the
-default wherever the operator has accepted it.
+A Claude join fixes the mode for the session and records it as `delivery`
+in the session record: `push` when the files say pushes are accepted,
+`listen` otherwise, or whatever `--deliver` says, which is how an operator
+whose session is held by managed settings or `--settings`, which no file
+shows, chooses the honest fallback. Writers read the record: in `listen`
+mode they do not post to Claude at all, since each frame would be an
+approval dialog, and report `listener-delivers`; in `push` mode they post
+whatever the files say at that moment, so the two sides never disagree
+within a session, and a settings change takes effect at the next join. The
+adapter, reading the same field from the join output, starts the fallback in
+`listen` mode: one persistent Monitor on `sideband pending --wait --stream`,
+whose lines are wake signals (host notifications truncate at about 500
+characters) after which Claude reads the entries with `pending`. A session
+that never joined has no record, and writers use the file verdict for it.
+The fallback costs a re-run of the skill after every restart and a `pending`
+read per delivery, which is why the push is the default wherever the
+operator has accepted it.
 
 ### 10.3 Codex
 
@@ -769,9 +783,9 @@ Registration on disk alone does not establish that guarantee.
 
 ### 10.4 Lifecycle
 
-- Delivery is a push by the writer into the recipient's running host; neither
-  client runs a listener, timer, or polling loop, and idle waiting consumes no
-  model tokens.
+- Delivery is a push by the writer into the recipient's running host; no
+  client runs a timer or polling loop, Codex runs no listener, Claude runs one
+  only in `listen` mode, and idle waiting consumes no model tokens.
 - Pending outgoing requests must not create response timers or per-request
   waits; the reply is pushed when it is written.
 - Messages written while a client is absent remain durable in the journal.

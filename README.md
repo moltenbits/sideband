@@ -107,12 +107,15 @@ session that has ended, and the entry then waits in the journal.
 
 Claude Code delivers such a frame only when your user settings accept
 cross-session messages (see Install); otherwise it would hold every one for
-your approval. So when `doctor` says pushes are not accepted, the writer does
-not push to Claude, and the Claude skill instead starts one persistent Monitor
+your approval. So a Claude join fixes how the session is delivered to, from
+the settings files `doctor` can read or from `--deliver push|listen`, and
+records it beside the bookmark; writers follow the record. In `listen` mode
+nobody pushes to Claude, and the Claude skill starts one persistent Monitor
 on `sideband pending --wait --stream`, a native process that blocks on the
 journal and prints one line per batch of new entries; the host turns each
 line into a notification, and Claude then reads the entries with
-`sideband pending`.
+`sideband pending`. A Claude Code session that has not joined is pushed to
+whenever the files say pushes are accepted.
 
 Codex has no such registry. It records its thread id when it joins, and the
 writer pushes the envelope into that thread with `codex queue`.

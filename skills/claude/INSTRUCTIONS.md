@@ -56,23 +56,24 @@ described below.
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 
-3. Decide how entries reach this conversation. Run `sideband doctor` and
-   read `clients.inbound.state`.
+3. Read `session.delivery` in the join output. The join fixed it for the
+   whole session, so every writer follows the same choice; a change to the
+   user's settings takes effect at the next `/sideband`.
 
-   `installed` means Claude Code delivers pushes: whoever appends an entry
-   for Claude posts the complete envelope into this conversation over Claude
+   `push` means Claude Code delivers pushes: whoever appends an entry for
+   Claude posts the complete envelope into this conversation over Claude
    Code's inbox socket, which starts a turn here when the conversation is
-   idle and is read between tool calls when it is busy. That works before
-   this conversation has joined, so a fresh Claude Code session is reached
-   too. Start nothing.
+   idle and is read between tool calls when it is busy. That also works for
+   a Claude Code session that has not joined. Start nothing.
 
-   Anything else (`missing`, `held`, `refused`, ...) means Claude Code would
-   hold every push for the user's approval, so the executable does not push
-   to Claude at all and Claude listens instead. Tell the user once, quoting
-   the item's `note`, that setting `crossSessionInbound` to `accept` in
-   their user settings makes the listener unnecessary. Then start exactly
-   one listener: a persistent Monitor on the streaming form of `pending`.
-   Each line it prints is one report and arrives here as one notification.
+   `listen` means Claude Code would hold every push for the user's
+   approval, so writers do not push to Claude and Claude listens instead.
+   Tell the user once that setting `crossSessionInbound` to `accept` in
+   their user settings (`sideband doctor` shows the file and the current
+   verdict under `clients.inbound`) makes the listener unnecessary. Then
+   start exactly one listener: a persistent Monitor on the streaming form
+   of `pending`. Each line it prints is one report and arrives here as one
+   notification.
 
    ```
    Monitor(command: "sideband pending --wait --stream",
@@ -80,10 +81,18 @@ described below.
    ```
 
    Idle waiting costs no model tokens. Never start a second listener, and
-   never start one when pushes are delivered. If Monitor is unavailable,
-   fall back to a background Bash task running
-   `sideband pending --wait --timeout 3600` and restart it after each exit,
-   treating its completion exactly like a Monitor notification.
+   never start one when the mode is `push`. If Monitor is unavailable, fall
+   back to a background Bash task running
+   `sideband pending --wait --timeout 3600`; when it exits with the
+   timed-out code (6), start it again, and when it exits any other way,
+   show the user its stderr and stop. A listener keeps running the
+   executable it started with, so after `just install` replaces the binary,
+   stop it and start it again.
+
+   The join decides from the settings files the executable can read. If
+   the user knows managed settings or `--settings` hold cross-session
+   messages, which no file shows, they can ask for `sideband join --resume
+   --deliver listen`; `--deliver push` forces the other way.
 
 ## On every human turn while active
 
