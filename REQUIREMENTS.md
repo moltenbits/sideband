@@ -325,7 +325,7 @@ preamble that capture hooks check before recording anything.
 
 The envelope must also be self-describing. A client can have its conversation
 context cleared while its listener keeps running (Claude Code's `/clear` leaves
-the Monitor and its `sideband follow` process alive; verified 2026-09-05), so
+the Monitor and its `sideband pending --wait --stream` process alive; verified 2026-09-05), so
 the adapter instructions cannot be assumed to be in context when a batch
 arrives. Everything a host receives therefore begins with an `intent` field,
 one sentence: "Sideband delivery; use the Sideband skill (`/sideband` or
@@ -698,10 +698,10 @@ questions with stale or incomplete parent context.
 Claude Code has no command that starts a turn in a running session from
 outside, so Claude is delivered to by its own listener. The listener is one
 persistent Monitor attached to the streaming journal-follow command
-(`sideband follow --role claude`), started once at activation; each line the
+(`sideband pending --wait --stream`), started once at activation; each line the
 command emits is one wake signal for a batch of open entries and becomes one
 notification to the parent, which then reads the entries with `pending`. The listener is never re-armed per message. A one-shot background
-task blocked on `sideband follow --once` is the fallback where Monitor is unavailable,
+task blocked on `sideband pending --wait` is the fallback where Monitor is unavailable,
 as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a read of `pending`
 rather than be treated as exactly one message. The worker must
 not answer the message itself.

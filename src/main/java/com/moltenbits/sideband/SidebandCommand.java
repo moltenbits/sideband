@@ -5,7 +5,6 @@ import com.moltenbits.sideband.command.AppendAgentCommand;
 import com.moltenbits.sideband.command.CaptureHumanCommand;
 import com.moltenbits.sideband.command.DoctorCommand;
 import com.moltenbits.sideband.command.ExitCode;
-import com.moltenbits.sideband.command.FollowCommand;
 import com.moltenbits.sideband.command.HookCommand;
 import com.moltenbits.sideband.command.InitCommand;
 import com.moltenbits.sideband.command.PendingCommand;
@@ -31,7 +30,6 @@ import picocli.CommandLine.IVersionProvider;
                 JoinCommand.class,
                 CaptureHumanCommand.class,
                 AppendAgentCommand.class,
-                FollowCommand.class,
                 PendingCommand.class,
                 SkillCommand.class,
                 HookCommand.class,

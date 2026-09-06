@@ -58,21 +58,19 @@ described below.
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 
-3. Start exactly one listener: a persistent Monitor on the streaming follow
-   command, from the JSON `session.watermark`. Each line it prints is one
-   wake signal and arrives here as one notification. It never needs
-   re-arming.
+3. Start exactly one listener: a persistent Monitor on the streaming form of
+   `pending`. Each line it prints is one report and arrives here as one
+   notification. It never needs re-arming and never advances the bookmark.
 
    ```
-   Monitor(command: "sideband follow --from <watermark>",
+   Monitor(command: "sideband pending --wait --stream",
            description: "Sideband entries for Claude", persistent: true)
    ```
 
    Idle waiting costs no model tokens. Never start a second listener. If
    Monitor is unavailable, fall back to a background Bash task running
-   `sideband follow --once --from <offset> --timeout 3600`
-   and restart it from the JSON `end` after each exit; it prints the same
-   wake line, and `pending` holds the entries.
+   `sideband pending --wait --timeout 3600` and restart it after each exit;
+   its output file holds the report.
 
 ## On every human turn while active
 
@@ -104,11 +102,10 @@ each says what to do:
 
 ## When a Monitor notification arrives
 
-The notification is a wake signal, not the payload: a JSON line with a
-`intent` sentence, the byte range scanned, and counts of new entries,
-actionable entries, and diagnostics. Hosts truncate notifications, so never
-read entries from it. Run `sideband pending`. Everything it lists is derived
-from the journal; the only thing that changes when you run it is that
+The notification is a wake signal, not the payload: hosts truncate
+notifications, and the listener never advances the bookmark, so never act
+from the notification text. Run `sideband pending`. Everything it lists is
+derived from the journal; the only thing that changes when you run it is that
 `updates` are then counted as shown.
 
 For each entry under `open`, in order:
@@ -132,9 +129,9 @@ For each item under `outgoing`, Claude's own unanswered requests, look at
 decide whether to keep waiting, move on, or tell the user the other agent is
 not responding (unacknowledged means it likely never arrived). Report any
 `diagnostics`. If the Monitor itself ends, show its stderr to the user and
-restart it from the last wake line's `end` only once the cause is understood.
+restart it only once the cause is understood.
 
-Both the wake line and the `pending` output begin with an `intent` sentence
+Every `pending` report, streamed or not, begins with an `intent` sentence
 that names this skill, so a conversation whose context was cleared while the
 listener kept running can find these steps again. `/clear` does not stop the
 Monitor; never start another one because the instructions above are no longer

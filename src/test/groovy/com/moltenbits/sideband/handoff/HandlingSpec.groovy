@@ -8,7 +8,6 @@ class HandlingSpec extends Specification {
     void "the intent sentence names the calling client's skill and nothing else"() {
         expect:
         Handling.forRole(role) == expected
-        Handling.wake(role) == expected
 
         where:
         role        | expected

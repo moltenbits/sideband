@@ -29,7 +29,7 @@ The version-one implementation will use:
 - Two instruction-only client skills installed alongside that executable.
 - Explicit activation (`/sideband` in Claude Code and `$sideband` in Codex).
 - One background transport worker per active client session.
-- A blocking `follow` command, so idle listening consumes no model tokens.
+- A blocking form of `pending`, so idle listening consumes no model tokens.
   Only the background listener uses it; sending a request never blocks the
   parent, starts a response timer, or schedules a retry.
 - A local native build and idempotent installation of the binary and skill
@@ -347,9 +347,9 @@ sideband append-agent --from codex --to claude --type ack --reply-to <id>   # re
 sideband append-agent --from claude --to codex --type request --caused-by <id> \
   --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
 sideband join --role codex --session-id <id> [--resume]     # start the session; prints the first pending report
-sideband follow --role <role> --from <offset>                # one wake line per batch, forever
-sideband follow --role <role> --from <offset> --once [--timeout s]   # one wake line, then exit
 sideband pending --role codex                                # open, in progress, updates, outgoing
+sideband pending --role codex --wait [--timeout s]           # block until something new, then report
+sideband pending --role claude --wait --stream               # one report per batch, forever, never advancing
 sideband skill                          # the calling client's adapter instructions
 sideband hook prompt                    # prompt-submit hook, payload on stdin
 sideband version
@@ -405,14 +405,15 @@ as `heartbeat_seconds`. `pending` reports open and in-progress requests,
 updates past the read position, and outgoing requests, all derived from the
 journal.
 
-`follow` belongs only to the session's background listener. It blocks in a
-low-frequency stat loop until one or more new complete entries for the role
-exist, prints one wake line, and, without `--once`, keeps going. With `--once`
-it exits after that line so a transport worker can restart it from the line's
-`end`. No standalone Sideband daemon survives the client session, and the model
-consumes no tokens while the native command is blocked.
+`pending --wait --stream` belongs only to the session's background listener.
+It blocks in a low-frequency stat loop until one or more new complete entries
+for the role exist, prints one report, and keeps going, never advancing the
+read position; the parent's own `pending` does that when it reads. `--wait`
+without `--stream` prints one report and exits, for a transport worker that
+restarts it. No standalone Sideband daemon survives the client session, and
+the model consumes no tokens while the native command is blocked.
 
-The parent never invokes `follow` for a particular request or reply. Appending a
+The parent never blocks on `pending --wait` for a particular request or reply. Appending a
 request returns immediately after durable persistence; there are no response
 deadlines, retries, resubmissions, or periodic model turns to inspect pending
 requests. A diagnostic timeout in the existing spike is not a production
@@ -427,7 +428,7 @@ its ending byte offset as the session watermark, sets the bookmark there or,
 with `--resume`, leaves it where the previous session stopped, and releases the
 lock. It then prints the first pending report.
 
-The transport worker starts `follow` from the stored byte offset. An
+The transport worker starts the streaming `pending` from the session's read position. An
 entry appended after the watermark but before the blocking wait begins is found
 by the wait's mandatory initial scan and is classified as live. Thus every
 entry is either at/before the watermark (backlog) or after it (live); there is no
@@ -466,10 +467,8 @@ does not change an entry's recorded author.
 
 Claude's listener does not print this batch: Claude Code truncates a Monitor
 event to 500 characters, so
-`sideband follow` prints a short wake line (`intent`, byte range, counts of
-entries, actionable entries, and diagnostics, and the senders) and the parent
-reads the batch with `sideband pending`, whose output carries the same
-`intent` and handoffs.
+the streaming `pending` prints the same report per batch and never advances
+the read position; the parent's own `pending` reads and advances.
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the
@@ -535,8 +534,8 @@ the recipient that moves the request from `open` to `in_progress` in
 outgoing report, with the silence since the latest ack and whether it exceeds
 `heartbeat_seconds` (`overdue`). The sending parent decides what to do with
 that: keep waiting, move on, or tell the human the other agent is not
-responding. Sideband never resends or resolves on its own. Whether `follow`
-should also emit a wake line when a request first becomes overdue is open
+responding. Sideband never resends or resolves on its own. Whether the
+streaming `pending` should also wake when a request first becomes overdue is open
 (requirements section 15).
 
 ### 7.6 Human-directed follow-ups
@@ -592,14 +591,13 @@ The Claude skill is installed as a Claude-compatible `SKILL.md` and invoked as
 
 - use a supported native background facility to own journal following and wake
   the existing parent;
-- have the worker run only `sideband follow`, parent delivery, and `pending`;
+- have the worker run only the streaming `pending` and parent delivery;
 - rely on the shared `sideband hook prompt` hook, registered by `init` in the
   repository's `.claude/settings.json`, to journal the exact human body before
   model processing; the hook recognizes Claude Code as the caller itself;
 - deliver entries to the original parent conversation, never answer them in the
   worker; and
-- report a stopped background task so the parent can restart it from the last
-  wake line's `end`.
+- report a stopped background task so the parent can restart it.
 
 The recorded Claude spike proved that completion of a background native `wait`
 task wakes the idle parent, with the task's JSON stdout as the delivery envelope.

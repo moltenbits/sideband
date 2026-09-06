@@ -18,11 +18,6 @@ public final class Handling {
         return "Sideband delivery; use the Sideband skill (" + invocation(role) + ") for handling instructions";
     }
 
-    /** The listener's wake line says the same; the counts beside it say what arrived. */
-    public static String wake(Role role) {
-        return forRole(role);
-    }
-
     /** How the operator invokes the client's Sideband skill. */
     public static String invocation(Role role) {
         return role == Role.CLAUDE ? "/sideband" : "$sideband";

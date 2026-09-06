@@ -89,18 +89,19 @@ it is live.
 ### How each client is reached
 
 Claude Code has no way to start a turn from outside, so Claude listens. At
-activation the skill starts one persistent Monitor on `sideband follow`, a
-native process that blocks on the journal and prints one short line per batch
-of open entries addressed to Claude. The host turns each line into a
-notification in the existing conversation. The line is a wake signal, not the
-payload: Claude then runs `sideband pending` to read the entries.
+activation the skill starts one persistent Monitor on `sideband pending --wait --stream`, a
+native process that blocks on the journal and prints one report per batch
+of new entries for Claude. The host turns each line into a notification in
+the existing conversation. The notification is a wake signal, not the
+payload: Claude then runs `sideband pending` to read the entries, which is
+what marks updates as shown.
 
 Codex runs no listener at all. It records its thread id at activation, and
 whoever appends an entry addressed to Codex pushes the envelope straight into
 that thread with `codex queue`, which starts a new turn in the idle session.
 The executable marks the entry delivered at the same time.
 
-Both the wake line and every delivered batch begin with an `intent` field
+Every report and every delivered batch begin with an `intent` field
 that says only "Sideband delivery; use the Sideband skill (/sideband) for
 handling instructions". That is what lets a conversation whose context was
 cleared, while its listener kept running, find the skill and handle what
@@ -123,7 +124,7 @@ sequenceDiagram
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
     Codex->>SB: append-agent --type ack --reply-to (the request)
     Codex->>SB: append-agent --to claude --type reply --reply-to (the request)
-    SB-->>Claude: follow emits a wake line into the idle conversation
+    SB-->>Claude: the streaming pending wakes the idle conversation
     Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found
     Claude->>James: The change, with Codex's review folded in

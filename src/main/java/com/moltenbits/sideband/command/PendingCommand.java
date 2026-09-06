@@ -2,10 +2,17 @@ package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
+import com.moltenbits.sideband.journal.Entry;
+import com.moltenbits.sideband.journal.Journal;
+import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
+import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
+import com.moltenbits.sideband.waiting.JournalWatcher;
+import com.moltenbits.sideband.waiting.Waited;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
@@ -15,18 +22,29 @@ import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.concurrent.Callable;
+import java.util.function.Predicate;
 
 /**
  * Everything a role has to look at, derived from the journal: unanswered requests to it,
  * informational entries it has not been shown, and its own requests still awaiting a reply.
- * This is where a listener's wake line sends the client, so the output starts with the
- * intent sentence naming the skill. Showing the report advances the role's read position past the updates.
+ * Printing the report advances the role's read position past the updates.
+ * <p>
+ * With {@code --wait} the command first blocks, at no model cost, until something new for
+ * the role arrives. With {@code --stream} it keeps doing that forever, printing one report
+ * per batch and never advancing the read position: it is the listener under a host facility
+ * that turns each line into a notification, such as Claude Code's Monitor, and since a
+ * notification may be truncated, the model's own {@code pending} is what marks updates shown.
  */
-@Command(name = "pending", description = "List a role's unanswered requests, unseen updates, and unanswered outgoing requests", mixinStandardHelpOptions = true)
+@Command(name = "pending", description = "List what is waiting for this client: unanswered requests, unseen updates, and your own unanswered requests. --wait blocks until something arrives; --stream keeps listening", mixinStandardHelpOptions = true)
 @Prototype
 public class PendingCommand implements Callable<Integer> {
+
+    /** Wake from the watcher this often even when nothing arrived, so a hung watch is bounded. */
+    static final Duration IDLE_RECHECK = Duration.ofSeconds(30);
 
     @Spec
     CommandSpec spec;
@@ -34,32 +52,84 @@ public class PendingCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
+    @Option(names = "--wait", description = "Block until something new for this client arrives, then report")
+    boolean wait;
+
+    @Option(names = "--timeout", paramLabel = "SECONDS", description = "With --wait: give up after this long with the timed-out exit code, still printing the report")
+    Long timeoutSeconds;
+
+    @Option(names = "--stream", description = "With --wait: keep listening forever, one report per batch, never advancing the read position")
+    boolean stream;
+
+    @Option(names = "--from", hidden = true, description = "Byte offset to watch from (default: the session's read position)")
+    Long from;
+
     @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
     Role role;
+
+    @Option(names = "--max-batches", hidden = true, description = "With --stream: stop after this many reports (for tests)")
+    Integer maxBatches;
 
     private final SidebandHome home;
     private final HostEnvironment host;
     private final Sessions sessions;
     private final Pending pending;
+    private final JournalWatcher watcher;
     private final ObjectMapper json;
 
-    PendingCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
+    PendingCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, JournalWatcher watcher, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.sessions = sessions;
         this.pending = pending;
+        this.watcher = watcher;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
+        if (!wait && (timeoutSeconds != null || stream)) {
+            throw new IllegalArgumentException((stream ? "--stream" : "--timeout") + " only applies with --wait");
+        }
+        if (timeoutSeconds != null && timeoutSeconds < 0) {
+            throw new IllegalArgumentException("--timeout must not be negative");
+        }
+        if (from != null && from < 0) {
+            throw new IllegalArgumentException("--from must not be negative");
+        }
         Role who = role != null ? role : host.requireRole("--role");
         Path stateDirectory = repository.stateDirectory(home);
+        if (!wait) {
+            return print(stateDirectory, who, true, ExitCode.OK);
+        }
+        Path file = stateDirectory.resolve(Journal.FILE_NAME);
+        Predicate<Entry> wanted = entry -> Addressing.concerns(entry.metadata(), who) && entry.metadata().type() != MessageType.ACK;
+        long offset = from != null ? from : sessions.load(stateDirectory, who).map(Session::offset).orElse(0L);
+        Duration timeout = stream ? IDLE_RECHECK : timeoutSeconds == null ? null : Duration.ofSeconds(timeoutSeconds);
+        int limit = stream ? maxBatches == null ? Integer.MAX_VALUE : maxBatches : 1;
+        for (int reports = 0; reports < limit;) {
+            Waited waited = watcher.await(file, offset, timeout, wanted);
+            offset = waited.read().end();
+            if (waited.timedOut()) {
+                if (stream) {
+                    continue;
+                }
+                return print(stateDirectory, who, false, ExitCode.TIMED_OUT);
+            }
+            print(stateDirectory, who, !stream, ExitCode.OK);
+            reports++;
+        }
+        return ExitCode.OK;
+    }
+
+    private int print(Path stateDirectory, Role who, boolean advance, int exit) throws IOException {
         PendingReport report = pending.report(stateDirectory, who);
-        if (report.session() != null) {
+        if (advance && report.session() != null) {
             sessions.advance(stateDirectory, who, report.end());
         }
-        Output.print(spec, json, report);
-        return ExitCode.OK;
+        PrintWriter out = spec.commandLine().getOut();
+        out.println(json.writeValueAsString(report));
+        out.flush();
+        return exit;
     }
 }
