@@ -39,6 +39,8 @@ class ResourceInstaller implements Installer {
     static final String INBOUND_ACCEPT = "accept";
     private static final String INBOUND_ITEM = "claude-inbound";
     private static final String LOCAL_SETTINGS = ".claude/settings.local.json";
+    static final String INBOUND_NOTE = "the value found in .claude/settings.json, .claude/settings.local.json, and the user "
+            + "~/.claude/settings.json; managed settings and --settings are not inspected and can set a different value";
     /** Looser to stricter; the strictest value present anywhere is the one Claude Code applies. */
     private static final List<String> INBOUND_LADDER = List.of(INBOUND_ACCEPT, "hold", "refuse");
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
@@ -264,11 +266,12 @@ class ResourceInstaller implements Installer {
     }
 
     /**
-     * The inbound policy Claude Code will apply, as far as files can show it. The key has a
-     * stricter-value rule: {@code refuse} anywhere applies, then {@code hold}, so the strictest
-     * value across the project file, its local companion, and the user file wins, and the item's
-     * path names the file that decided. Managed settings and {@code --settings} are out of reach
-     * here, so a session can still be stricter than reported, never looser.
+     * The inbound policy found in the files this executable can read: the project file, its
+     * local companion, and the user file. The key has a stricter-value rule for project and
+     * local settings, so the strictest value across the three wins and the item's path names
+     * the file that decided. Managed settings and {@code --settings} are not inspected, and a
+     * value there can override a user-file value in either direction, so the item says what
+     * was inspected rather than claiming what the running session applies.
      */
     private InstallReport.Item inboundItem(Path homeDir, Path projectDir) {
         Path project = projectDir.resolve(SETTINGS);
@@ -283,14 +286,14 @@ class ResourceInstaller implements Installer {
             try {
                 value = readSettings(source).get(INBOUND_KEY);
             } catch (IOException | RuntimeException e) {
-                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unreadable");
+                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unreadable", INBOUND_NOTE);
             }
             if (value == null) {
                 continue;
             }
             int rank = INBOUND_LADDER.indexOf(String.valueOf(value));
             if (rank < 0) {
-                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unknown");
+                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unknown", INBOUND_NOTE);
             }
             if (rank > strictest) {
                 strictest = rank;
@@ -303,7 +306,7 @@ class ResourceInstaller implements Installer {
             case 2 -> "refused";
             default -> "missing";
         };
-        return new InstallReport.Item(INBOUND_ITEM, deciding.toString(), state);
+        return new InstallReport.Item(INBOUND_ITEM, deciding.toString(), state, INBOUND_NOTE);
     }
 
     private boolean isSidebandHook(String command) {

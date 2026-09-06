@@ -111,6 +111,7 @@ class ResourceInstallerSpec extends Specification {
         and: "Claude Code is told to deliver pushed messages rather than hold them for approval"
         report.inbound().name() == "claude-inbound"
         report.inbound().state() == "added"
+        report.hook().note() == null
         settings.contains('"crossSessionInbound": "accept"')
 
         and: "the Codex registration is the same command naming codex, so a hook shell without markers still knows its client"
@@ -151,6 +152,7 @@ class ResourceInstallerSpec extends Specification {
         then:
         item.state() == state
         item.path() == files[decidedBy].toString()
+        item.note().contains("managed settings and --settings are not inspected")
 
         where:
         values                                   | state       | decidedBy

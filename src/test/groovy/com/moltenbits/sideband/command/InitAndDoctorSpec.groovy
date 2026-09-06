@@ -90,6 +90,7 @@ class InitAndDoctorSpec extends CommandSpec {
         report.clients.skills*.state == ["missing", "missing"]
         report.clients.hook.state == "missing"
         report.clients.inbound.state == "missing"
+        report.clients.inbound.note.contains("not inspected")
     }
 
     void "doctor reports journal health, sessions, pending counts, and the lock owner"() {
