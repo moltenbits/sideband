@@ -267,6 +267,39 @@ class ClaudeSocketPusherSpec extends Specification {
         held.detail().contains("has not joined")
     }
 
+    void "the mode is judged per candidate: a stale registration ahead of the joined session changes nothing"() {
+        given: "the newest registration is stale and unjoined; the older live one is the session that joined listening"
+        Path live = socketPath()
+        def received = inbox(live)
+        register(61, repo, socketPath(), 2000L, "stale", "unjoined")
+        register(60, repo, live, 1000L, "listening", "s-listen")
+        context.getBean(Sessions).join(state, Role.CLAUDE, "s-listen", false, Delivery.LISTEN)
+
+        expect: "the files accept pushes, but the joined session listens, so nothing is posted to it"
+        pusher.push(state, "hi").outcome() == PushOutcome.LISTENER_DELIVERS
+        !received.isDone()
+    }
+
+    void "a candidate the files would hold is skipped for an older session that joined for pushes"() {
+        given: "the newest registration is unjoined, the older live one joined for pushes, and the files would hold"
+        Path live = socketPath()
+        def received = inbox(live)
+        register(71, repo, socketPath(), 2000L, "unjoined", "u1")
+        register(70, repo, live, 1000L, "pushing", "s-push")
+        Sessions sessions = context.getBean(Sessions)
+        sessions.join(state, Role.CLAUDE, "s-push", false, Delivery.PUSH)
+        Path silentHome = Files.createTempDirectory("claude-home-silent")
+        HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), sessions, context.getBean(ObjectMapper), Duration.ofSeconds(5))
+
+        expect:
+        with(cautious.push(state, "hi")) {
+            outcome() == PushOutcome.PUSHED
+            detail().contains("pushing")
+        }
+        received.get(30, TimeUnit.SECONDS).contains('"content":"hi"')
+    }
+
     void "an absent registry directory means no session"() {
         given:
         HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,

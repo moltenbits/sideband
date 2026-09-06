@@ -98,24 +98,6 @@ class ClaudeSocketPusher implements HostPusher {
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
         }
-        // The recipient is the running session, and a recorded mode belongs to the session that
-        // joined, never to a later one: the record's id is the host's session id, which the
-        // registry carries too. A session that has not joined gets the settings files' verdict.
-        Session record = sessions.load(stateDirectory, Role.CLAUDE).orElse(null);
-        Registration recipient = candidates.getFirst();
-        if (record != null && record.delivery() != null && record.id().equals(recipient.sessionId())) {
-            if (record.delivery() == Delivery.LISTEN) {
-                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
-                        "Claude joined listening; its Monitor delivers. Rejoin with --deliver push, or with crossSessionInbound accepted, to be pushed to");
-            }
-        } else {
-            InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
-            if (!inbound.state().equals("installed")) {
-                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
-                        "Claude Code would hold the push to a session that has not joined (inbound " + inbound.state()
-                                + " per " + inbound.path() + "); the entry waits for its join. " + inbound.note());
-            }
-        }
         String frame;
         try {
             frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
@@ -127,8 +109,29 @@ class ClaudeSocketPusher implements HostPusher {
                     + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
         }
         byte[] bytes = frame.getBytes(UTF_8);
+        // A recorded mode belongs to the session that joined, never to a later one: the record's
+        // id is the host's session id, which the registry carries too. Each candidate is judged
+        // as it is tried, so a stale registration ahead of the joined session changes nothing.
+        Session record = sessions.load(stateDirectory, Role.CLAUDE).orElse(null);
+        InstallReport.Item inbound = null;
         String failure = null;
+        String held = null;
         for (Registration candidate : candidates) {
+            boolean joined = record != null && record.delivery() != null && record.id().equals(candidate.sessionId());
+            if (joined && record.delivery() == Delivery.LISTEN) {
+                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+                        "Claude joined listening; its Monitor delivers. Rejoin with --deliver push, or with crossSessionInbound accepted, to be pushed to");
+            }
+            if (!joined) {
+                if (inbound == null) {
+                    inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
+                }
+                if (!inbound.state().equals("installed")) {
+                    held = "Claude Code would hold the push to a session that has not joined (inbound " + inbound.state()
+                            + " per " + inbound.path() + "); the entry waits for its join. " + inbound.note();
+                    continue;
+                }
+            }
             try {
                 post(Path.of(candidate.messagingSocketPath()), bytes);
                 return new PushResult(Role.CLAUDE, PushOutcome.PUSHED,
@@ -138,7 +141,10 @@ class ClaudeSocketPusher implements HostPusher {
                         + " did not accept the connection: " + e.getMessage();
             }
         }
-        return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
+        if (failure != null) {
+            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
+        }
+        return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, held);
     }
 
     /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */
