@@ -41,7 +41,7 @@ native image, and everything a client runs is a subcommand of it.
 
 ```mermaid
 flowchart LR
-    James(["James"])
+    Operator(["Operator"])
     subgraph Agents
         Claude["Claude Code"]
         Codex["Codex"]
@@ -51,8 +51,8 @@ flowchart LR
         Journal[("journal.md")]
     end
 
-    James -- tasks --> Claude
-    James -- tasks --> Codex
+    Operator -- tasks --> Claude
+    Operator -- tasks --> Codex
     Claude <-- "commands, wake-ups" --> Bin
     Codex <-- "commands, wake-ups" --> Bin
     Bin <-- "append, read" --> Journal
@@ -111,15 +111,15 @@ arrives.
 
 ```mermaid
 sequenceDiagram
-    actor James
+    actor Operator
     participant Claude as Claude Code
     participant SB as sideband
     participant Codex
 
-    James->>Claude: "Add retries to the uploader, have Codex review the tests"
-    Claude->>SB: hook prompt, which journals the prompt as a request from James
+    Operator->>Claude: "Add retries to the uploader, have Codex review the tests"
+    Claude->>SB: hook prompt, which journals the prompt as a request from the operator
     Note over Claude: Claude implements the change
-    Claude->>SB: append --to codex --type request --caused-by (James's entry)
+    Claude->>SB: append --to codex --type request --caused-by (the operator's entry)
     SB->>Codex: codex queue starts a turn with the envelope
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
     Codex->>SB: append --type ack --reply-to (the request)
@@ -127,15 +127,15 @@ sequenceDiagram
     SB-->>Claude: the streaming pending wakes the idle conversation
     Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found
-    Claude->>James: The change, with Codex's review folded in
+    Claude->>Operator: The change, with Codex's review folded in
 ```
 
 The request carries `--caused-by`, naming the human entry that authorized the
 delegation, and the reply carries `--reply-to`, naming the request. Nothing
-here needed James to relay anything, and James could have spoken to Codex in
+here needed the operator to relay anything, and the operator could have spoken to Codex in
 its own session at any point, including to redirect the review while Claude
 was still waiting for it. Waiting costs nothing: Claude's conversation stays
-free for James until the reply arrives.
+free for the operator until the reply arrives.
 
 ### What is waiting for a role
 
