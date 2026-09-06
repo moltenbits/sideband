@@ -94,23 +94,27 @@ class ClaudeSocketPusher implements HostPusher {
 
     @Override
     public PushResult push(Path stateDirectory, String text) {
-        // A joined session fixed its delivery mode; writers follow it so the two never disagree.
-        // Without a record, the settings files decide, as join would have.
-        Delivery delivery = sessions.load(stateDirectory, Role.CLAUDE).map(Session::delivery).orElse(null);
-        if (delivery == Delivery.LISTEN) {
-            return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
-                    "Claude joined listening; its Monitor delivers. Rejoin with --deliver push, or with crossSessionInbound accepted, to be pushed to");
-        }
-        if (delivery == null) {
-            InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
-            if (!inbound.state().equals("installed")) {
-                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
-                        "Claude Code would hold the push (inbound " + inbound.state() + " per " + inbound.path() + "); " + inbound.note());
-            }
-        }
         List<Registration> candidates = registered(stateDirectory);
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
+        }
+        // The recipient is the running session, and a recorded mode belongs to the session that
+        // joined, never to a later one: the record's id is the host's session id, which the
+        // registry carries too. A session that has not joined gets the settings files' verdict.
+        Session record = sessions.load(stateDirectory, Role.CLAUDE).orElse(null);
+        Registration recipient = candidates.getFirst();
+        if (record != null && record.delivery() != null && record.id().equals(recipient.sessionId())) {
+            if (record.delivery() == Delivery.LISTEN) {
+                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+                        "Claude joined listening; its Monitor delivers. Rejoin with --deliver push, or with crossSessionInbound accepted, to be pushed to");
+            }
+        } else {
+            InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
+            if (!inbound.state().equals("installed")) {
+                return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+                        "Claude Code would hold the push to a session that has not joined (inbound " + inbound.state()
+                                + " per " + inbound.path() + "); the entry waits for its join. " + inbound.note());
+            }
         }
         String frame;
         try {
@@ -230,7 +234,7 @@ class ClaudeSocketPusher implements HostPusher {
 
     /** The fields of a Claude Code session registration this pusher reads; the rest are ignored. */
     @Serdeable
-    record Registration(@Nullable Long pid, @Nullable String cwd, @Nullable String messagingSocketPath,
+    record Registration(@Nullable Long pid, @Nullable String sessionId, @Nullable String cwd, @Nullable String messagingSocketPath,
                         @Nullable String name, @Nullable Long startedAt) {
     }
 

@@ -118,13 +118,12 @@ exit $(cat "''' + exitFile + '''")
         results[0].detail().contains("exited 3")
     }
 
-    void "Claude is pushed to over its inbox socket only when the operator's settings accept it; otherwise its listener delivers"() {
+    void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
         when:
         List<PushResult> results = pushes.deliver(state, journal.append(file, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
 
         then:
-        results*.outcome() == [PushOutcome.LISTENER_DELIVERS]
-        results[0].detail().contains("inbound missing")
+        results == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
     }
 
     void "an agent's own role and human recipients are never pushed to"() {
@@ -149,6 +148,6 @@ exit $(cat "''' + exitFile + '''")
 
         expect:
         pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]
-        pushes.deliver(state, viaCodex)*.outcome() == [PushOutcome.LISTENER_DELIVERS]
+        pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
     }
 }

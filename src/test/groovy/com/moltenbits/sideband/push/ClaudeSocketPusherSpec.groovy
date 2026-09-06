@@ -83,9 +83,9 @@ class ClaudeSocketPusherSpec extends Specification {
         }
     }
 
-    void register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid) {
+    void register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid, String sessionId = UUID.randomUUID().toString()) {
         Files.writeString(registry.resolve(pid + ".json"), context.getBean(ObjectMapper).writeValueAsString([
-                pid: pid, sessionId: UUID.randomUUID().toString(), cwd: cwd.toString(), startedAt: startedAt,
+                pid: pid, sessionId: sessionId, cwd: cwd.toString(), startedAt: startedAt,
                 version: "2.1.263", peerProtocol: 1, kind: "interactive", entrypoint: "cli",
                 messagingSocketPath: socket.toString(), name: name, status: "idle"]))
     }
@@ -212,11 +212,11 @@ class ClaudeSocketPusherSpec extends Specification {
         }
     }
 
-    void "a joined session's recorded mode wins over the settings, in both directions"() {
+    void "the running session's own recorded mode wins over the settings, in both directions"() {
         given:
         Path socket = socketPath()
         def received = inbox(socket)
-        register(41, repo, socket)
+        register(41, repo, socket, 1000L, "joined", "s1")
         Sessions sessions = context.getBean(Sessions)
 
         when: "the session joined listening, although the settings would allow a push"
@@ -228,8 +228,8 @@ class ClaudeSocketPusherSpec extends Specification {
         listening.detail().contains("joined listening")
         !received.isDone()
 
-        when: "the session joined for pushes, although the settings a writer sees now would hold them"
-        sessions.join(state, Role.CLAUDE, "s2", false, Delivery.PUSH)
+        when: "the same session rejoined for pushes, although the settings a writer sees now would hold them"
+        sessions.join(state, Role.CLAUDE, "s1", true, Delivery.PUSH)
         Path silentHome = Files.createTempDirectory("claude-home-silent")
         HostPusher trusting = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
                 context.getBean(com.moltenbits.sideband.install.Installer), sessions, context.getBean(ObjectMapper), Duration.ofSeconds(5))
@@ -238,6 +238,33 @@ class ClaudeSocketPusherSpec extends Specification {
         then:
         pushed.outcome() == PushOutcome.PUSHED
         received.get(30, TimeUnit.SECONDS).contains('"content":"hi"')
+    }
+
+    void "a record left by an earlier session does not bind a new one: the files decide for a session that has not joined"() {
+        given: "the session that joined is gone; a newer one is registered and has not joined"
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(51, repo, socket, 2000L, "fresh", "new-session")
+        Sessions sessions = context.getBean(Sessions)
+
+        when: "the old record says listen, and the settings accept pushes"
+        sessions.join(state, Role.CLAUDE, "old-session", false, Delivery.LISTEN)
+        PushResult pushed = pusher.push(state, "hi")
+
+        then:
+        pushed.outcome() == PushOutcome.PUSHED
+        received.get(30, TimeUnit.SECONDS).contains('"content":"hi"')
+
+        when: "the old record says push, and the settings a writer sees would hold"
+        sessions.join(state, Role.CLAUDE, "old-session", false, Delivery.PUSH)
+        Path silentHome = Files.createTempDirectory("claude-home-silent")
+        HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), sessions, context.getBean(ObjectMapper), Duration.ofSeconds(5))
+        PushResult held = cautious.push(state, "hi")
+
+        then:
+        held.outcome() == PushOutcome.LISTENER_DELIVERS
+        held.detail().contains("has not joined")
     }
 
     void "an absent registry directory means no session"() {
