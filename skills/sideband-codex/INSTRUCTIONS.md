@@ -19,6 +19,7 @@ Exit codes are 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
 ## Arguments
 
 The text after `$sideband` selects what to do. With no argument, join and resume.
+The named command arguments below are case-insensitive.
 
 | Argument | What to do |
 | --- | --- |
@@ -26,7 +27,16 @@ The text after `$sideband` selects what to do. With no argument, join and resume
 | `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
-| anything else | Capture the actual human prompt verbatim once, following the hook rules below. A leading routing directive is interpreted by the executable. |
+| anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. |
+
+For `$sideband <text>`, do not routinely run `append --from operator`: the
+hook owns capture. A leading `@claude` sends the message to Claude, `@codex`
+or `@all` includes Codex, and no directive addresses the calling client.
+Follow the hook's capture outcome, not an assumption that invoking the skill
+proves success. If the note is missing, report the missing confirmation rather
+than recapturing the skill argument. Manual recovery is allowed only when the
+hook reports nothing was written and the ownership checks below permit it;
+record the message text after the invocation, not the `$sideband` wrapper.
 
 ## Join
 
@@ -121,8 +131,9 @@ note lacks an ID and no supported result supplies it, report that limitation
 before attempting a linked send. A peer message remains the immediate cause
 when it, rather than the human prompt, initiates the delegation.
 
-Without any hook confirmation, capture is best effort only while this session
-is known to be active, and report that limitation:
+For ordinary human prompts, not skill invocations, capture without any hook
+confirmation is best effort only while this session is known to be active;
+report that limitation:
 
 ```bash
 sideband append --from operator --body-file <prompt.md>
