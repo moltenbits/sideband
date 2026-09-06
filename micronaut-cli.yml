@@ -1,0 +1,6 @@
+applicationType: cli
+defaultPackage: com.moltenbits.sideband
+testFramework: spock
+sourceLanguage: java
+buildTool: gradle_kotlin
+features: [app-name, graalvm, gradle, http-client-test, java, logback, micronaut-build, micronaut-configuration-validation-gradle-plugin, picocli, picocli-java-application, picocli-spock, properties, readme, serialization-jackson, shade, spock]
