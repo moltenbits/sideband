@@ -162,8 +162,9 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 and registers the same `sideband hook prompt` command in the repository's
 `.claude/settings.json` and `.codex/hooks.json`. Rerunning it is safe.
 In Codex, review and trust the new hook through `/hooks`; a registered command
-is not necessarily enabled or trusted by the host. Until it runs, Codex's
-skill captures prompts on a best-effort basis. Caller detection is automatic;
+is not necessarily enabled or trusted by the host. The hook is the only thing
+that records prompts: when it cannot, it tells the model to tell you, and no
+client records a prompt on its behalf. Caller detection is automatic;
 `sideband hook prompt --agent codex` (or `--agent claude`) is an optional
 override, still subject to the active session ownership check.
 
@@ -182,9 +183,11 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 `--force`. Delete the file and rerun `sideband init` to go back.
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
-`! sideband pending`. Commands print one JSON object and use stable exit
-codes: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out,
-7 another live session already owns the role.
+`! sideband pending`. Commands print one JSON object, except that `skill`
+prints Markdown, `--help` prints text, and the streaming `pending` prints one
+report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
+contention, 5 I/O failure, 6 timed out, 7 another live session already owns
+the role.
 
 ## Development
 
