@@ -35,9 +35,9 @@ native image, and everything a client runs is a subcommand of it.
   acknowledgement or reply, and listed for its sender until a reply exists.
   Requests that arrived while a client was away are confirmed with the human
   before any action. The only thing kept beside the journal is each role's
-  session record: how to reach it and how far it has read. Whoever joins as a
-  role last holds it; one client per role per repository is a convention the
-  operator keeps, not something the executable polices.
+  session record: how far it has read, and for Codex the thread to push into.
+  Whoever joins as a role last holds it; one client per role per repository is
+  a convention the operator keeps, not something the executable polices.
 
 ## How the pieces fit
 
@@ -90,24 +90,27 @@ it is live.
 
 ### How each client is reached
 
-Claude Code has no way to start a turn from outside, so Claude listens. When
-it joins, the skill starts one persistent Monitor on
-`sideband pending --wait --stream`, a native process that blocks on the
-journal and prints one report per batch of new entries for Claude. The host turns each line into a notification in
-the existing conversation. The notification is a wake signal, not the
-payload: Claude then runs `sideband pending` to read the entries, which is
-what marks updates as shown.
+Neither client runs a listener. Whoever appends an entry pushes the complete
+envelope into the recipient's running session, which starts a new turn there
+when the session is idle; the recipient reads the entry from that message and
+acts on it directly.
 
-Codex runs no listener at all. It records its thread id when it joins, and
-whoever appends an entry addressed to Codex pushes the complete entry straight
-into that thread with `codex queue`, which starts a new turn in the idle
-session. Codex reads the entry from that message and acts on it directly.
+Claude Code registers every session in `~/.claude/sessions/<pid>.json` with
+its working directory and an inbox socket, the channel its own cross-session
+messaging uses. The writer finds the registered session working in this
+repository, worktrees included, and posts the envelope to its socket as one
+newline-terminated frame. No Sideband record is involved, so a Claude Code
+session that has never run `/sideband` is reached too; it loads the skill from
+the envelope's first line. A socket that refuses the connection belongs to a
+session that has ended, and the entry then waits in the journal.
 
-Every report and every delivered batch begin with an `intent` field
-that says only "Sideband delivery; use the Sideband skill (/sideband) for
-handling instructions". That is what lets a conversation whose context was
-cleared, while its listener kept running, find the skill and handle what
-arrives.
+Codex has no such registry. It records its thread id when it joins, and the
+writer pushes the envelope into that thread with `codex queue`.
+
+Every envelope and every `pending` report begin with an `intent` field that
+says only "Sideband delivery; use the Sideband skill (/sideband) for handling
+instructions". That is what lets a conversation whose context was cleared, or
+one that never joined, find the skill and handle what arrives.
 
 ### One task, two agents
 
@@ -126,8 +129,7 @@ sequenceDiagram
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
     Codex->>SB: append --type ack --reply-to (the request)
     Codex->>SB: append --type reply --reply-to (the request)
-    SB-->>Claude: the streaming pending wakes the idle conversation
-    Claude->>SB: pending
+    SB->>Claude: the envelope is posted to Claude Code's inbox socket, starting a turn
     Note over Claude: Claude fixes what Codex found
     Claude->>Operator: The change, with Codex's review folded in
 ```
@@ -163,7 +165,14 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
 and registers the `sideband hook prompt` command in the repository's
 `.claude/settings.json` and `.codex/hooks.json`, each naming its client with
-`--agent claude` or `--agent codex`. Rerunning it is safe.
+`--agent claude` or `--agent codex`, and sets `crossSessionInbound` to
+`accept` in `.claude/settings.json` unless you have chosen a value, because a
+pushed envelope reaches Claude Code from a process that is not the session's
+own child and a session run with bypass permissions would otherwise hold it
+for approval. `doctor` reports the strictest inbound value it finds across the
+project, local, and user settings files, and says that managed settings and
+`--settings`, which it cannot read, may set a different one. Rerunning `init`
+is safe.
 In Codex, review and trust the new hook through `/hooks`; a registered command
 is not necessarily enabled or trusted by the host. The hook is the only thing
 that records prompts: when it cannot, it tells the model to tell you, and no
@@ -191,8 +200,8 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 Any command runs directly from the prompt with no model turn: in Claude Code,
 `! sideband pending`. Commands print one JSON object, except that `skill`
 prints Markdown, `--help` prints text, the hook follows its host's contract
-and may print nothing, and the streaming `pending` prints one report per
-line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
+and may print nothing, and the streaming `pending --wait --stream` prints one
+report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
 contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
 
 ## Development
