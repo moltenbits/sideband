@@ -126,14 +126,19 @@ public class PendingCommand implements Callable<Integer> {
         return ExitCode.OK;
     }
 
+    /** Prints first and moves the bookmark second, so a report nobody received is not marked shown. */
     private int print(Path stateDirectory, Role who, boolean advance, int exit) throws IOException {
         PendingReport report = pending.report(stateDirectory, who);
-        if (advance && report.session() != null) {
-            sessions.advance(stateDirectory, who, report.end());
-        }
         PrintWriter out = spec.commandLine().getOut();
         out.println(json.writeValueAsString(report));
         out.flush();
+        if (out.checkError()) {
+            spec.commandLine().getErr().println("sideband pending: could not write the report; the read position was not advanced");
+            return ExitCode.IO_FAILURE;
+        }
+        if (advance && report.session() != null) {
+            sessions.advance(stateDirectory, who, report.end());
+        }
         return exit;
     }
 }

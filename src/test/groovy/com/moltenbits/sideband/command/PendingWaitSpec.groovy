@@ -117,6 +117,35 @@ class PendingWaitSpec extends CommandSpec {
         json().open == []
     }
 
+    void "a report that could not be written does not advance the read position"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        context.getBean(Journal).append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+                causedBy: null, expectsReply: false, body: "fragile"))
+        def cli = com.moltenbits.sideband.SidebandCommand.commandLine(context)
+        cli.out = new PrintWriter(new Writer() {
+            void write(char[] cbuf, int off, int len) throws IOException { throw new IOException("pipe closed") }
+            void flush() {}
+            void close() {}
+        })
+        cli.err = new PrintWriter(stderr, true)
+
+        when:
+        int code = cli.execute("pending", "--repo", repo.toString(), "--role", "claude")
+
+        then:
+        code == ExitCode.IO_FAILURE
+        stderr.toString().contains("read position was not advanced")
+
+        when: "the update is still there for the next read"
+        stdout = new StringWriter()
+        int next = run("pending", "--repo", repo.toString(), "--role", "claude")
+
+        then:
+        next == ExitCode.OK
+        json().updates*.body == ["fragile"]
+    }
+
     void "--timeout and --stream without --wait, --timeout with --stream, and a negative timeout are invalid input"() {
         expect:
         run("pending", "--repo", repo.toString(), "--role", "claude", "--timeout", "5") == ExitCode.INVALID_INPUT
