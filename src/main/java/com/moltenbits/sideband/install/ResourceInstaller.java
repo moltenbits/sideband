@@ -34,6 +34,10 @@ class ResourceInstaller implements Installer {
     /** Marks a SKILL.md the operator ejected; the installer never overwrites one. */
     static final String EJECTED_MARKER = "<!-- ejected from sideband: edit freely; `sideband init` leaves this file alone and it no longer updates with the executable. Delete it and rerun `sideband init` to go back. -->";
     private static final String SETTINGS = ".claude/settings.json";
+    /** Claude Code delivers a pushed envelope only when this says so; otherwise a bypass-permissions session holds it for approval. */
+    static final String INBOUND_KEY = "crossSessionInbound";
+    static final String INBOUND_ACCEPT = "accept";
+    private static final String INBOUND_ITEM = "claude-inbound";
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
     private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
 
@@ -98,8 +102,10 @@ class ResourceInstaller implements Installer {
         for (String source : List.of("claude", "codex")) {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
-        return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS), "claude-prompt-hook", Role.CLAUDE),
-                installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX));
+        Path settings = projectDir.resolve(SETTINGS);
+        return new InstallReport(skills, installHook(settings, "claude-prompt-hook", Role.CLAUDE),
+                installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX),
+                installInbound(settings));
     }
 
     @Override
@@ -112,7 +118,8 @@ class ResourceInstaller implements Installer {
         Path settings = projectDir.resolve(SETTINGS);
         Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
         return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings, Role.CLAUDE)),
-                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)));
+                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)),
+                new InstallReport.Item(INBOUND_ITEM, settings.toString(), inboundState(settings)));
     }
 
     private InstallReport.Item installSkill(String source, Path target) {
@@ -225,6 +232,51 @@ class ResourceInstaller implements Installer {
             return new InstallReport.Item(name, settings.toString(), state);
         } catch (IOException e) {
             throw new UncheckedIOException("could not update " + settings, e);
+        }
+    }
+
+    /**
+     * Sets {@code crossSessionInbound} to {@code accept} when the operator has not chosen a value.
+     * A Sideband push comes from a process that is not the session's child, so without this a
+     * session run with bypass permissions holds every envelope for approval and drops it after
+     * the dialog expires. An explicit choice is kept and reported instead.
+     */
+    private InstallReport.Item installInbound(Path settings) {
+        try {
+            Map<String, Object> root = readSettings(settings);
+            Object current = root.get(INBOUND_KEY);
+            if (INBOUND_ACCEPT.equals(current)) {
+                return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "unchanged");
+            }
+            if (current != null) {
+                return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "kept");
+            }
+            root.put(INBOUND_KEY, INBOUND_ACCEPT);
+            Files.createDirectories(settings.getParent());
+            Files.writeString(settings, PrettyJson.render(root) + "\n", UTF_8);
+            return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "added");
+        } catch (IOException e) {
+            throw new UncheckedIOException("could not update " + settings, e);
+        }
+    }
+
+    private String inboundState(Path settings) {
+        try {
+            if (!Files.exists(settings)) {
+                return "missing";
+            }
+            Object value = readSettings(settings).get(INBOUND_KEY);
+            if (value == null) {
+                return "missing";
+            }
+            return switch (String.valueOf(value)) {
+                case INBOUND_ACCEPT -> "installed";
+                case "hold" -> "held";
+                case "refuse" -> "refused";
+                default -> "unknown";
+            };
+        } catch (IOException | RuntimeException e) {
+            return "unreadable";
         }
     }
 

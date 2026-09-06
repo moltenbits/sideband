@@ -25,6 +25,7 @@ class InitAndDoctorSpec extends CommandSpec {
         init.state_directory == repo.toRealPath().resolve(".git/sideband").toString()
         init.clients.skills*.state == ["installed", "installed"]
         init.clients.hook.state == "added"
+        init.clients.inbound.state == "added"
         Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
         Files.exists(repo.resolve(".claude/settings.json"))
 
@@ -88,6 +89,7 @@ class InitAndDoctorSpec extends CommandSpec {
         report.roles == [:]
         report.clients.skills*.state == ["missing", "missing"]
         report.clients.hook.state == "missing"
+        report.clients.inbound.state == "missing"
     }
 
     void "doctor reports journal health, sessions, pending counts, and the lock owner"() {

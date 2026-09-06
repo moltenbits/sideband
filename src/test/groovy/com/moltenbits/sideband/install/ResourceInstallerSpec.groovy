@@ -108,10 +108,15 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
 
+        and: "Claude Code is told to deliver pushed messages rather than hold them for approval"
+        report.inbound().name() == "claude-inbound"
+        report.inbound().state() == "added"
+        settings.contains('"crossSessionInbound": "accept"')
+
         and: "the Codex registration is the same command naming codex, so a hook shell without markers still knows its client"
         String codexHooks = Files.readString(project.resolve(".codex/hooks.json"))
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
-        codexHooks.replace("--agent codex", "--agent claude") == settings
+        !codexHooks.contains("crossSessionInbound")
     }
 
     void "reinstalling is idempotent and inspect agrees"() {
@@ -129,6 +134,28 @@ class ResourceInstallerSpec extends Specification {
         inspected.hook().state() == "installed"
         again.codexHook().state() == "unchanged"
         inspected.codexHook().state() == "installed"
+        again.inbound().state() == "unchanged"
+        inspected.inbound().state() == "installed"
+    }
+
+    void "an explicit inbound choice is kept, and inspect says what it means for delivery"() {
+        given:
+        Files.createDirectories(project.resolve(".claude"))
+        Files.writeString(project.resolve(".claude/settings.json"), '{"crossSessionInbound": "' + value + '"}')
+
+        when:
+        InstallReport report = installer.install(home, project)
+
+        then:
+        report.inbound().state() == installed
+        Files.readString(project.resolve(".claude/settings.json")).contains('"crossSessionInbound": "' + value + '"')
+        installer.inspect(home, project).inbound().state() == inspected
+
+        where:
+        value    | installed   | inspected
+        "accept" | "unchanged" | "installed"
+        "hold"   | "kept"      | "held"
+        "refuse" | "kept"      | "refused"
     }
 
     void "Codex registers the native command once, naming codex, and preserves unrelated configuration"() {
@@ -191,6 +218,7 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).skills()*.state() == ["missing", "missing"]
         installer.inspect(home, project).hook().state() == "missing"
         installer.inspect(home, project).codexHook().state() == "missing"
+        installer.inspect(home, project).inbound().state() == "missing"
     }
 
     void "a development symlink is replaced by a real copy and an edited copy is refreshed"() {

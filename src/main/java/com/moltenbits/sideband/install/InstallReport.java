@@ -5,9 +5,13 @@ import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 
 import java.util.List;
 
-/** What is installed where. States: installed, updated, unchanged, missing, stale, conflict, ejected. */
+/**
+ * What is installed where. States: installed, updated, unchanged, missing, stale, conflict,
+ * ejected; and for {@code inbound}, Claude Code's delivery setting: added, unchanged, kept
+ * (an explicit choice left alone), installed, held, refused, missing.
+ */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record InstallReport(List<Item> skills, Item hook, Item codexHook) {
+public record InstallReport(List<Item> skills, Item hook, Item codexHook, Item inbound) {
 
     @Serdeable(naming = SnakeCaseStrategy.class)
     public record Item(String name, String path, String state) {
