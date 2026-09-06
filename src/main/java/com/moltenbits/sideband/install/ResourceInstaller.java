@@ -31,6 +31,8 @@ class ResourceInstaller implements Installer {
     static final String HOOK_EVENT = "UserPromptSubmit";
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
+    /** Marks a SKILL.md the operator ejected; the installer never overwrites one. */
+    static final String EJECTED_MARKER = "<!-- ejected from sideband: edit freely; `sideband init` leaves this file alone and it no longer updates with the executable. Delete it and rerun `sideband init` to go back. -->";
     private static final String SETTINGS = ".claude/settings.json";
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
     private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
@@ -63,6 +65,30 @@ class ResourceInstaller implements Installer {
     }
 
     @Override
+    public InstallReport.Item eject(Path homeDir, Role client) {
+        String source = "sideband-" + client.id();
+        Path target = homeDir.resolve(SKILLS.get(source));
+        try {
+            String stub = new String(resource(source + "/SKILL.md"), UTF_8);
+            int close = stub.indexOf("\n---\n", 4);
+            if (!stub.startsWith("---\n") || close < 0) {
+                throw new IOException("the embedded " + source + " stub has no front matter");
+            }
+            String frontMatter = stub.substring(0, close + "\n---\n".length());
+            if (Files.isSymbolicLink(target)) {
+                Files.delete(target);
+            } else if (Files.exists(target) && !Files.isDirectory(target)) {
+                return new InstallReport.Item(client.id(), target.toString(), "conflict");
+            }
+            Files.createDirectories(target);
+            Files.writeString(target.resolve("SKILL.md"), frontMatter + "\n" + EJECTED_MARKER + "\n\n" + instructions(client), UTF_8);
+            return new InstallReport.Item(client.id(), target.toString(), "ejected");
+        } catch (IOException e) {
+            throw new UncheckedIOException("could not eject the " + client.id() + " skill into " + target, e);
+        }
+    }
+
+    @Override
     public InstallReport install(Path homeDir, Path projectDir) {
         List<InstallReport.Item> skills = new ArrayList<>();
         for (String source : List.of("sideband-claude", "sideband-codex")) {
@@ -88,8 +114,8 @@ class ResourceInstaller implements Installer {
     private InstallReport.Item installSkill(String source, Path target) {
         try {
             String before = skillState(source, target);
-            if (before.equals("unchanged")) {
-                return new InstallReport.Item(client(source), target.toString(), "unchanged");
+            if (before.equals("unchanged") || before.equals("ejected")) {
+                return new InstallReport.Item(client(source), target.toString(), before);
             }
             if (Files.isSymbolicLink(target)) {
                 Files.delete(target); // a development link from an earlier install recipe
@@ -129,6 +155,10 @@ class ResourceInstaller implements Installer {
             }
             if (!Files.isDirectory(target)) {
                 return "conflict";
+            }
+            Path stub = target.resolve("SKILL.md");
+            if (Files.exists(stub) && Files.readString(stub, UTF_8).contains(EJECTED_MARKER)) {
+                return "ejected";
             }
             for (String file : files(source)) {
                 Path installed = target.resolve(file);

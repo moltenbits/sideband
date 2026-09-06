@@ -29,6 +29,34 @@ class ResourceInstallerSpec extends Specification {
         Files.readString(Path.of("skills/sideband-codex/SKILL.md")).contains("Run `sideband skill`")
     }
 
+    void "ejecting writes the full instructions under the stub's front matter, and install then leaves it alone"() {
+        given:
+        installer.install(home, project)
+        Path skill = home.resolve(".claude/skills/sideband/SKILL.md")
+
+        when:
+        InstallReport.Item ejected = installer.eject(home, com.moltenbits.sideband.protocol.Role.CLAUDE)
+        String text = Files.readString(skill)
+
+        then:
+        ejected.state() == "ejected"
+        ejected.path() == skill.parent.toString()
+        text.startsWith("---\nname: sideband\n")
+        text.contains("\n---\n\n" + ResourceInstaller.EJECTED_MARKER + "\n\n# Sideband (Claude Code adapter)")
+        text.endsWith(installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE))
+        !text.contains("Run `sideband skill`")
+
+        and: "a rerun of install reports it ejected and does not touch it; the other skill is untouched too"
+        installer.install(home, project).skills()*.state() == ["ejected", "unchanged"]
+        Files.readString(skill) == text
+        installer.inspect(home, project).skills()*.state() == ["ejected", "unchanged"]
+
+        and: "deleting it and reinstalling restores the stub"
+        Files.delete(skill)
+        installer.install(home, project).skills()*.state() == ["updated", "unchanged"]
+        Files.readString(skill).contains("Run `sideband skill`")
+    }
+
     void "a fresh install writes both stubs and registers the hook against this executable"() {
         when:
         InstallReport report = installer.install(home, project)

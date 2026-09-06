@@ -20,4 +20,11 @@ public interface Installer {
 
     /** The adapter instructions embedded for a client, served to the installed skill stub. */
     String instructions(Role client);
+
+    /**
+     * Replaces a client's installed stub with the full instructions so the operator can edit
+     * them. An ejected skill is theirs from then on: {@link #install} leaves it alone and it
+     * no longer updates with the executable. Deleting it and rerunning {@code init} goes back.
+     */
+    InstallReport.Item eject(Path homeDir, Role client);
 }

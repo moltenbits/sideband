@@ -184,6 +184,12 @@ then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
 start of a prompt routes it. The skills also accept `help`, `status`,
 `pending`, and `off` after the command name.
 
+The installed skills are stubs that read their instructions from the
+executable, so a new release updates both. To edit the instructions yourself,
+run `sideband skill --eject` inside the client: it writes them into that
+client's `SKILL.md`, which is then yours and stops updating with the
+executable. Delete the file and rerun `sideband init` to go back.
+
 Any command runs directly from the prompt with no model turn: in Claude Code,
 `! sideband pending`. All commands print one JSON object and use stable exit
 codes: 0 ok, 2 invalid input, 3 not a repository, 4 lock contention, 5 I/O

@@ -206,6 +206,20 @@ class HookAndSkillSpec extends CommandSpec {
         "UserPromptSubmit" | true
     }
 
+    void "skill --eject writes the instructions into the installed SKILL.md and reports it"() {
+        given:
+        Path home = Files.createTempDirectory("home")
+
+        when:
+        int code = run("skill", "--client", "codex", "--home", home.toString(), "--eject")
+
+        then:
+        code == ExitCode.OK
+        json().state == "ejected"
+        json().name == "codex"
+        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")).endsWith(Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md")))
+    }
+
     void "skill prints the embedded instructions for the named client as plain text"() {
         when:
         int code = run("skill", "--client", "codex")

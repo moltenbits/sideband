@@ -157,7 +157,10 @@ and report conflicting directories or unrelated links without overwriting them.
 The checkout must remain available because the skills are symlinked into it.
 
 Re-running installation updates the single executable. Neither skill installs
-a private binary. Both skills declare compatibility and check it using
+a private binary. `sideband skill --eject` writes a client's instructions into
+its installed `SKILL.md` for the operator to edit; the installer then reports
+that skill as `ejected` and never overwrites it, and it no longer updates with
+the executable until the file is deleted and `init` is rerun. Both skills declare compatibility and check it using
 `sideband version --json` at activation. `doctor` verifies the resolved binary,
 version, and both skill links. An already-running listener must be restarted
 after an upgrade; sharing a path does not upgrade a running process or guarantee
