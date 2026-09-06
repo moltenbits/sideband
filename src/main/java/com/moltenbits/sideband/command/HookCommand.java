@@ -111,7 +111,8 @@ public class HookCommand {
             String message = skillMessage(trimmed);
             if (message != null) {
                 prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
-            } else if (trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER) || trimmed.startsWith("/") || trimmed.startsWith("!")) {
+            } else if (isSkillCommand(trimmed) || trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER)
+                    || trimmed.startsWith("/") || trimmed.startsWith("!")) {
                 return ExitCode.OK;
             }
             Path stateDirectory;
@@ -168,11 +169,25 @@ public class HookCommand {
          * the skill alone or with one of its own argument words.
          */
         static String skillMessage(String trimmed) {
+            String rest = skillArgument(trimmed);
+            return rest == null || rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+        }
+
+        /** The skill invoked alone or with one of its own words: a command for the model, never the operator's words. */
+        static boolean isSkillCommand(String trimmed) {
+            String rest = skillArgument(trimmed);
+            return rest != null && (rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)));
+        }
+
+        /** What follows the skill invocation, stripped; null when the prompt is not the skill at all. */
+        private static String skillArgument(String trimmed) {
             for (String invocation : new String[] {"/sideband", "$sideband"}) {
+                if (trimmed.equals(invocation)) {
+                    return "";
+                }
                 if (trimmed.startsWith(invocation) && trimmed.length() > invocation.length()
                         && Character.isWhitespace(trimmed.charAt(invocation.length()))) {
-                    String rest = trimmed.substring(invocation.length()).strip();
-                    return rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+                    return trimmed.substring(invocation.length()).strip();
                 }
             }
             return null;

@@ -123,7 +123,14 @@ class HookAndSkillSpec extends CommandSpec {
         "/sideband"                             | null
         "/sideband pending"                     | null
         "/sideband OFF"                         | null
+        "\$sideband"                            | null
+        "  \$sideband  "                        | null
+        "\$sideband help"                       | null
+        "\$sideband Status"                     | null
+        "\$sideband PENDING"                    | null
+        "\$sideband off"                        | null
         "/sidebandish something"                | null
+        "\$sidebandish something"               | null
     }
 
     void "the hook never fails the prompt, even on garbage input"() {
