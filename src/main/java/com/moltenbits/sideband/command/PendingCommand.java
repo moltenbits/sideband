@@ -120,7 +120,10 @@ public class PendingCommand implements Callable<Integer> {
                 }
                 return print(stateDirectory, who, false, ExitCode.TIMED_OUT);
             }
-            print(stateDirectory, who, false, ExitCode.OK);
+            int written = print(stateDirectory, who, false, ExitCode.OK);
+            if (written != ExitCode.OK) {
+                return written; // a listener that lost its output is not a listener
+            }
             reports++;
         }
         return ExitCode.OK;

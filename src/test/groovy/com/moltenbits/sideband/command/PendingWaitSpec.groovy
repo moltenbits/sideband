@@ -146,6 +146,27 @@ class PendingWaitSpec extends CommandSpec {
         json().updates*.body == ["fragile"]
     }
 
+    void "a waited report that could not be written ends the command with the I/O code, one-shot or streaming"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        context.getBean(Journal).append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+                causedBy: null, expectsReply: false, body: "fragile"))
+        def cli = com.moltenbits.sideband.SidebandCommand.commandLine(context)
+        cli.out = new PrintWriter(new Writer() {
+            void write(char[] cbuf, int off, int len) throws IOException { throw new IOException("pipe closed") }
+            void flush() {}
+            void close() {}
+        })
+        cli.err = new PrintWriter(stderr, true)
+
+        expect:
+        cli.execute(*(["pending", "--repo", repo.toString(), "--role", "claude", "--wait"] + extra)) == ExitCode.IO_FAILURE
+        stderr.toString().contains("read position was not advanced")
+
+        where:
+        extra << [["--timeout", "5"], ["--stream"]]
+    }
+
     void "--timeout and --stream without --wait, --timeout with --stream, and a negative timeout are invalid input"() {
         expect:
         run("pending", "--repo", repo.toString(), "--role", "claude", "--timeout", "5") == ExitCode.INVALID_INPUT
