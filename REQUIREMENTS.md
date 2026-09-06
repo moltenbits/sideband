@@ -235,26 +235,19 @@ integration must:
 - expose the current capture guarantee through diagnostics.
 
 The hook is one entry point in the shared executable, `sideband hook prompt`,
-with no client required on its command line. Like every other command, it
-recognizes the calling client from the environment the client gives its
-subprocesses (`CODEX_THREAD_ID` for Codex; `CLAUDECODE` or
-`CLAUDE_CODE_SESSION_ID` for Claude Code), with a unique match between the
-payload's session identifier and an active role's recorded session as the
-fallback when hook shells omit those variables. Both clients use
-`UserPromptSubmit`, so the event name alone cannot distinguish them.
-An optional `--agent codex|claude` overrides detection when needed, but never
-bypasses the session ownership check. If the same recorded conversation resumes
-with a new host process, the hook may replace its dead recorded process with
-the identified living caller under the state lock, before capture. This
-refresh preserves the activation timestamp, watermark, and read position; it
-must not activate a new role, replace a different conversation or overwrite a
-living recorded process. Missing caller identification or ambiguous ownership
-skips capture with a diagnostic. It then reads that client's payload shape,
-journals the prompt as a request from the human through that client, and
-answers in that client's response format. `sideband init` registers the same command line in
-each client's hook configuration that the executable recognizes, so the
-installed hook is identical everywhere and updating the executable updates
-both. Registration for a client is added only once that client's hook
+registered in each client as `--agent claude` or `--agent codex`. Both clients
+use `UserPromptSubmit` with the same payload shape, and Codex gives hook
+shells none of the environment markers other commands rely on
+(`CODEX_THREAD_ID` for Codex; `CLAUDECODE` or `CLAUDE_CODE_SESSION_ID` for
+Claude Code), so the registration names the client; the markers remain the
+fallback when the flag is absent. Nothing else about the caller is examined:
+the prompt belongs to whichever conversation holds the role, so a restarted
+or cleared client captures without rejoining and no record is touched. A
+hook that cannot tell its client skips capture with a diagnostic. It then
+reads the payload, journals the prompt as a request from the human through
+that client, and answers in that client's response format. `sideband init` writes each registration, so
+the installed hooks differ only in the client they name and updating the
+executable updates both. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
@@ -540,8 +533,12 @@ The usual `confirm` policy, lineage checks, and authority limits still apply.
 ### 9.5 Session record
 
 The only state a role keeps outside the journal is its session record: the
-host's session identifier and process, when it joined, the journal size at
-that moment (its watermark), and its read position, the bookmark. `join`
+host's session identifier (for Codex the thread id, which pushes address),
+when it joined, the journal size at that moment (its watermark), and its read
+position, the bookmark. Whoever joins as a role last holds it: `join` replaces
+any earlier record, and no command compares the calling conversation or
+process against the record. One client per role per repository is the
+operator's convention, not something the executable polices. `join`
 starts the bookmark at the latest point; `join --resume` keeps the previous
 one (or the start of the journal for a role that never had one), so
 everything written for the role while it was away is shown. The read position
@@ -624,8 +621,7 @@ A reply can legitimately take a long time, and silence is ambiguous: the
 recipient may be working, or it may never have received the request because
 its session ended, its host failed to wake it, or its model was never turned.
 Acknowledgement separates the two cases, and it does so at the model level: a
-recorded process id says only that a host is running, not that an agent is
-listening, and process ids change across a host resume.
+session record says only that a role joined, not that an agent is listening.
 
 On receiving an actionable entry, the recipient's parent appends an `ack`
 entry as its first journal action, before it starts the work. The ack has
@@ -754,10 +750,11 @@ Registration on disk alone does not establish that guarantee.
 - A returning client drains the backlog using the confirmation workflow.
 - A stopped or failed listener must be restartable without losing or
   duplicating journal entries.
-- Activating a second live instance of the same client role in a repository
-  must be refused with a clear diagnostic; it must not share or replace the
-  first instance's session record. Claude and Codex may still operate simultaneously
-  from different worktrees because they have different roles.
+- One instance of each client role per repository is the operator's
+  convention; the executable does not police it. A second join as the same
+  role replaces the role's record and holds the role from then on. Claude and
+  Codex may still operate simultaneously from different worktrees because they
+  have different roles.
 
 ### 10.5 Activation
 
@@ -932,10 +929,11 @@ journal's own record of the role's ack or reply prevents duplicate work.
 
 ### 14.10 Duplicate role activation
 
-Given one Codex instance is active for a repository, when another Codex
-instance attempts to activate Sideband from another worktree, activation is
-refused with a diagnostic identifying the existing role. Its session record is
-neither shared nor replaced.
+Given one Codex instance has joined a repository, when another Codex instance
+joins the same repository, the second join replaces the role's session record
+and holds the role; nothing is refused. Prompts typed into either instance are
+recorded for the Codex role. Keeping one instance per role is the operator's
+convention.
 
 ### 14.11 Agent-to-human message
 
@@ -1027,13 +1025,13 @@ before model processing. Given a host without such a hook, activation and
 diagnostics identify capture as best effort rather than claiming authoritative
 capture.
 
-Given the hook command is registered in both clients, when either client
-invokes it, the executable identifies the invoking client without a flag,
-parses that client's payload, and records the prompt with that client as
-`via`; the command line registered in each client is the same.
-Given an explicit `--agent` override, the named role is used only when the
-payload session owns that role. An ambiguous automatic fallback or a
-mismatched session records nothing.
+Given the hook command is registered in both clients, each registration names
+its client with `--agent`, because both hosts send the same payload and Codex
+gives hook shells no environment markers. When either client invokes it, the
+executable records the prompt with that client as `via` whenever the client's
+role has joined, whichever conversation or process is calling; a restarted or
+cleared client needs nothing. A hook that cannot tell its client records
+nothing and says so.
 
 ### 14.17a Acknowledgement
 
@@ -1407,8 +1405,10 @@ The full integration with James present remains the next step.
 ### 17.2 Client-aware capture hook
 
 Status (2026-09-05): the shared hook supports both clients and `sideband init`
-registers it in `.claude/settings.json` and `.codex/hooks.json`. James approved
-automatic detection plus an optional `--agent` override. The official
+registers it in `.claude/settings.json` and `.codex/hooks.json`, each naming
+its client with `--agent` (2026-09-06: James dropped the session and process
+ownership check in favour of the role alone, and the registration took over
+client identification from the session-matching fallback). The official
 [Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 confirms the event, stdin prompt/session fields and stdout context shape.
 
@@ -1437,9 +1437,9 @@ instructions as Markdown, `--help`, which prints text, `hook prompt`, whose
 output follows the host's hook contract, and `pending --wait --stream`, which
 prints one JSON report per line for as long as it runs. Errors go to stderr
 as text. Every command exits with a stable code: `0` ok, `2` invalid input, `4` lock
-contention, `5` corrupt state or I/O failure, `6` timed out, `7` another live
-session already owns the role (`3` was "not a repository" and is retired,
-since every directory now has a state location). Bodies travel through
+contention, `5` corrupt state or I/O failure, `6` timed out. `3` ("not a
+repository") and `7` ("another live session owns the role") are retired, and
+their numbers stay unused. Bodies travel through
 `--body-file` or stdin, never as an argument. No command needs to be told
 which client it runs inside: each recognizes the client from the environment
 the client gives its subprocesses, so `--role`, `--via`, and `--client` are
@@ -1449,7 +1449,7 @@ override for tests.
 
 ```text
 sideband init [--skip-clients]                     # state directory, both skill stubs, both hook registrations
-sideband join [--resume] [--replace]               # start this client's session; prints the first pending report
+sideband join [--resume]                           # start this client's session, taking the role over; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
 sideband append --type request --to <role> --caused-by <id> [--body-file <path>]
 sideband append --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]

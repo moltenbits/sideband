@@ -6,8 +6,8 @@ lives in the `sideband` executable (`just install` puts it in `~/.local/bin`);
 this file only says when to call it and what to do with the results.
 
 All commands print one JSON object on stdout and use these exit codes: 0 ok,
-2 invalid input, 3 not a repository, 4 lock contention, 5 I/O failure, 6 timed
-out, 7 another live session already owns the role. Bodies travel through
+2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out; 3 and 7 are
+retired. Bodies travel through
 `--body-file` or stdin, never as an argument. Every command resolves the
 repository from the current directory and the calling client from its shell
 environment, so no command needs to be told which client it runs inside.
@@ -20,7 +20,7 @@ described below.
 | Argument | What to do |
 | --- | --- |
 | `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. Remind the user that `! sideband <command>` runs any command directly with no model turn. |
-| `status` | Run `sideband doctor` and summarize it: both roles' sessions and whether they are live, pending counts, journal health, skill links. Do not activate. |
+| `status` | Run `sideband doctor` and summarize it: both roles' sessions, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | Stop the listener (TaskStop on the Monitor) and tell the user the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
@@ -28,8 +28,9 @@ described below.
 ## Activate
 
 1. Join. The executable recognizes Claude Code from its shell environment
-   and records this conversation's session id and process id, so a later
-   session can supersede this one automatically if it dies. Plain `join`
+   and records this conversation as the one holding the Claude role here;
+   whoever joins last holds it, so a restarted Claude simply joins again and
+   nothing is refused. Plain `join`
    starts at the latest point; `--resume` picks up from where Claude last
    left off, so replies and other updates written for it since are shown.
    Use `--resume` unless the user says to start fresh.
@@ -37,9 +38,6 @@ described below.
    ```bash
    sideband join --resume
    ```
-
-   Exit 7 means another live Claude session owns this repository. Tell the
-   user; rerun with `--replace` only if they say so.
 
 2. The output is the first pending report. Its `open` list holds requests
    addressed to Claude that Claude has neither acknowledged nor answered.

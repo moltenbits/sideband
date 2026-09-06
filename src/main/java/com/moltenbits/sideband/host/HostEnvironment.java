@@ -16,9 +16,6 @@ public interface HostEnvironment {
     /** The client's identifier for the current session, when the client exposes it. */
     Optional<String> sessionId(Role role);
 
-    /** The client's process id, when the client exposes it. */
-    Optional<Long> parentPid(Role role);
-
     /** The role, or a clear error naming the flag that overrides detection. */
     default Role requireRole(String flag) {
         return role().orElseThrow(() -> new IllegalArgumentException(

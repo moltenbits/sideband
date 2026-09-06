@@ -19,7 +19,8 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /**
- * Joins the journal as this client and prints the first pending report. By default the
+ * Joins the journal as this client, taking the role over from any earlier session, and
+ * prints the first pending report. By default the
  * bookmark starts at the latest point, so only requests still unanswered are shown, every
  * one of them flagged for the operator's confirmation. With {@code --resume} the bookmark
  * starts where this role last left off, so everything written for it since is shown too,
@@ -41,12 +42,6 @@ public class JoinCommand implements Callable<Integer> {
 
     @Option(names = "--session-id", hidden = true, description = "Override the session id detected from the environment")
     String sessionId;
-
-    @Option(names = "--parent-pid", hidden = true, description = "Override the client process detected from the environment")
-    Long parentPid;
-
-    @Option(names = "--replace", description = "Supersede a live session that already owns the role")
-    boolean replace;
 
     @Option(names = "--resume", description = "Start from where this client last left off, showing everything written for it since; otherwise start at the latest point")
     boolean resume;
@@ -70,9 +65,8 @@ public class JoinCommand implements Callable<Integer> {
         Role who = role != null ? role : host.requireRole("--role");
         String id = sessionId != null ? sessionId : host.sessionId(who).orElseThrow(() -> new IllegalArgumentException(
                 "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
-        Long pid = parentPid != null ? parentPid : host.parentPid(who).orElse(null);
         Path stateDirectory = repository.stateDirectory(home);
-        sessions.join(stateDirectory, who, id, pid, replace, resume);
+        sessions.join(stateDirectory, who, id, resume);
         PendingReport report = pending.report(stateDirectory, who);
         sessions.advance(stateDirectory, who, report.end());
         Output.print(spec, json, report);

@@ -4,7 +4,6 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.locking.Lock;
 import com.moltenbits.sideband.locking.Locks;
 import com.moltenbits.sideband.protocol.Role;
-import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
 import jakarta.inject.Singleton;
 
@@ -57,49 +56,16 @@ class FileSessions implements Sessions {
     }
 
     @Override
-    public Session join(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid, boolean replace, boolean resume) {
+    public Session join(Path stateDirectory, Role role, String sessionId, boolean resume) {
         try (Lock ignored = locks.acquire(stateDirectory)) {
             Optional<Session> existing = load(stateDirectory, role);
-            if (existing.isPresent() && !existing.get().id().equals(sessionId) && !replace && existing.get().isLive()) {
-                throw new SessionConflictException(existing.get());
-            }
             long end = journal.readCompleteFrom(stateDirectory.resolve(Journal.FILE_NAME), 0).end();
             long offset = resume ? Math.min(existing.map(Session::offset).orElse(0L), end) : end;
-            Session session = new Session(sessionId, now(), parentPid, end, offset, resume);
+            Session session = new Session(sessionId, now(), end, offset, resume);
             save(stateDirectory, role, session);
             return session;
         } catch (IOException e) {
             throw new UncheckedIOException("could not join as " + role.id() + " in " + stateDirectory, e);
-        }
-    }
-
-    @Override
-    public SessionRefresh refresh(Path stateDirectory, Role role, String sessionId, @Nullable Long parentPid) {
-        try (Lock ignored = locks.acquire(stateDirectory)) {
-            Optional<Session> loaded = load(stateDirectory, role);
-            if (loaded.isEmpty()) {
-                return SessionRefresh.NOT_ACTIVE;
-            }
-            Session existing = loaded.get();
-            if (!existing.id().equals(sessionId)) {
-                // The same host process presenting a new conversation id (Claude Code after
-                // /clear) is this session continuing, not a second session.
-                if (parentPid != null && parentPid.equals(existing.parentPid()) && isAlive(parentPid)) {
-                    save(stateDirectory, role, existing.withId(sessionId));
-                    return SessionRefresh.REFRESHED;
-                }
-                return SessionRefresh.SESSION_MISMATCH;
-            }
-            if (existing.isLive()) {
-                return SessionRefresh.READY;
-            }
-            if (parentPid == null || !isAlive(parentPid)) {
-                return SessionRefresh.CALLER_UNAVAILABLE;
-            }
-            save(stateDirectory, role, existing.withParentPid(parentPid));
-            return SessionRefresh.REFRESHED;
-        } catch (IOException e) {
-            throw new UncheckedIOException("could not refresh the " + role.id() + " session in " + stateDirectory, e);
         }
     }
 
@@ -116,10 +82,6 @@ class FileSessions implements Sessions {
         } catch (IOException e) {
             throw new UncheckedIOException("could not advance the " + role.id() + " session in " + stateDirectory, e);
         }
-    }
-
-    private static boolean isAlive(long pid) {
-        return pid > 0 && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
     }
 
     /** Write to a temporary sibling, fsync, then rename so readers never see a torn file. */

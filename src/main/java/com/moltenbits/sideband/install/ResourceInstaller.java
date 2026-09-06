@@ -98,8 +98,8 @@ class ResourceInstaller implements Installer {
         for (String source : List.of("claude", "codex")) {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
-        return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS), "claude-prompt-hook"),
-                installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook"));
+        return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS), "claude-prompt-hook", Role.CLAUDE),
+                installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX));
     }
 
     @Override
@@ -111,8 +111,8 @@ class ResourceInstaller implements Installer {
         }
         Path settings = projectDir.resolve(SETTINGS);
         Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
-        return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings)),
-                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings)));
+        return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings, Role.CLAUDE)),
+                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)));
     }
 
     private InstallReport.Item installSkill(String source, Path target) {
@@ -182,7 +182,13 @@ class ResourceInstaller implements Installer {
     }
 
     @SuppressWarnings("unchecked")
-    private InstallReport.Item installHook(Path settings, String name) {
+    /**
+     * Registers {@code hook prompt --agent <client>}: both clients send the same payload and
+     * Codex gives hook shells no environment markers, so the registration itself names the
+     * caller. An older registration, bare or naming the other client, is rewritten.
+     */
+    private InstallReport.Item installHook(Path settings, String name, Role client) {
+        String registration = hookCommand + " --agent " + client.id();
         try {
             Map<String, Object> root = readSettings(settings);
             Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
@@ -198,11 +204,10 @@ class ResourceInstaller implements Installer {
                 }
                 for (Object command : commands) {
                     if (command instanceof Map<?, ?> c && isSidebandHook(String.valueOf(c.get("command")))) {
-                        String replacement = hookCommand + agentOverride(String.valueOf(c.get("command")));
-                        if (replacement.equals(c.get("command"))) {
+                        if (registration.equals(c.get("command"))) {
                             return new InstallReport.Item(name, settings.toString(), "unchanged");
                         }
-                        ((Map<String, Object>) c).put("command", replacement);
+                        ((Map<String, Object>) c).put("command", registration);
                         state = "updated";
                     }
                 }
@@ -210,7 +215,7 @@ class ResourceInstaller implements Installer {
             if (state.equals("added")) {
                 Map<String, Object> command = new LinkedHashMap<>();
                 command.put("type", "command");
-                command.put("command", hookCommand);
+                command.put("command", registration);
                 Map<String, Object> matcher = new LinkedHashMap<>();
                 matcher.put("hooks", List.of(command));
                 event.add(matcher);
@@ -230,24 +235,14 @@ class ResourceInstaller implements Installer {
                 || command.endsWith("/skills/claude/hooks/prompt.sh") || command.endsWith("/skills/sideband-claude/hooks/prompt.sh");
     }
 
-    private static String agentOverride(String command) {
-        var match = AGENT_OVERRIDE.matcher(command);
-        return match.find() ? " --agent " + match.group(1) : "";
-    }
-
-    private String hookState(Path settings) {
+    private String hookState(Path settings, Role client) {
         try {
             if (!Files.exists(settings)) {
                 return "missing";
             }
             String text = Files.readString(settings, UTF_8);
-            if (text.contains(PrettyJson.quote(hookCommand))) {
+            if (text.contains(PrettyJson.quote(hookCommand + " --agent " + client.id()))) {
                 return "installed";
-            }
-            for (Role role : Role.values()) {
-                if (text.contains(PrettyJson.quote(hookCommand + " --agent " + role.id()))) {
-                    return "installed";
-                }
             }
             return text.contains("sideband") ? "stale" : "missing";
         } catch (IOException e) {

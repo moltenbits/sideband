@@ -64,7 +64,7 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).open()*.beforeSession() == [true]
 
         when:
-        sessions.join(dir, Role.CODEX, "s1", null, false)
+        sessions.join(dir, Role.CODEX, "s1")
         Entry after = human("@codex after")
 
         then:
@@ -72,7 +72,7 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).session().id() == "s1"
 
         when: "a resumed session with several requests waiting still confirms them"
-        sessions.join(dir, Role.CODEX, "s2", null, true, true)
+        sessions.join(dir, Role.CODEX, "s2", true)
 
         then:
         pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, true]
@@ -89,7 +89,7 @@ class JournalPendingSpec extends Specification {
         Entry one = human("@codex one")
         Entry two = human("@codex two")
         agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: one.metadata().id(), to: [Fixtures.OPERATOR]])
-        sessions.join(dir, Role.CODEX, "s1", null, false, true)
+        sessions.join(dir, Role.CODEX, "s1", true)
 
         expect:
         pending.report(dir, Role.CODEX).inProgress()*.beforeSession() == [true]
@@ -98,7 +98,7 @@ class JournalPendingSpec extends Specification {
 
     void "informational entries are updates until the read position passes them"() {
         given:
-        sessions.join(dir, Role.CLAUDE, "s1", null, false)
+        sessions.join(dir, Role.CLAUDE, "s1")
         Entry status = agent(Role.CODEX, Role.CLAUDE, MessageType.STATUS)
 
         expect:

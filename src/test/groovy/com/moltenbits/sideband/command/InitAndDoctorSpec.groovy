@@ -94,7 +94,7 @@ class InitAndDoctorSpec extends CommandSpec {
         given:
         runJson("init", "--repo", repo.toString(), "--skip-clients")
         runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
-        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
         Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
 
         when:
@@ -107,7 +107,6 @@ class InitAndDoctorSpec extends CommandSpec {
         report.journal.diagnostics == 0
         report.journal.incomplete_tail == false
         report.roles.codex.session_id == "s1"
-        report.roles.codex.session_live == true
         report.roles.codex.open == 1
         report.roles.claude.session_id == null
         report.roles.claude.open == 0

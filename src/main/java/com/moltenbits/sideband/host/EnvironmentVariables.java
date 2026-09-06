@@ -7,9 +7,9 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Codex sets {@code CODEX_THREAD_ID} in its shells; Claude Code sets {@code CLAUDECODE},
- * {@code CLAUDE_CODE_SESSION_ID}, and {@code CLAUDE_PID}. The client process itself is found
- * from the environment when published, otherwise by walking up from this process.
+ * Codex sets {@code CODEX_THREAD_ID} in its shells; Claude Code sets {@code CLAUDECODE} and
+ * {@code CLAUDE_CODE_SESSION_ID}. Nothing about the process tree is consulted: a shell
+ * without a marker belongs to no client, and the hook registrations name their client.
  */
 @Singleton
 class EnvironmentVariables implements HostEnvironment {
@@ -17,7 +17,6 @@ class EnvironmentVariables implements HostEnvironment {
     static final String CODEX_THREAD = "CODEX_THREAD_ID";
     static final String CLAUDE_MARKER = "CLAUDECODE";
     static final String CLAUDE_SESSION = "CLAUDE_CODE_SESSION_ID";
-    static final String CLAUDE_PID = "CLAUDE_PID";
 
     private final Map<String, String> env;
 
@@ -43,40 +42,6 @@ class EnvironmentVariables implements HostEnvironment {
     @Override
     public Optional<String> sessionId(Role role) {
         return value(role == Role.CODEX ? CODEX_THREAD : CLAUDE_SESSION);
-    }
-
-    /**
-     * Claude Code publishes its pid. Otherwise walk this process's ancestors for the client
-     * executable: the command runs in a shell the client spawned, so the client is a few
-     * levels up.
-     */
-    @Override
-    public Optional<Long> parentPid(Role role) {
-        if (role == Role.CLAUDE) {
-            try {
-                Optional<Long> published = value(CLAUDE_PID).map(Long::parseLong);
-                if (published.isPresent()) {
-                    return published;
-                }
-            } catch (NumberFormatException ignored) {
-                // fall through to the ancestry walk
-            }
-        }
-        return ancestorNamed(role.id());
-    }
-
-    private static Optional<Long> ancestorNamed(String name) {
-        Optional<ProcessHandle> current = ProcessHandle.current().parent();
-        for (int depth = 0; current.isPresent() && depth < 12; depth++) {
-            ProcessHandle handle = current.get();
-            String command = handle.info().command().orElse("");
-            String base = command.substring(command.lastIndexOf('/') + 1);
-            if (base.equals(name) || base.startsWith(name + "-") || base.startsWith(name + ".")) {
-                return Optional.of(handle.pid());
-            }
-            current = handle.parent();
-        }
-        return Optional.empty();
     }
 
     private boolean present(String name) {

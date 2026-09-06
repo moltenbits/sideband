@@ -35,13 +35,15 @@ native image, and everything a client runs is a subcommand of it.
   acknowledgement or reply, and listed for its sender until a reply exists.
   Requests that arrived while a client was away are confirmed with the human
   before any action. The only thing kept beside the journal is each role's
-  session record: who it is and how far it has read.
+  session record: how to reach it and how far it has read. Whoever joins as a
+  role last holds it; one client per role per repository is a convention the
+  operator keeps, not something the executable polices.
 
 ## How the pieces fit
 
 ```mermaid
 flowchart LR
-    James(["James"])
+    Operator(["Operator"])
     subgraph Agents
         Claude["Claude Code"]
         Codex["Codex"]
@@ -51,8 +53,8 @@ flowchart LR
         Journal[("journal.md")]
     end
 
-    James -- tasks --> Claude
-    James -- tasks --> Codex
+    Operator -- tasks --> Claude
+    Operator -- tasks --> Codex
     Claude <-- "commands, wake-ups" --> Bin
     Codex <-- "commands, wake-ups" --> Bin
     Bin <-- "append, read" --> Journal
@@ -111,15 +113,15 @@ arrives.
 
 ```mermaid
 sequenceDiagram
-    actor James
+    actor Operator
     participant Claude as Claude Code
     participant SB as sideband
     participant Codex
 
-    James->>Claude: "Add retries to the uploader, have Codex review the tests"
-    Claude->>SB: hook prompt, which journals the prompt as a request from James
+    Operator->>Claude: "Add retries to the uploader, have Codex review the tests"
+    Claude->>SB: hook prompt, which journals the prompt as a request from the operator
     Note over Claude: Claude implements the change
-    Claude->>SB: append --to codex --type request --caused-by (James's entry)
+    Claude->>SB: append --to codex --type request --caused-by (the operator's entry)
     SB->>Codex: codex queue starts a turn with the envelope
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
     Codex->>SB: append --type ack --reply-to (the request)
@@ -127,15 +129,15 @@ sequenceDiagram
     SB-->>Claude: the streaming pending wakes the idle conversation
     Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found
-    Claude->>James: The change, with Codex's review folded in
+    Claude->>Operator: The change, with Codex's review folded in
 ```
 
 The request carries `--caused-by`, naming the human entry that authorized the
 delegation, and the reply carries `--reply-to`, naming the request. Nothing
-here needed James to relay anything, and James could have spoken to Codex in
+here needed the operator to relay anything, and the operator could have spoken to Codex in
 its own session at any point, including to redirect the review while Claude
 was still waiting for it. Waiting costs nothing: Claude's conversation stays
-free for James until the reply arrives.
+free for the operator until the reply arrives.
 
 ### What is waiting for a role
 
@@ -159,14 +161,18 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 ```
 
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers the same `sideband hook prompt` command in the repository's
-`.claude/settings.json` and `.codex/hooks.json`. Rerunning it is safe.
+and registers the `sideband hook prompt` command in the repository's
+`.claude/settings.json` and `.codex/hooks.json`, each naming its client with
+`--agent claude` or `--agent codex`. Rerunning it is safe.
 In Codex, review and trust the new hook through `/hooks`; a registered command
 is not necessarily enabled or trusted by the host. The hook is the only thing
 that records prompts: when it cannot, it tells the model to tell you, and no
-client records a prompt on its behalf. Caller detection is automatic;
-`sideband hook prompt --agent codex` (or `--agent claude`) is an optional
-override, still subject to the active session ownership check.
+client records a prompt on its behalf. The registration names the client
+because both hosts send the same payload and Codex gives hook shells no
+environment markers. Nothing else about the caller matters: a prompt is
+recorded for its client's role whenever that role has joined here, whichever
+conversation or process is running the hook, so restarting a client or
+clearing its context needs nothing.
 
 ## Use
 
@@ -187,8 +193,7 @@ Any command runs directly from the prompt with no model turn: in Claude Code,
 prints Markdown, `--help` prints text, the hook follows its host's contract
 and may print nothing, and the streaming `pending` prints one report per
 line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
-contention, 5 I/O failure, 6 timed out, 7 another live session already owns
-the role.
+contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
 
 ## Development
 

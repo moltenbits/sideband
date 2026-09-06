@@ -67,7 +67,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "with a live Codex session the envelope is queued to its thread"() {
         given:
-        sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.join(state, Role.CODEX, "thread-123")
         Entry entry = toCodex("@codex please look")
 
         when:
@@ -88,7 +88,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "an ack is never pushed; it waits for the requester's next look at its outgoing requests"() {
         given:
-        sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.join(state, Role.CODEX, "thread-123")
         Entry request = toCodex("@codex please look")
         Entry ack = journal.append(file, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX],
                 type: com.moltenbits.sideband.protocol.MessageType.ACK, replyTo: request.metadata().id(),
@@ -99,21 +99,9 @@ exit $(cat "''' + exitFile + '''")
         !Files.exists(log)
     }
 
-    void "a dead Codex session is reported and nothing is queued"() {
-        given:
-        sessions.join(state, Role.CODEX, "thread-old", 999999999L, false)
-
-        when:
-        List<PushResult> results = pushes.deliver(state, toCodex())
-
-        then:
-        results*.outcome() == [PushOutcome.SESSION_DEAD]
-        !Files.exists(log)
-    }
-
     void "a failing codex queue leaves the entry pending with the reason"() {
         given:
-        sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.join(state, Role.CODEX, "thread-123")
         Files.writeString(exitFile, "3")
         Entry entry = toCodex()
 
@@ -135,7 +123,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "an agent's own role and human recipients are never pushed to"() {
         given:
-        sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.join(state, Role.CODEX, "thread-123")
         Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.OPERATOR],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "note to self"))
         Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.OPERATOR],
@@ -149,7 +137,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "a broadcast pushes to each client recipient except the one the human typed into"() {
         given:
-        sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.join(state, Role.CODEX, "thread-123")
         Entry viaClaude = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
         Entry viaCodex = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
 
