@@ -488,8 +488,8 @@ but it must not be lost between the initial scan and listener startup.
 
 ### 9.4 Backlog handling
 
-A returning client must not silently execute its backlog. It must summarize the
-pending entries and ask the human whether to:
+A client that joins fresh must not silently execute what was waiting for it. It
+must summarize the pending entries and ask the human whether to:
 
 - Act on every actionable entry.
 - Act on selected entries.
@@ -500,6 +500,11 @@ pending entries and ask the human whether to:
 The summary should distinguish actionable requests from informational replies
 and statuses. Informational entries may be summarized for awareness but must
 not be presented as pending work when `expects_reply` is false.
+
+A client that joins with `--resume` is told by that flag that the operator
+wants what was waiting acted on; it takes those requests up without asking,
+subject only to the usual `confirm` policy, lineage checks, and authority
+limits.
 
 ### 9.5 Session record
 
@@ -517,8 +522,10 @@ What a role still has to look at is derived from the journal whenever it is
 read, by `pending`:
 
 - **Open**: a request addressed to the role that it has neither acknowledged
-  nor replied to. A request predating the session is flagged so the human
-  confirms it before it is acted on (section 9.4).
+  nor replied to. After a plain `join`, a request predating the session is
+  flagged so the human confirms it before it is acted on (section 9.4); after
+  `join --resume` nothing is flagged, because resuming is the operator saying
+  to take up what was waiting.
 - **In progress**: a request the role has acknowledged and not yet replied
   to, so a conversation that lost its context can see what it had taken up.
 - **Updates**: informational entries addressed to the role past its read

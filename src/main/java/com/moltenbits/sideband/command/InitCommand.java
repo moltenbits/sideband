@@ -57,8 +57,15 @@ public class InitCommand implements Callable<Integer> {
         return ExitCode.OK;
     }
 
-    /** The state directory is {@code <git common dir>/sideband}; the project root is that git dir's parent. */
+    /**
+     * Where the clients' project settings live: the working directory itself when the state
+     * directory is a plain {@code .sideband} in it, otherwise the parent of the git directory
+     * that holds {@code sideband}.
+     */
     static Path projectRoot(Path stateDirectory) {
+        if (stateDirectory.getFileName().toString().equals(SidebandHome.PLAIN_DIRECTORY_NAME)) {
+            return stateDirectory.getParent();
+        }
         return stateDirectory.getParent().getParent();
     }
 

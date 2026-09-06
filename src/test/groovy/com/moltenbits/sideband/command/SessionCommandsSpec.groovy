@@ -123,6 +123,7 @@ class SessionCommandsSpec extends CommandSpec {
 
         expect:
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates*.metadata*.id == [answer]
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").session.resumed == true
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates == []
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "again", "--replace").updates == []
     }

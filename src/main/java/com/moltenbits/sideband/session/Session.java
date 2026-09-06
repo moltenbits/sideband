@@ -15,6 +15,7 @@ import java.time.OffsetDateTime;
  * @param parentPid the host process, when known, so a dead session can be superseded
  * @param watermark the journal size at activation; entries ending at or before it predate the session
  * @param offset    the read position: entries ending at or before it have been shown to the role
+ * @param resumed   joined with --resume: the operator wants what predates the session acted on, not confirmed
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record Session(
@@ -22,7 +23,8 @@ public record Session(
         OffsetDateTime startedAt,
         @Nullable Long parentPid,
         long watermark,
-        long offset) {
+        long offset,
+        boolean resumed) {
 
     /** True when the recorded host process is known to be alive. Unknown counts as alive. */
     public boolean isLive() {
@@ -33,14 +35,14 @@ public record Session(
     }
 
     Session withOffset(long newOffset) {
-        return new Session(id, startedAt, parentPid, watermark, Math.max(offset, newOffset));
+        return new Session(id, startedAt, parentPid, watermark, Math.max(offset, newOffset), resumed);
     }
 
     Session withId(String newId) {
-        return new Session(newId, startedAt, parentPid, watermark, offset);
+        return new Session(newId, startedAt, parentPid, watermark, offset, resumed);
     }
 
     Session withParentPid(Long pid) {
-        return new Session(id, startedAt, pid, watermark, offset);
+        return new Session(id, startedAt, pid, watermark, offset, resumed);
     }
 }

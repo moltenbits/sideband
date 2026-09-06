@@ -47,7 +47,8 @@ class JournalPending implements Pending {
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
         Read all = journal.readCompleteFrom(file, 0);
         Optional<Session> session = sessions.load(stateDirectory, role);
-        long watermark = session.map(Session::watermark).orElse(Long.MAX_VALUE);
+        // A resumed session asked for what predates it, so nothing is flagged for confirmation.
+        long watermark = session.map(s -> s.resumed() ? 0L : s.watermark()).orElse(Long.MAX_VALUE);
         long offset = session.map(Session::offset).orElse(0L);
         ParticipantId self = ParticipantId.of(role);
         Map<String, List<EntryMetadata>> responses = responses(all.entries());

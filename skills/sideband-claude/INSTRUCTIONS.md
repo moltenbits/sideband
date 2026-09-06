@@ -31,8 +31,10 @@ described below.
    and records this conversation's session id and process id, so a later
    session can supersede this one automatically if it dies. Plain `join`
    starts at the latest point; `--resume` picks up from where Claude last
-   left off, so replies and other updates written for it since are shown.
-   Use `--resume` unless the user says to start fresh.
+   left off, so replies and other updates written for it since are shown,
+   and it means the user wants the requests that were waiting acted on,
+   not confirmed one by one. Use `--resume` unless the user says to start
+   fresh.
 
    ```bash
    sideband join --resume
@@ -42,14 +44,14 @@ described below.
    user; rerun with `--replace` only if they say so.
 
 2. The output is the first pending report. Its `open` list holds requests
-   addressed to Claude that Claude has neither acknowledged nor answered;
-   those with `before_session` true arrived before this session. Do not act on
-   any of them yet. Show the user a short table (id prefix, author, one-line
-   preview), and ask whether to act on all, act on some, show full bodies,
-   decline, or leave them. Act on the chosen ones as described under "When a
-   Monitor notification arrives"; decline one by replying to it with a short
-   reply saying so; leaving one alone keeps it open and listed by
-   `sideband pending`. `in_progress` holds requests already acknowledged and
+   addressed to Claude that Claude has neither acknowledged nor answered.
+   After `join --resume` they are yours to act on, as described under "When a
+   Monitor notification arrives". After a plain `join`, those with
+   `before_session` true arrived before this session: do not act on them
+   yet; show the user a short table (id prefix, author, one-line preview) and
+   ask whether to act on all, act on some, show full bodies, decline, or
+   leave them. Decline one by replying to it with a short reply saying so;
+   leaving one alone keeps it open and listed by `sideband pending`. `in_progress` holds requests already acknowledged and
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 

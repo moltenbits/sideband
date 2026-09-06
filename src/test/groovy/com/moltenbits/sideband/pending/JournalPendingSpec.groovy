@@ -70,6 +70,12 @@ class JournalPendingSpec extends Specification {
         then:
         pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, false]
         pending.report(dir, Role.CODEX).session().id() == "s1"
+
+        when: "a resumed session asked for what predates it: nothing needs confirming"
+        sessions.join(dir, Role.CODEX, "s2", null, true, true)
+
+        then:
+        pending.report(dir, Role.CODEX).open()*.beforeSession() == [false, false]
     }
 
     void "informational entries are updates until the read position passes them"() {

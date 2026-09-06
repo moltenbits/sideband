@@ -65,7 +65,7 @@ class FileSessions implements Sessions {
             }
             long end = journal.readCompleteFrom(stateDirectory.resolve(Journal.FILE_NAME), 0).end();
             long offset = resume ? Math.min(existing.map(Session::offset).orElse(0L), end) : end;
-            Session session = new Session(sessionId, now(), parentPid, end, offset);
+            Session session = new Session(sessionId, now(), parentPid, end, offset, resume);
             save(stateDirectory, role, session);
             return session;
         } catch (IOException e) {

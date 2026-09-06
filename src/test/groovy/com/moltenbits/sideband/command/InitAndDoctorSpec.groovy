@@ -47,16 +47,24 @@ class InitAndDoctorSpec extends CommandSpec {
         json().metadata.from == "operator"
     }
 
-    void "outside any git repository the state lives in a .sideband directory in the working directory"() {
+    void "outside any git repository the state lives in a .sideband directory in the working directory, and the hooks land there too"() {
         given:
-        Path plain = TempRepo.plainDirectory()
+        Path plain = Files.createDirectories(TempRepo.plainDirectory().resolve("nested/work"))
 
         when:
-        Map init = runJson("init", "--repo", plain.toString(), "--home", home.toString(), "--skip-clients")
+        Map init = runJson("init", "--repo", plain.toString(), "--home", home.toString())
 
         then:
         init.state_directory == plain.toRealPath().resolve(".sideband").toString()
         Files.isDirectory(plain.resolve(".sideband"))
+        init.clients.hook.state == "added"
+        Files.exists(plain.resolve(".claude/settings.json"))
+        Files.exists(plain.resolve(".codex/hooks.json"))
+        !Files.exists(plain.getParent().resolve(".claude"))
+        !Files.exists(plain.getParent().resolve(".codex"))
+
+        and: "doctor inspects the same place"
+        runJson("doctor", "--repo", plain.toString(), "--home", home.toString()).clients.hook.state != "missing"
 
         when:
         stdout = new StringWriter()
