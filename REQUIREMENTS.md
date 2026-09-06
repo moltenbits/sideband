@@ -21,6 +21,8 @@ Status: Version-one requirements with review addenda integrated.
 - [15. Open design decisions](#15-open-design-decisions)
 - [16. Review addenda](#16-review-addenda)
 - [17. Remaining implementation blockers](#17-remaining-implementation-blockers)
+- [18. Executable command contract](#18-executable-command-contract)
+- [19. Definition of done](#19-definition-of-done)
 
 ## 1. Purpose
 
@@ -361,10 +363,10 @@ separate source of authority. Detailed steps such as reply
 correlation and outgoing-request resolution belong in the adapter instructions;
 their omission from this discovery field is not a missing protocol requirement.
 
-A host notification is also small. Claude Code truncates a Monitor event to
-500 characters (measured 2026-09-05), so the listener's line is a wake signal
-carrying counts, senders, and the scanned byte range, never entry bodies; the
-client reads the entries with `sideband pending`.
+A host notification is also small: Claude Code truncates a Monitor event to
+500 characters (measured 2026-09-05). That is why a streamed report is treated
+as a wake signal and never advances the bookmark; the client reads with a
+plain `sideband pending`.
 
 ### 7.5 Agent-to-human messages
 
@@ -699,6 +701,10 @@ backlog at the recipient's next activation.
 Any background listener is a transport worker. It forwards messages to the
 parent client rather than independently answering substantive project
 questions with stale or incomplete parent context.
+
+Replacing the executable does not upgrade a listener already running from the
+old file: the process keeps its inode. After an install that changes the
+executable, the running listener must be stopped and started again.
 
 ### 10.2 Claude Code
 
@@ -1082,6 +1088,11 @@ are never edited after they are appended; a response is a new entry with
 methodology the tool is meant to provide.
 
 Review entries are historical records rather than normative requirements.
+The implementation proposal that once accompanied this document carried its
+own review addenda, impl-0001 through impl-0007, which record who accepted
+what during implementation; the file was retired on 2026-09-06 and those
+entries remain readable from git history with
+`git show '3be9be3:Proposed Implementation.md'`.
 Accepted conclusions are incorporated into sections 1 through 15; remaining
 release blockers are listed after the review record.
 
@@ -1424,8 +1435,12 @@ release blocker until implementation reaches the affected feature boundary.
 
 ## 18. Executable command contract
 
-Every command prints one JSON document on stdout and human-readable errors on
-stderr, and exits with a stable code: `0` ok, `2` invalid input, `4` lock
+Every state-changing or reporting command prints one JSON document on stdout;
+the exceptions are `skill` without `--eject`, which prints the adapter
+instructions as Markdown, `--help`, which prints text, `hook prompt`, whose
+output follows the host's hook contract, and `pending --wait --stream`, which
+prints one JSON report per line for as long as it runs. Errors go to stderr
+as text. Every command exits with a stable code: `0` ok, `2` invalid input, `4` lock
 contention, `5` corrupt state or I/O failure, `6` timed out, `7` another live
 session already owns the role (`3` was "not a repository" and is retired,
 since every directory now has a state location). Bodies travel through
@@ -1452,8 +1467,8 @@ sideband doctor                                    # paths, versions, discussion
 
 Rules the commands enforce, each stated in the section that motivates it:
 `capture-human` routes on the first token only and never changes the body
-(8.1); `append-agent` refuses an actionable agent entry with no path to a
-human-authored one (8.3), defaults a reply's or ack's recipients to the author
+(8.1); `append-agent` refuses an actionable agent-to-agent entry with no path
+to a human-authored one (8.3), defaults a reply's or ack's recipients to the author
 of the entry named by `--reply-to` and rejects a `--reply-to` that names no
 entry (9.6, 9.8); a request expecting a reply is closed only by a reply that
 expects nothing back and is addressed to the requester (9.6); acks are never
@@ -1474,8 +1489,10 @@ Version one is complete when:
 - local installation is repeatable, and `doctor` reports paths, versions,
   discussion health, each role's session and pending counts, skill state, and
   lock ownership without printing message bodies;
-- the JVM suite passes, and the native build is exercised whenever the Java
-  sources change;
+- the JVM suite passes, and the native executable is exercised black-box
+  through its command line, covering serialization, process and filesystem
+  access, concurrency, restart, and exit behavior, since the installed
+  artifact is the native binary and not the JVM classes;
 - concurrent writers and forced crashes cannot corrupt prior complete entries;
 - the Claude-to-Codex and Codex-to-Claude live paths work with no MCP server,
   daemon, hosted service, or headless peer invocation;
@@ -1488,6 +1505,7 @@ Version one is complete when:
   to the model in the host's context field (7.1);
 - delegation depth, human-rooted authority, and human-only delivery match
   sections 7.5, 8.3, and 12; and
-- the acceptance scenarios of section 14 have been walked against the real
-  hosts with the operator present, and the ones that passed are recorded.
+- every applicable acceptance scenario of section 14 passes against the real
+  hosts with the operator present, or carries an explicitly accepted
+  exception, and the outcome of each is recorded.
 
