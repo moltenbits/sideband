@@ -720,7 +720,7 @@ persistent Monitor attached to the streaming journal-follow command
 command emits is one wake signal for a batch of open entries and becomes one
 notification to the parent, which then reads the entries with `pending`. The listener is never re-armed per message. A one-shot background
 task blocked on `sideband pending --wait` is the fallback where Monitor is unavailable,
-as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a read of `pending`
+as the wake-path spike proved. Monitor events must prompt a read of `pending`
 rather than be treated as exactly one message. The worker must
 not answer the message itself.
 Clearing the conversation's context does not stop the Monitor, so no re-arming
@@ -729,8 +729,8 @@ step exists; each batch carries its own intent sentence (section 7.4) instead.
 ### 10.3 Codex
 
 Codex offers `codex queue --thread <thread id> --message <text>`, which
-starts a new turn in an existing idle session
-([docs/spike-wake-path.md](docs/spike-wake-path.md)). Codex therefore runs no
+starts a new turn in an existing idle session, as the wake-path spike proved.
+Codex therefore runs no
 listener. On joining, `sideband join --role codex` records the
 session's thread id from `CODEX_THREAD_ID`; from then on every writer that
 appends an entry addressed to Codex pushes the envelope with `codex queue`
@@ -1393,17 +1393,16 @@ prove the wake capability required by section 10.6, not complete adapters or
 ongoing lifecycle behavior. Mid-turn delivery, rearming, durable cursors,
 message identity, and prompt-capture behavior remain implementation and
 acceptance-test work. The procedures, observed outputs, failed attempts, and
-successful mechanisms are recorded in
-[docs/spike-wake-path.md](docs/spike-wake-path.md). Both skills were then
-rewritten around the proven mechanisms.
+successful mechanisms were recorded in the spike documents, retired on
+2026-09-06 and readable with `git show '1e46b91:docs/spike-wake-path.md'`.
+Both skills were then rewritten around the proven mechanisms.
 
 Update (2026-09-05, overnight): the first live, unattended, bidirectional
 exchange of real protocol entries completed between the two adapters in this
 repository, with authorization traced to a captured human entry, bounded to
-one request and two replies per agent. Both records are in
-[docs/overnight-handshake.md](docs/overnight-handshake.md) (Claude side) and
-[docs/spike-wake-path.md](docs/spike-wake-path.md) (Codex side). The full
-integration with James present remains the next step.
+one request and two replies per agent. Both records were in the retired spike
+documents (`git show '1e46b91:docs/overnight-handshake.md'` for the Claude side).
+The full integration with James present remains the next step.
 
 ### 17.2 Client-aware capture hook
 
@@ -1420,8 +1419,9 @@ bug; same-conversation refresh now addresses it without advancing watermarks.
 Remaining live checks are no re-capture of queued Sideband envelopes, human
 input submitted during an active turn, and automatic refresh on a subsequent
 host restart. Marker inheritance into the actual hook shell remains
-unobserved; fallback success is not evidence of marker inheritance. See
-[Codex hook verification](docs/codex-prompt-hook.md). Registration on disk
+unobserved; fallback success is not evidence of marker inheritance. Codex's
+hook verification record was retired with the spike documents
+(`git show '1e46b91:docs/codex-prompt-hook.md'`). Registration on disk
 alone still does not establish live capture.
 
 Neither is a release blocker for the Claude Code path.
