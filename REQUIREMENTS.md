@@ -329,18 +329,20 @@ the Monitor and its `sideband follow` process alive; verified 2026-09-05), so
 the adapter instructions cannot be assumed to be in context when a batch
 arrives. Everything a host receives therefore begins with a `handling` field:
 a listener's wake line says what arrived and where to read it, and a delivered
-batch or the `pending` listing identifies Sideband, preserves the entries'
-recorded authorship, and points to `sideband skill` for the adapter instructions.
+batch or the `pending` listing is one sentence that identifies Sideband, says
+the entries are not the user speaking, and names the client's Sideband skill
+(`/sideband` or `$sideband`) to load for the steps. It names the skill rather
+than `sideband skill` so that the host resolves it to whatever is installed,
+the stub or a copy the operator has ejected and edited.
 Transport arrival is not a new local human prompt; an entry whose recorded
 author is `operator` nevertheless retains that human authorship.
 
 **Purpose of `handling`: skill discovery and context recovery.** The field
 helps an agent recognize a Sideband delivery and find the installed skill when
 that skill's instructions are absent from its current context. The agent loads
-the adapter instructions through `sideband skill` before handling entries when
-it does not already have those instructions. A short operational reminder may
-be included, but `handling` is not a complete workflow, a substitute for the
-skill, or a separate source of authority. Detailed steps such as reply
+the skill before handling entries when it does not already have its
+instructions. `handling` is not a workflow, a substitute for the skill, or a
+separate source of authority. Detailed steps such as reply
 correlation and outgoing-request resolution belong in the adapter instructions;
 their omission from this discovery field is not a missing protocol requirement.
 

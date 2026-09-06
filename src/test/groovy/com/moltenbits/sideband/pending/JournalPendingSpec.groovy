@@ -52,7 +52,7 @@ class JournalPendingSpec extends Specification {
         report.inProgress()*.entry()*.metadata()*.id() == [second.metadata().id()]
         report.inProgress()[0].acknowledgedAt() != null
         report.updates().isEmpty()
-        report.handling().startsWith("Sideband delivered these journal entries to Codex.")
+        report.handling().startsWith("Sideband entries for Codex")
         report.end() == Files.size(file)
     }
 

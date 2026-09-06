@@ -65,9 +65,13 @@ class ResourceInstaller implements Installer {
     }
 
     @Override
-    public InstallReport.Item eject(Path homeDir, Role client) {
+    public InstallReport.Item eject(Path homeDir, Role client, boolean force) {
         String source = "sideband-" + client.id();
         Path target = homeDir.resolve(SKILLS.get(source));
+        if (!force && skillState(source, target).equals("ejected")) {
+            throw new IllegalArgumentException("the " + client.displayName() + " skill at " + target.resolve("SKILL.md")
+                    + " is already ejected and may hold your edits; pass --force to overwrite it");
+        }
         try {
             String stub = new String(resource(source + "/SKILL.md"), UTF_8);
             int close = stub.indexOf("\n---\n", 4);

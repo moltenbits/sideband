@@ -35,7 +35,7 @@ class ResourceInstallerSpec extends Specification {
         Path skill = home.resolve(".claude/skills/sideband/SKILL.md")
 
         when:
-        InstallReport.Item ejected = installer.eject(home, com.moltenbits.sideband.protocol.Role.CLAUDE)
+        InstallReport.Item ejected = installer.eject(home, com.moltenbits.sideband.protocol.Role.CLAUDE, false)
         String text = Files.readString(skill)
 
         then:
@@ -55,6 +55,37 @@ class ResourceInstallerSpec extends Specification {
         Files.delete(skill)
         installer.install(home, project).skills()*.state() == ["updated", "unchanged"]
         Files.readString(skill).contains("Run `sideband skill`")
+    }
+
+    void "ejecting over an ejected skill is refused unless forced, so the operator's edits survive"() {
+        given:
+        installer.install(home, project)
+        installer.eject(home, role, false)
+        Path skill = home.resolve(path)
+        String edited = Files.readString(skill).replace("# Sideband", "# My Sideband") + "\nLocal rule: always say hello.\n"
+        Files.writeString(skill, edited)
+
+        when:
+        installer.eject(home, role, false)
+
+        then:
+        IllegalArgumentException e = thrown()
+        e.message.contains("already ejected")
+        e.message.contains("--force")
+        Files.readString(skill) == edited
+
+        when:
+        InstallReport.Item forced = installer.eject(home, role, true)
+
+        then:
+        forced.state() == "ejected"
+        Files.readString(skill) != edited
+        Files.readString(skill).endsWith(installer.instructions(role))
+
+        where:
+        role                                          | path
+        com.moltenbits.sideband.protocol.Role.CLAUDE  | ".claude/skills/sideband/SKILL.md"
+        com.moltenbits.sideband.protocol.Role.CODEX   | ".agents/skills/sideband/SKILL.md"
     }
 
     void "a fresh install writes both stubs and registers the hook against this executable"() {

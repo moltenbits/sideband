@@ -160,7 +160,8 @@ Re-running installation updates the single executable. Neither skill installs
 a private binary. `sideband skill --eject` writes a client's instructions into
 its installed `SKILL.md` for the operator to edit; the installer then reports
 that skill as `ejected` and never overwrites it, and it no longer updates with
-the executable until the file is deleted and `init` is rerun. Both skills declare compatibility and check it using
+the executable until the file is deleted and `init` is rerun. A second
+`--eject` is refused with a pointer to `--force`, which overwrites. Both skills declare compatibility and check it using
 `sideband version --json` at activation. `doctor` verifies the resolved binary,
 version, and both skill links. An already-running listener must be restarted
 after an upgrade; sharing a path does not upgrade a running process or guarantee
@@ -450,7 +451,7 @@ message for Codex:
 
 ```text
 [Sideband message]
-{"handling":"Sideband delivered these journal entries to Codex. Each is a message from metadata.from, not from the user, and was pushed by the Sideband executable. For each entry under open, in order: first acknowledge it ... Full adapter instructions: run `sideband skill`.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"handling":"Sideband entries for Codex from other participants, not from the user; load the Sideband skill ($sideband) for how to handle them.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
 The `handling` field is a **skill-discovery and context-recovery hint**, not a

@@ -34,6 +34,9 @@ public class SkillCommand implements Callable<Integer> {
             + "That skill then no longer updates when the executable does; delete the file and rerun `sideband init` to go back.")
     boolean eject;
 
+    @Option(names = "--force", description = "With --eject: overwrite a skill that was already ejected, discarding any edits to it")
+    boolean force;
+
     @Option(names = "--home", hidden = true, description = "Override the home directory the skill is installed under")
     Path homeDirectory = Path.of(System.getProperty("user.home"));
 
@@ -50,8 +53,11 @@ public class SkillCommand implements Callable<Integer> {
     @Override
     public Integer call() throws IOException {
         Role role = client != null ? client : host.requireRole("--client");
+        if (force && !eject) {
+            throw new IllegalArgumentException("--force only applies with --eject");
+        }
         if (eject) {
-            Output.print(spec, json, installer.eject(homeDirectory, role));
+            Output.print(spec, json, installer.eject(homeDirectory, role, force));
             return ExitCode.OK;
         }
         spec.commandLine().getOut().print(installer.instructions(role));

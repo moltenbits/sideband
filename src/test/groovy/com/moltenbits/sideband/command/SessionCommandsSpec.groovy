@@ -46,7 +46,7 @@ class SessionCommandsSpec extends CommandSpec {
         activation.updates == []
         activation.outgoing == []
         activation.diagnostics == []
-        activation.handling.startsWith("Sideband delivered these journal entries to Codex.")
+        activation.handling.startsWith("Sideband entries for Codex")
 
         when:
         int code = run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2")

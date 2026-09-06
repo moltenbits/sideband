@@ -218,6 +218,17 @@ class HookAndSkillSpec extends CommandSpec {
         json().state == "ejected"
         json().name == "codex"
         Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")).endsWith(Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md")))
+
+        when: "ejecting again is refused with a pointer to --force, and --force overwrites"
+        stdout = new StringWriter()
+        int refused = run("skill", "--client", "codex", "--home", home.toString(), "--eject")
+        int forced = run("skill", "--client", "codex", "--home", home.toString(), "--eject", "--force")
+
+        then:
+        refused == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--force")
+        forced == ExitCode.OK
+        run("skill", "--client", "codex", "--home", home.toString(), "--force") == ExitCode.INVALID_INPUT
     }
 
     void "skill prints the embedded instructions for the named client as plain text"() {

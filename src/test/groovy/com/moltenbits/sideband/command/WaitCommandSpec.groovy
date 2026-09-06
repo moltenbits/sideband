@@ -88,7 +88,7 @@ class WaitCommandSpec extends CommandSpec {
         code == ExitCode.OK
         json().entries*.metadata*.id == [toCodex.metadata().id(), later.metadata().id()]
         json().end == Files.size(journalFile)
-        json().handling.startsWith("Sideband delivered these journal entries to Codex.")
+        json().handling.startsWith("Sideband entries for Codex")
     }
 
     void "a human turn typed into the role is not delivered back to it, whatever the cursor says"() {

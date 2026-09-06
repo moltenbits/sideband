@@ -188,7 +188,8 @@ The installed skills are stubs that read their instructions from the
 executable, so a new release updates both. To edit the instructions yourself,
 run `sideband skill --eject` inside the client: it writes them into that
 client's `SKILL.md`, which is then yours and stops updating with the
-executable. Delete the file and rerun `sideband init` to go back.
+executable. Ejecting again is refused so your edits survive, unless you pass
+`--force`. Delete the file and rerun `sideband init` to go back.
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
 `! sideband pending`. All commands print one JSON object and use stable exit

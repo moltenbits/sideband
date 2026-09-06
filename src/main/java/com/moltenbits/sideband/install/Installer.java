@@ -25,6 +25,8 @@ public interface Installer {
      * Replaces a client's installed stub with the full instructions so the operator can edit
      * them. An ejected skill is theirs from then on: {@link #install} leaves it alone and it
      * no longer updates with the executable. Deleting it and rerunning {@code init} goes back.
+     *
+     * @throws IllegalArgumentException when the skill is already ejected and {@code force} is false
      */
-    InstallReport.Item eject(Path homeDir, Role client);
+    InstallReport.Item eject(Path homeDir, Role client, boolean force);
 }
