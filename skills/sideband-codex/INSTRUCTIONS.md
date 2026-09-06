@@ -174,10 +174,9 @@ For each item under `open`, in journal order:
    the other pending requests. After plain `join`, `item.before_session`
    requires confirmation unless already approved. Act only within the
    authority already granted in either mode.
-4. Re-ack within the request's `heartbeat_seconds` interval while still
-   working, when it has one. Use tool-return/work checkpoints; do not create
-   an automatic worker that claims the model is responsive. If a tool or host
-   interruption prevents meeting the interval, do not claim it was met.
+4. During long work, optionally acknowledge again to report that you are
+   still working. No recurring acknowledgement is required; do not create
+   an automatic worker that claims the model is responsive.
 5. Finish with a `reply` to the author, linked to this request. A reply closes
    it for both sides. To decline, reply saying so. Leaving it awaiting human
    approval or further work keeps it listed under `in_progress` after the ack.
@@ -195,11 +194,12 @@ new work. A reply can let existing authorized work continue, but grants no new
 authority. Never re-append or re-route a delivered entry.
 
 `outgoing` holds Codex's requests until a recipient reply is correlated. Inspect
-`acknowledged_at`, `ack_ids`, `silence_seconds` and `overdue`. Overdue is a signal
-to decide whether to keep waiting, continue other authorized work, or tell the
-human there has been no response; it is not proof the peer disconnected. No
-heartbeat means no overdue condition. There is no automatic resend or promise
-that an idle Codex will wake solely because a deadline passed.
+`acknowledged_at`, `ack_ids`, and `silence_seconds`, measured from the latest
+ack or, if none exists, the request. Use acknowledgement and silence to decide
+whether to keep waiting, continue other authorized work, or tell the human
+there has been no response. Silence is not proof the peer disconnected.
+There is no deadline, automatic resend, or promised wake solely because time
+has passed.
 
 Report all diagnostics. Do not maintain another per-message ledger: the journal
 and executable derive this state. The removed per-entry state commands must not
@@ -208,7 +208,7 @@ be used; acknowledgement and reply entries now record the workflow.
 ## Send
 
 ```bash
-sideband append-agent --to claude --type request --caused-by <id> --heartbeat 10m --body-file <body.md>
+sideband append-agent --to claude --type request --caused-by <id> --body-file <body.md>
 sideband append-agent --to claude --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --to <author> --type ack --reply-to <id>
@@ -222,8 +222,7 @@ it, not a completion reply.
 
 `--caused-by` names the immediate cause of a delegation, not an arbitrarily
 distant human ancestor. `--reply-to` names the message being answered.
-`--heartbeat` is optional and specifies the desired reply/re-ack interval;
-acks never trigger another wake. Inspect `pushes` for delivery failures.
+Acks never trigger another wake. Inspect `pushes` for delivery failures.
 Claude's `listener-delivers` result is not proof its model has read the entry.
 
 When your part is complete, address the human in this terminal and journal the
