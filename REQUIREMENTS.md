@@ -503,11 +503,14 @@ and need not prove that the parent model read, understood, or acted on it.
 
 When a client activates Sideband, it must establish a watermark at the last
 complete entry already present in the journal. Addressed unresolved entries at
-or before that watermark are backlog. Entries appended after the listener is
-ready are live.
+or before that watermark are backlog. Entries appended after it are live and
+are pushed by their writers as they are appended.
 
 This boundary must be race-safe: an entry may be classified as backlog or live,
-but it must not be lost between the initial scan and listener startup.
+but it must not be lost between the join's scan and the first push. An entry
+whose push failed or found no session is not lost either: it stays addressed
+and unresolved in the journal, and `pending` lists it until the role's ack or
+reply exists.
 
 ### 9.4 Backlog handling
 
@@ -578,8 +581,8 @@ return control to the human; it must not keep its turn open solely to wait
 for an answer. The request is discoverable as outgoing from the journal for
 as long as no recipient has replied to it, across turns and sessions.
 
-The role's existing background listener delivers replies through the same
-path as other addressed messages. A reply answers the nearest actionable
+A reply is pushed to the requester by its writer through the same path as
+any other addressed message. A reply answers the nearest actionable
 entry reachable through its `reply_to` links that someone else wrote, so a
 reply to a clarification still answers the original request. A reply that
 itself expects a reply is a question, not an answer: it closes nothing, and
@@ -596,8 +599,8 @@ fail or resolve a request. On reactivation, replies already present are
 updates the role has not been shown; later ones follow the usual path.
 
 The parent conversation must remain available for human input throughout.
-Only the session's existing background listener waits for journal activity,
-without idle model polling or periodic model turns to check pending requests.
+Nothing waits for the reply: it arrives as a push when it is written, with no
+idle model polling or periodic model turns to check pending requests.
 
 ### 9.7 Revising an outstanding request
 
@@ -940,9 +943,11 @@ instances.
 
 ### 14.9 Restart and replay
 
-Given a listener stops after an entry is written but before the role's read
-position is advanced, restarting Sideband shows that entry again, and the
-journal's own record of the role's ack or reply prevents duplicate work.
+Given a push fails, or the recipient's host accepts an entry and the
+conversation ends before the entry is handled, the entry is still addressed
+and unresolved in the journal: the next `join --resume` or `pending` shows it
+again, and the journal's own record of the role's ack or reply prevents
+duplicate work.
 
 ### 14.10 Duplicate role activation
 

@@ -45,7 +45,7 @@ described below.
    with the requests depends on how many are waiting across `open` and
    `in_progress`, and the executable has already applied the rule through
    `before_session`: after `join --resume`, a lone request is not flagged
-   and is yours to act on as described under "When a Monitor notification
+   and is yours to act on as described under "When a pushed envelope
    arrives", while several are flagged; after a plain `join`, everything
    that arrived before this session is flagged. Flagged requests are not
    acted on yet: show the user a short table (id prefix, author, one-line
@@ -65,21 +65,13 @@ described below.
 
 ## On every human turn while active
 
-Journal the prompt verbatim before doing substantive work. The executable
-resolves a leading `@claude`, `@codex`, or `@all` directive; anything else
-routes to Claude alone, and Claude's own turn is marked handled so it is never
-redelivered.
-
-```bash
-sideband append --from operator --body-file <prompt.md>
-```
-
-Only capture text the human typed. Never capture a pushed envelope. When the
-prompt hook is installed (`sideband init` registers `sideband hook prompt` in
-this repository's `.claude/settings.json`), it has already captured the prompt
-before you see it and says so in a hook note that names the entry's id; do
-not capture again, and use that id as `--caused-by` when the prompt leads you
-to delegate. Never read the journal file to find an id. Any other hook note
+The prompt hook records every prompt the human types, before you see it, and
+says so in a hook note that names the entry's id. The executable resolves a
+leading `@claude`, `@codex`, or `@all` directive; anything else routes to
+Claude alone, and Claude's own turn is never redelivered. Use the noted id as
+`--caused-by` when the prompt leads you to delegate. Never record a prompt
+yourself, and never record a pushed envelope: the hook is the only thing that
+records prompts, and when it could not, reporting that is the whole recovery. Never read the journal file to find an id. Any other hook note
 is something to tell the user before doing anything else, and that is all it
 asks of you: "could not confirm recording this prompt" means recording did
 not complete, and the prompt may or may not be in the discussion; "recorded
