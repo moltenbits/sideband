@@ -80,15 +80,14 @@ class SessionCommandsSpec extends CommandSpec {
     void "an ack moves a request to in progress for the recipient and shows on the sender's outgoing request; a reply closes both"() {
         given:
         String h = capture("claude", "@claude ask codex")
-        String ask = appendAgent("--from", "claude", "--to", "codex", "--type", "request", "--caused-by", h, "--heartbeat", "10m")
+        String ask = appendAgent("--from", "claude", "--to", "codex", "--type", "request", "--caused-by", h)
 
         expect: "the sender sees its request awaiting a reply, unacknowledged"
         with(runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing) {
             size() == 1
             it[0].id == ask
-            it[0].heartbeat_seconds == 600
             it[0].acknowledged_at == null
-            it[0].overdue == false
+            it[0].silence_seconds >= 0
         }
         runJson("pending", "--repo", repo.toString(), "--role", "codex").open*.entry*.metadata*.id == [ask]
 

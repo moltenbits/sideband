@@ -136,7 +136,7 @@ For example:
 
 ```markdown
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
 ## James → Claude + Codex (via Claude)
@@ -590,7 +590,7 @@ request tracking and backlog rules apply; version one introduces no structured
 revision fields, automatic supersession state, or special backlog grouping.
 Structured amendment and replacement handling is deferred to section 15.
 
-### 9.8 Acknowledgement and the heartbeat contract
+### 9.8 Acknowledgement
 
 A reply can legitimately take a long time, and silence is ambiguous: the
 recipient may be working, or it may never have received the request because
@@ -605,40 +605,26 @@ entry as its first journal action, before it starts the work. The ack has
 author, and `expects_reply: false`; its body is optional and, when present,
 one line on what the recipient is about to do. The ack is what moves the
 request from open to in progress for the recipient (section 9.5) and what
-tells the sender the request was received. An agent with questions about a
-request sends an ordinary actionable reply back; no separate acceptance step
-exists. Version one tracks one recipient per request.
-
-The request states the cadence it expects. An actionable entry may carry
-`heartbeat_seconds`, chosen by the sender (`--heartbeat 10m`). It is part of
-the contract: the recipient must, within each interval measured from the
-request and then from its own latest ack, either reply or acknowledge again
-to show it is still working. Repeated acks are therefore expected during
-long work, and each one restarts the interval. The sender chooses the value
-to fit the request; a request without one is never overdue.
+tells the sender the request was received. A recipient may acknowledge again
+during long work if it wants to; nothing requires a cadence, because agents
+cannot be relied on to keep one. An agent with questions about a request
+sends an ordinary actionable reply back; no separate acceptance step exists.
+Version one tracks one recipient per request.
 
 An ack is a journal entry like any other, so a person reading the journal
 sees it, but it is never delivered as something to act on: it is not pushed,
 it does not wake a listener, and `pending` never lists it. Its effect is on
 what `pending` derives: the recipient's request moves to in progress, and
-the sender's outgoing request shows `acknowledged_at` and the ack's id.
-
-Silence longer than the heartbeat means the recipient is not responding. That
-is a derived condition, `overdue`, computed from timestamps whenever `pending`
-is read and never stored, so the rule of section 9.6 stands: passage of time
-changes no request state. `pending` reports, per outgoing request, the latest
-acknowledgement, how long the silence has lasted, and whether it is overdue. A
-request that was never acknowledged and is overdue most likely never reached
-its recipient; one that was acknowledged and is overdue has a recipient that
-stopped working or stopped reporting.
+the sender's outgoing request shows `acknowledged_at`, the acks' ids, and
+how long the silence since the latest one (or since the request) has lasted.
 
 Sideband records what the decision needs; the sending client makes it. The
-executable never resends, resolves, or fails a request on its own. The
-requester, when it sees an overdue request, chooses to keep waiting, move on
-with the rest of its work, or tell the human the other agent is not
-responding. An idle requester finds out at its next look at `pending`; whether
-its listener should also wake it when a request first becomes overdue is an
-open decision (section 15).
+executable never resends, resolves, or fails a request on its own, and holds
+no deadline: passage of time changes no request state (section 9.6). The
+requester, looking at an unanswered request's acknowledgement and silence,
+chooses to keep waiting, move on with the rest of its work, or tell the human
+the other agent is not responding; a request that was never acknowledged most
+likely never reached its recipient.
 
 ## 10. Client integration
 
@@ -1017,19 +1003,17 @@ Given an explicit `--agent` override, the named role is used only when the
 payload session owns that role. An ambiguous automatic fallback or a
 mismatched session records nothing.
 
-### 14.17a Acknowledgement and heartbeat
+### 14.17a Acknowledgement
 
-Given Claude appends a request to Codex with a ten-minute heartbeat and
-Codex's parent receives it, Codex's first journal action is an `ack` with
-`reply_to` naming the request; Codex's `pending` then lists the request as in
-progress rather than open, and Claude's lists it as outgoing with
-`acknowledged_at` set, without Claude being woken. Given Codex acknowledges
-again while still working, the interval restarts from that ack. Given ten
-minutes pass with neither an ack nor a reply, Claude's `pending` reports the
-request overdue with the length of the silence, and Claude decides whether to
-keep waiting, move on, or tell the human Codex is not responding. Given Codex
-replies, the request disappears from Claude's outgoing list and from Codex's
-in-progress list, and the reply appears once in Claude's updates.
+Given Claude appends a request to Codex and Codex's parent receives it,
+Codex's first journal action is an `ack` with `reply_to` naming the request;
+Codex's `pending` then lists the request as in progress rather than open, and
+Claude's lists it as outgoing with `acknowledged_at` set and the silence
+counted from that ack, without Claude being woken. Given Codex replies, the
+request disappears from Claude's outgoing list and from Codex's in-progress
+list, and the reply appears once in Claude's updates. Given Codex never
+acknowledges, Claude's `pending` keeps showing the request unacknowledged with
+the silence counted from the request, and Claude decides what to do.
 
 ### 14.17 Shared executable
 
@@ -1043,12 +1027,8 @@ The following questions remain intentionally unresolved:
 
 - Whether Sideband activates automatically on every first turn or through an
   explicit skill command.
-- Whether the heartbeat contract of section 9.8 needs a distinct first-ack
-  deadline shorter than the heartbeat, once live use shows how long a
-  recipient takes to acknowledge in practice.
-- Whether an idle requester should be woken by its own listener when one of
-  its requests first becomes overdue, and if so how Codex, which runs no
-  listener, is told.
+- Whether an idle requester should ever be woken about its own unanswered
+  requests, and if so how Codex, which runs no listener, is told.
 - Whether every visible agent-to-human response is journaled automatically or
   only responses participating in Sideband workflows.
 - Whether a routing directive is removed from the delivered body while being

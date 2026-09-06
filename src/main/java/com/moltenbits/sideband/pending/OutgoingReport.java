@@ -10,17 +10,14 @@ import java.util.List;
 
 /**
  * A request the role sent that no recipient has replied to yet: what the recipient has
- * said about it (acks), how long it has been silent, and whether that silence exceeds the
- * heartbeat the request asked for. The sender decides what to do about it.
+ * said about it (acks) and how long it has been silent. The sender decides what to do.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record OutgoingReport(
         String id,
         List<ParticipantId> to,
         OffsetDateTime createdAt,
-        @Nullable Long heartbeatSeconds,
         @Nullable OffsetDateTime acknowledgedAt,
         List<String> ackIds,
-        long silenceSeconds,
-        boolean overdue) {
+        long silenceSeconds) {
 }

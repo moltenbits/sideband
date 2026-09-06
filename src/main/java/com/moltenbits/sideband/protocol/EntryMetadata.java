@@ -24,7 +24,6 @@ public record EntryMetadata(
         @Nullable String replyTo,
         @Nullable String causedBy,
         boolean expectsReply,
-        @Nullable Long heartbeatSeconds,
         Delivery delivery,
         long bodyBytes) {
 
@@ -45,9 +44,6 @@ public record EntryMetadata(
         }
         if (bodyBytes < 0) {
             throw new InvalidEntryException("'body_bytes' must not be negative");
-        }
-        if (heartbeatSeconds != null && heartbeatSeconds <= 0) {
-            throw new InvalidEntryException("'heartbeat_seconds' must be positive");
         }
     }
 

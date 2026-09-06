@@ -83,10 +83,9 @@ class JournalPending implements Pending {
                 }
                 Optional<OffsetDateTime> acked = latest(theirs, MessageType.ACK);
                 long silence = Math.max(0, Duration.between(acked.orElse(m.createdAt()), now).getSeconds());
-                boolean overdue = m.heartbeatSeconds() != null && silence > m.heartbeatSeconds();
-                outgoing.add(new OutgoingReport(m.id(), m.to(), m.createdAt(), m.heartbeatSeconds(), acked.orElse(null),
+                outgoing.add(new OutgoingReport(m.id(), m.to(), m.createdAt(), acked.orElse(null),
                         theirs.stream().filter(r -> r.type() == MessageType.ACK).map(EntryMetadata::id).toList(),
-                        silence, overdue));
+                        silence));
             }
         }
         // After --resume the operator wants what was waiting taken up: a lone request is acted

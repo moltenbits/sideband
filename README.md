@@ -72,7 +72,7 @@ and a closing marker:
 
 ```markdown
 <!-- sideband:v1
-{"id":"…","created_at":"…","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
+{"id":"…","created_at":"…","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
 -->
 
 ## Operator → Codex (via Claude)
@@ -152,9 +152,8 @@ stateDiagram-v2
 None of this is stored as state. `pending` derives it from the journal on
 every read: a request is open until the role's ack exists and in progress
 until its reply exists, and the same entries tell the sender that its request
-was acknowledged and then answered. A request may say how often it expects a
-reply or a fresh ack; silence longer than that is reported to the sender as
-overdue, and the sender decides what to do. The only thing a role keeps
+was acknowledged and then answered, and how long it has been silent since.
+There is no deadline: the sender decides what to do. The only thing a role keeps
 beside the journal is its session record: identity and how far it has read,
 so informational updates are shown once.
 

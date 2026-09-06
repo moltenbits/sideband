@@ -18,7 +18,6 @@ public record Draft(
         @Nullable String replyTo,
         @Nullable String causedBy,
         boolean expectsReply,
-        @Nullable Long heartbeatSeconds,
         Delivery delivery,
         String body) {
 
@@ -39,14 +38,11 @@ public record Draft(
         if (body.isBlank()) {
             throw new InvalidEntryException("the body must not be blank");
         }
-        if (heartbeatSeconds != null && heartbeatSeconds <= 0) {
-            throw new InvalidEntryException("'heartbeat_seconds' must be positive");
-        }
     }
 
     /** What the operator typed: a request whoever it is addressed to, entered through {@code via}. */
     public static Draft humanRequest(Role via, List<ParticipantId> to, String body) {
         return new Draft(ParticipantId.OPERATOR, via, to, MessageType.REQUEST, Route.forRecipients(to),
-                null, null, true, null, Delivery.DEFAULT, body);
+                null, null, true, Delivery.DEFAULT, body);
     }
 }

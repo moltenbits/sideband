@@ -120,17 +120,17 @@ For each entry under `open`, in order:
   3. If `effective_live` is `confirm`, `before_session` is true, or
      `lineage_problem` is set, ask the user before acting. Otherwise act within
      the authority the human has already granted.
-  4. If the work outlasts the request's `heartbeat_seconds`, acknowledge again
-     with another ack so the sender knows you are still on it.
+  4. During long work you may acknowledge again so the sender knows you are
+     still on it; nothing requires it.
   5. Answer with a reply (see Send). The reply is what closes the request, for
      you and for the sender. To decline, reply saying so.
 
 Entries under `in_progress` are ones Claude already acknowledged; continue
 them. Entries under `updates` are context only: show them, do nothing else.
 For each item under `outgoing`, Claude's own unanswered requests, look at
-`acknowledged_at`, `silence_seconds`, and `overdue`; when one is overdue,
-decide whether to keep waiting, move on, or tell the user the other agent is
-not responding (unacknowledged means it likely never arrived). Report any
+`acknowledged_at` and `silence_seconds` and decide whether to keep waiting,
+move on, or tell the user the other agent is not responding (unacknowledged
+after a long silence means it likely never arrived). Report any
 `diagnostics`. If the Monitor itself ends, show its stderr to the user and
 restart it only once the cause is understood.
 
@@ -143,15 +143,14 @@ in context.
 ## Send
 
 ```bash
-sideband append-agent --to codex --type request --caused-by <id> --heartbeat 10m --body-file <body.md>
+sideband append-agent --to codex --type request --caused-by <id> --body-file <body.md>
 sideband append-agent --to codex --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --type ack --reply-to <id>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;
-`--reply-to` names the message being answered; `--heartbeat` says how often
-you expect a reply or a fresh ack while the recipient works. The executable
+`--reply-to` names the message being answered. The executable
 refuses an actionable request with no path back to a human entry (exit 2)
 and reports in `pushes` how each recipient was reached: an entry to Codex is
 pushed straight into Codex's conversation with `codex queue` when Codex has an

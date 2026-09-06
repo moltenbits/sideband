@@ -43,7 +43,7 @@ class FileJournal implements Journal {
                 ids.next(),
                 OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS),
                 draft.from(), draft.via(), draft.to(), draft.type(), draft.route(),
-                draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.heartbeatSeconds(), draft.delivery(),
+                draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.delivery(),
                 EntryCodec.bodyLength(draft.body()));
         byte[] encoded = codec.encode(metadata, draft.body());
         try (Lock ignored = locks.acquire(file.getParent());

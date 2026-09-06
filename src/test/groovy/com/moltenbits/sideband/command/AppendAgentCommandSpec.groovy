@@ -141,31 +141,6 @@ class AppendAgentCommandSpec extends CommandSpec {
                 "--reply-to", humanId, "--expects-reply", "true", "--body-file", body("x").toString()) == ExitCode.INVALID_INPUT
     }
 
-    void "a heartbeat is recorded in seconds on an actionable entry and refused elsewhere"() {
-        given:
-        String humanId = captureHuman("ask codex")
-
-        expect:
-        run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
-                "--caused-by", humanId, "--heartbeat", text, "--body-file", body("go").toString()) == code
-        code != ExitCode.OK || json().metadata.heartbeat_seconds == seconds
-
-        where:
-        text   | seconds | code
-        "10m"  | 600     | ExitCode.OK
-        "90s"  | 90      | ExitCode.OK
-        "2h"   | 7200    | ExitCode.OK
-        "10"   | null    | ExitCode.INVALID_INPUT
-        "0m"   | null    | ExitCode.INVALID_INPUT
-        "soon" | null    | ExitCode.INVALID_INPUT
-    }
-
-    void "a heartbeat on an informational entry is invalid input"() {
-        expect:
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "status",
-                "--heartbeat", "5m", "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
-    }
-
     void "multiple recipients make a broadcast"() {
         given:
         String humanId = captureHuman("@all do the thing")

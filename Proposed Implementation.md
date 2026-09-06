@@ -236,8 +236,8 @@ outgoing until a recipient's reply exists.
 
 Everything else `pending` reports is derived from the journal on each read:
 open and in-progress requests, updates past the read position, and outgoing
-requests with the recipient's acks, the silence since the latest one, and
-whether that exceeds the request's `heartbeat_seconds`. A reply answers the
+requests with the recipient's acks and the silence since the latest one. A
+reply answers the
 nearest actionable entry reachable through its `reply_to` links that someone
 else wrote, so a reply to a clarification still answers the original request.
 
@@ -255,7 +255,7 @@ accept valid entries without that extension.
 
 ```markdown
 <!-- sideband:v1
-{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
+{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
 -->
 
 ## James → Codex (via Claude)
@@ -344,8 +344,6 @@ sideband append-agent --from claude --to codex --type request \
 sideband append-agent --from codex --to claude --type reply \
   --reply-to <id> --expects-reply false --body-file <path>
 sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt or still working, body optional
-sideband append-agent --from claude --to codex --type request --caused-by <id> \
-  --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
 sideband join --role codex --session-id <id> [--resume]     # start the session; prints the first pending report
 sideband pending --role codex                                # open, in progress, updates, outgoing
 sideband pending --role codex --wait [--timeout s]           # block until something new, then report
@@ -400,8 +398,7 @@ provenance before appending. With `--type ack` it requires `--reply-to`,
 forces `expects_reply` false, and journals `received` when no body is given;
 the ack is never pushed and never listed, its effect being what `pending`
 derives for both sides. Repeated acks for one request are allowed.
-`--heartbeat` is accepted only on an entry that expects a reply and is stored
-as `heartbeat_seconds`. `pending` reports open and in-progress requests,
+`pending` reports open and in-progress requests,
 updates past the read position, and outgoing requests, all derived from the
 journal.
 
@@ -453,7 +450,7 @@ message for Codex:
 
 ```text
 [Sideband message]
-{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
 The `intent` field is a **skill-discovery and context-recovery hint**, not a
@@ -528,16 +525,14 @@ permission to execute actionable backlog. Newer human instructions govern any
 resumed work. Passage of time changes no request state.
 
 Receipt is acknowledged before work starts. When the parent takes up a
-request it appends an `ack` first (requirements 9.8), and while the work runs
-it acknowledges again within each heartbeat interval the request named. For
-the recipient that moves the request from `open` to `in_progress` in
-`pending`; for the sender it sets `acknowledged_at` and `ack_ids` on the
-outgoing report, with the silence since the latest ack and whether it exceeds
-`heartbeat_seconds` (`overdue`). The sending parent decides what to do with
+request it appends an `ack` first (requirements 9.8). For the recipient that
+moves the request from `open` to `in_progress` in `pending`; for the sender
+it sets `acknowledged_at` and `ack_ids` on the outgoing report, with the
+silence since the latest ack. The sending parent decides what to do with
 that: keep waiting, move on, or tell the human the other agent is not
-responding. Sideband never resends or resolves on its own. Whether the
-streaming `pending` should also wake when a request first becomes overdue is open
-(requirements section 15).
+responding. Sideband never resends or resolves on its own and holds no
+deadline. Whether the streaming `pending` should ever wake a requester about
+its own unanswered requests is open (requirements section 15).
 
 ### 7.6 Human-directed follow-ups
 
@@ -578,9 +573,9 @@ Both `SKILL.md` files must instruct their host to:
 13. Verify the shared executable's compatibility and report whether human
     capture is hook-backed or best effort at activation and through `doctor`.
 14. Acknowledge every agent request with an `ack` before starting on it,
-    acknowledge again within each `heartbeat` interval while working on it,
-    and, when a request of its own is overdue, decide whether to keep waiting,
-    move on, or tell the human the other agent is not responding.
+    and, looking at its own unanswered requests' acknowledgement and silence,
+    decide whether to keep waiting, move on, or tell the human the other agent
+    is not responding.
 
 Neither skill should contain its own journal parser, lock implementation, or
 routing logic.
@@ -715,7 +710,7 @@ application context is needed. Most protocol specifications need no context.
 - Session activation, conflict, replacement, refresh, and read-position
   advance.
 - Pending derivation: open, in progress, updates, outgoing, reply-chain
-  correlation through clarifications, acks, heartbeat silence and overdue.
+  correlation through clarifications, acks, and silence since the latest ack.
 - Immediate-cause ancestry, missing/cyclic links, depth-five boundaries, and
   unbounded reply iterations with an optional notification-only threshold.
 - Lock ownership, dead owners, live owners, PID reuse, and foreign hosts.

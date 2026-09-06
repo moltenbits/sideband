@@ -128,27 +128,25 @@ class JournalPendingSpec extends Specification {
     void "outgoing requests report the recipient's acks and silence, and disappear once replied, even through a clarification"() {
         given:
         Entry h = human("@claude ask codex", Role.CLAUDE, Role.CLAUDE)
-        Entry ask = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id(), heartbeatSeconds: 1L])
+        Entry ask = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
 
-        expect: "unacknowledged, and with a one-second heartbeat, overdue once a second has passed"
+        expect: "unacknowledged"
         with(pending.report(dir, Role.CLAUDE).outgoing()) {
             size() == 1
             it[0].id() == ask.metadata().id()
             it[0].acknowledgedAt() == null
             it[0].ackIds() == []
-            it[0].heartbeatSeconds() == 1
         }
 
         when:
         Entry ack = agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: ask.metadata().id()])
-        Thread.sleep(2200)
+        Thread.sleep(1100)
         OutgoingReport report = pending.report(dir, Role.CLAUDE).outgoing()[0]
 
-        then:
+        then: "the silence is measured from the latest ack"
         report.acknowledgedAt() != null
         report.ackIds() == [ack.metadata().id()]
         report.silenceSeconds() >= 1
-        report.overdue()
 
         when: "Codex asks a clarification, Claude answers it, Codex replies to the answer"
         Entry clarify = agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: ask.metadata().id(), expectsReply: true])
@@ -160,13 +158,4 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).outgoing().isEmpty()
     }
 
-    void "a request without a heartbeat is never overdue"() {
-        given:
-        Entry h = human("@claude ask codex", Role.CLAUDE, Role.CLAUDE)
-        agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
-
-        expect:
-        !pending.report(dir, Role.CLAUDE).outgoing()[0].overdue()
-        pending.report(dir, Role.CLAUDE).outgoing()[0].heartbeatSeconds() == null
-    }
 }

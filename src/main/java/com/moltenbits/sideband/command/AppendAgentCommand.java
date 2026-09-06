@@ -54,7 +54,7 @@ public class AppendAgentCommand implements Callable<Integer> {
     Role from;
 
     @Option(names = "--to", required = true, arity = "1..*", converter = ParticipantIdConverter.class,
-            description = "Recipients: claude, codex, or human:<id>")
+            description = "Recipients: claude, codex, or operator")
     List<ParticipantId> to;
 
     @Option(names = "--type", required = true, description = "request, reply, status, or ack")
@@ -69,10 +69,6 @@ public class AppendAgentCommand implements Callable<Integer> {
     @Option(names = "--expects-reply", arity = "1", paramLabel = "true|false",
             description = "Whether recipients should treat this as actionable (default: true for requests, false otherwise)")
     Boolean expectsReply;
-
-    @Option(names = "--heartbeat", paramLabel = "DURATION",
-            description = "How often the recipient must reply or re-ack while working, e.g. 10m, 90s, 2h (actionable entries only)")
-    String heartbeat;
 
     @Option(names = "--body-file", description = "File holding the body; standard input is read when omitted (an ack may have none)")
     Path bodyFile;
@@ -114,12 +110,8 @@ public class AppendAgentCommand implements Callable<Integer> {
             actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
             body = Bodies.read(bodyFile);
         }
-        Long heartbeatSeconds = heartbeat == null ? null : Heartbeats.seconds(heartbeat);
-        if (heartbeatSeconds != null && !actionable) {
-            throw new IllegalArgumentException("--heartbeat only applies to an entry that expects a reply");
-        }
         Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
-                replyTo, causedBy, actionable, heartbeatSeconds, Delivery.DEFAULT, body);
+                replyTo, causedBy, actionable, Delivery.DEFAULT, body);
         Path stateDirectory = repository.stateDirectory(home);
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
         checkLineage(file, draft);
@@ -138,7 +130,7 @@ public class AppendAgentCommand implements Callable<Integer> {
         EntryIndex index = id -> Optional.ofNullable(byId.get(id));
         EntryMetadata candidate = new EntryMetadata(DRAFT_ID, OffsetDateTime.MIN, draft.from(), draft.via(),
                 draft.to(), draft.type(), draft.route(), draft.replyTo(), draft.causedBy(), draft.expectsReply(),
-                draft.heartbeatSeconds(), draft.delivery(), 0);
+                draft.delivery(), 0);
         ancestry.trace(candidate, index);
     }
 }
