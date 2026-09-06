@@ -225,7 +225,6 @@ public class HookCommand {
 
         private static String note(Captured captured) {
             String delivered = captured.pushes().stream()
-                    .filter(p -> p.outcome() != PushOutcome.LISTENER_DELIVERS)
                     .map(p -> p.role().id() + "=" + p.outcome().id())
                     .collect(Collectors.joining(", "));
             String id = captured.metadata().id();

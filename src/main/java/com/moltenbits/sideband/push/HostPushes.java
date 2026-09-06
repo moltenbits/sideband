@@ -46,12 +46,8 @@ class HostPushes implements Pushes {
     }
 
     private PushResult deliver(Path stateDirectory, Entry entry, Role role) {
-        HostPusher pusher = pushers.get(role);
-        if (pusher == null) {
-            return new PushResult(role, PushOutcome.LISTENER_DELIVERS, null);
-        }
         Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
         Batch batch = Batch.forRole(role, entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
-        return pusher.push(stateDirectory, handoffs.envelope(batch));
+        return pushers.get(role).push(stateDirectory, handoffs.envelope(batch));
     }
 }

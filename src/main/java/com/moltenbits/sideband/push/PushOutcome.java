@@ -11,8 +11,6 @@ public enum PushOutcome implements Wire {
     PUSHED,
     /** The role has never joined in this repository; the entry waits until it does. */
     NO_SESSION,
-    /** The host has no push command; the role's own listener delivers. */
-    LISTENER_DELIVERS,
     /** The push command failed, which is also how a host that has since gone away shows up; the entry stays pending and the detail says why. */
     FAILED;
 
