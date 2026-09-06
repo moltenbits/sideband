@@ -40,8 +40,8 @@ class JournalPendingSpec extends Specification {
         Entry first = human("@codex one")
         Entry second = human("@codex two")
         Entry third = human("@codex three")
-        agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: second.metadata().id(), to: [Fixtures.JAMES]])
-        agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: third.metadata().id(), to: [Fixtures.JAMES]])
+        agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: second.metadata().id(), to: [Fixtures.OPERATOR]])
+        agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: third.metadata().id(), to: [Fixtures.OPERATOR]])
 
         when:
         PendingReport report = pending.report(dir, Role.CODEX)

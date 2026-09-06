@@ -40,7 +40,7 @@ class LinkedAncestrySpec extends Specification {
 
     void "agent messages addressed only to the human are exempt"() {
         given:
-        def toHuman = Fixtures.metadata(id: "A1", from: Fixtures.CLAUDE, via: null, to: [Fixtures.JAMES],
+        def toHuman = Fixtures.metadata(id: "A1", from: Fixtures.CLAUDE, via: null, to: [Fixtures.OPERATOR],
                 type: MessageType.STATUS, route: Route.DIRECT, expectsReply: true)
 
         expect:

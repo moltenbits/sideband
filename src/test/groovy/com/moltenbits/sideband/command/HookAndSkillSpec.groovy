@@ -23,7 +23,7 @@ class HookAndSkillSpec extends CommandSpec {
     HumanCapture captureOverride
 
     def setup() {
-        run("init", "--repo", repo.toString(), "--human", "james", "--skip-clients")
+        run("init", "--repo", repo.toString(), "--skip-clients")
         stdout = new StringWriter()
     }
 
@@ -118,7 +118,7 @@ class HookAndSkillSpec extends CommandSpec {
         json().entries.size() == 1
         json().entries[0].body == prompt
         json().entries[0].metadata.via == "codex"
-        json().entries[0].metadata.from == "human:james"
+        json().entries[0].metadata.from == "operator"
 
         when:
         stdout = new StringWriter()
@@ -157,7 +157,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         json().entries.size() == 1
         json().entries[0].metadata.via == owner
-        json().entries[0].metadata.from == "human:james"
+        json().entries[0].metadata.from == "operator"
         json().entries[0].metadata.to == [peer]
         json().entries[0].body == "@${peer} hello\n"
 
@@ -283,10 +283,13 @@ class HookAndSkillSpec extends CommandSpec {
     void "a failure before the append says the prompt is not journaled and may be captured again"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        Files.delete(repo.resolve(".git/sideband/config.json"))
+        captureOverride = { Path dir, Role via, String body ->
+            throw new com.moltenbits.sideband.capture.CaptureFailedException(
+                    com.moltenbits.sideband.capture.CaptureFailedException.Stage.NOT_JOURNALED, null, new RuntimeException("routing exploded"))
+        } as HumanCapture
         stdout = new StringWriter()
 
-        expect: "no configuration means no human identifier, which fails before anything is written"
+        expect: "a failure before the append leaves nothing written"
         hook("lost before the journal") == ExitCode.OK
         json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
         json().hookSpecificOutput.additionalContext.contains("It is not in the journal")

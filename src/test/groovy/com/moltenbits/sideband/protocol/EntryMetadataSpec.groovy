@@ -11,7 +11,7 @@ import java.time.OffsetDateTime
 
 class EntryMetadataSpec extends Specification {
 
-    static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude",' +
+    static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude",' +
             '"to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,' +
             '"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}'
 
@@ -94,9 +94,9 @@ class EntryMetadataSpec extends Specification {
         expect:
         Fixtures.metadata().isAgentAuthored() == false
         Fixtures.metadata().addressesAnyClient()
-        !Fixtures.metadata(from: Fixtures.CLAUDE, via: null, to: [Fixtures.JAMES], type: MessageType.STATUS, route: Route.DIRECT).addressesAnyClient()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: null, to: [Fixtures.OPERATOR], type: MessageType.STATUS, route: Route.DIRECT).addressesAnyClient()
         Fixtures.metadata().addresses(Fixtures.CODEX)
-        !Fixtures.metadata().addresses(Fixtures.JAMES)
+        !Fixtures.metadata().addresses(Fixtures.OPERATOR)
     }
 
     void "timestamps keep their offset"() {

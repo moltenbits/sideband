@@ -44,7 +44,7 @@ class FollowCommandSpec extends CommandSpec {
         batches.size() == 2
         batches[0].entries == 1
         batches[0].actionable == 1
-        batches[0].from == ["human:james"]
+        batches[0].from == ["operator"]
         batches[0].diagnostics == 0
         batches[1].entries == 1
         batches[1].start == batches[0].end

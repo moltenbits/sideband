@@ -4,18 +4,17 @@ import spock.lang.Specification
 
 class ParticipantIdSpec extends Specification {
 
-    void "client roles and human identifiers are participants"() {
+    void "client roles and the operator are participants"() {
         expect:
         new ParticipantId(value).isHuman() == human
         new ParticipantId(value).role() == Optional.ofNullable(role)
         new ParticipantId(value).displayName() == display
 
         where:
-        value            | human | role        | display
-        "claude"         | false | Role.CLAUDE | "Claude"
-        "codex"          | false | Role.CODEX  | "Codex"
-        "human:james"    | true  | null        | "James"
-        "human:j.doe-2"  | true  | null        | "J.doe-2"
+        value      | human | role        | display
+        "claude"   | false | Role.CLAUDE | "Claude"
+        "codex"    | false | Role.CODEX  | "Codex"
+        "operator" | true  | null        | "Operator"
     }
 
     void "anything else is rejected"() {
@@ -27,13 +26,13 @@ class ParticipantIdSpec extends Specification {
         e.message.contains(value)
 
         where:
-        value << ["Claude", "human:", "human:James", "human:-x", "gemini", "", "human:a b"]
+        value << ["Claude", "human:james", "Operator", "gemini", "", "a b"]
     }
 
     void "factories produce the canonical strings"() {
         expect:
         ParticipantId.of(Role.CODEX).value() == "codex"
-        ParticipantId.human("james").value() == "human:james"
-        ParticipantId.human("james").toString() == "human:james"
+        ParticipantId.OPERATOR.value() == "operator"
+        ParticipantId.OPERATOR.toString() == "operator"
     }
 }

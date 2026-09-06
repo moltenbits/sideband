@@ -1,7 +1,5 @@
 package com.moltenbits.sideband.command;
 
-import com.moltenbits.sideband.config.Config;
-import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
@@ -21,11 +19,11 @@ import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /**
- * Everything a repository needs before the first session: the private state directory and
- * configuration, both client skills installed from the executable, and the shared prompt
+ * Everything a repository needs before the first session: the private state directory,
+ * both client skills installed from the executable, and the shared prompt
  * hook registered in both clients' project settings. Host trust is still required. Safe to rerun.
  */
-@Command(name = "init", description = "Set up this repository: private state, configuration, both client skills, and the capture hook", mixinStandardHelpOptions = true)
+@Command(name = "init", description = "Set up this repository: private state, both client skills, and the capture hook", mixinStandardHelpOptions = true)
 @Prototype
 public class InitCommand implements Callable<Integer> {
 
@@ -35,23 +33,18 @@ public class InitCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--human", description = "The human's identifier (default: a slug of git config user.name)")
-    String human;
-
-    @Option(names = "--skip-clients", description = "Only create the state directory and configuration")
+    @Option(names = "--skip-clients", description = "Only create the state directory")
     boolean skipClients;
 
     @Option(names = "--home", hidden = true, description = "Override the home directory the skills are installed under")
     Path homeDirectory = Path.of(System.getProperty("user.home"));
 
     private final SidebandHome home;
-    private final Configs configs;
     private final Installer installer;
     private final ObjectMapper json;
 
-    InitCommand(SidebandHome home, Configs configs, Installer installer, ObjectMapper json) {
+    InitCommand(SidebandHome home, Installer installer, ObjectMapper json) {
         this.home = home;
-        this.configs = configs;
         this.installer = installer;
         this.json = json;
     }
@@ -59,9 +52,8 @@ public class InitCommand implements Callable<Integer> {
     @Override
     public Integer call() throws IOException {
         Path stateDirectory = repository.stateDirectory(home);
-        Config config = configs.initialize(stateDirectory, repository.directory, human);
         InstallReport clients = skipClients ? null : installer.install(homeDirectory, projectRoot(stateDirectory));
-        Output.print(spec, json, new Result(stateDirectory.toString(), config, clients));
+        Output.print(spec, json, new Result(stateDirectory.toString(), clients));
         return ExitCode.OK;
     }
 
@@ -71,6 +63,6 @@ public class InitCommand implements Callable<Integer> {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)
-    record Result(String stateDirectory, Config config, @Nullable InstallReport clients) {
+    record Result(String stateDirectory, @Nullable InstallReport clients) {
     }
 }

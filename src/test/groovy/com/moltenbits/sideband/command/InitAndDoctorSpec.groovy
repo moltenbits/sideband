@@ -17,16 +17,12 @@ class InitAndDoctorSpec extends CommandSpec {
         json()
     }
 
-    void "init creates the state directory and configuration, and capture-human then needs no --human"() {
-        given:
-        TempRepo.git(repo, "config", "user.name", "James Hardwick")
-
+    void "init creates the state directory, installs both skills and the hook, and capture-human journals the operator"() {
         when:
         Map init = runJson("init", "--repo", repo.toString(), "--home", home.toString())
 
         then:
         init.state_directory == repo.toRealPath().resolve(".git/sideband").toString()
-        init.config.human == [id: "james-hardwick", display_name: "James Hardwick"]
         init.clients.skills*.state == ["installed", "installed"]
         init.clients.hook.state == "added"
         Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
@@ -37,18 +33,39 @@ class InitAndDoctorSpec extends CommandSpec {
                 Files.writeString(repo.resolve("p.md"), "hello").toString())
 
         then:
-        captured.metadata.from == "human:james-hardwick"
-        Files.readString(repo.resolve(".git/sideband/journal.md")).contains("## James-hardwick → Claude (via Claude)")
+        captured.metadata.from == "operator"
+        Files.readString(repo.resolve(".git/sideband/journal.md")).contains("## Operator → Claude (via Claude)")
     }
 
-    void "capture-human without init or --human is invalid input with a pointer to init"() {
+    void "capture-human works without init because nothing about the operator is configured"() {
         when:
         int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file",
                 Files.writeString(repo.resolve("p.md"), "hello").toString())
 
         then:
-        code == ExitCode.INVALID_INPUT
-        stderr.toString().contains("sideband init")
+        code == ExitCode.OK
+        json().metadata.from == "operator"
+    }
+
+    void "outside any git repository the state lives in a .sideband directory in the working directory"() {
+        given:
+        Path plain = TempRepo.plainDirectory()
+
+        when:
+        Map init = runJson("init", "--repo", plain.toString(), "--home", home.toString(), "--skip-clients")
+
+        then:
+        init.state_directory == plain.toRealPath().resolve(".sideband").toString()
+        Files.isDirectory(plain.resolve(".sideband"))
+
+        when:
+        stdout = new StringWriter()
+        int code = run("capture-human", "--repo", plain.toString(), "--via", "codex", "--body-file",
+                Files.writeString(plain.resolve("p.md"), "no repo here").toString())
+
+        then:
+        code == ExitCode.OK
+        Files.readString(plain.resolve(".sideband/journal.md")).contains("no repo here")
     }
 
     void "doctor reports an uninitialized repository without failing"() {
@@ -59,16 +76,15 @@ class InitAndDoctorSpec extends CommandSpec {
         report.initialized == false
         report.protocol == "v1"
         report.version ==~ /sideband \S+ \(protocol v1\)/
-        report.config == null
         report.journal == null
         report.roles == [:]
         report.clients.skills*.state == ["missing", "missing"]
         report.clients.hook.state == "missing"
     }
 
-    void "doctor reports configuration, journal health, sessions, pending counts, and the lock owner"() {
+    void "doctor reports journal health, sessions, pending counts, and the lock owner"() {
         given:
-        runJson("init", "--repo", repo.toString(), "--human", "james", "--skip-clients")
+        runJson("init", "--repo", repo.toString(), "--skip-clients")
         runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
         Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
@@ -79,7 +95,6 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         report.initialized
         report.permissions == "rwx------"
-        report.config.human.id == "james"
         report.journal.entries == 1
         report.journal.diagnostics == 0
         report.journal.incomplete_tail == false

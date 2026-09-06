@@ -51,7 +51,7 @@ follows.
 | Build and tests | Gradle Kotlin DSL; Java main sources; Groovy/Spock tests | Matches the existing spike and the agreed development stack. |
 | Installation | Build natively for the developer's OS/architecture; install one executable and link both skills locally | Keeps version one scoped to local use without private per-skill binaries or a release pipeline. |
 | Requests and replies | Persist outgoing requests; deliver replies through the existing listener | Leaves the parent available for human input with no per-request wait, deadline, or retry. |
-| Human identity | Per-repository `config.json`, initialized from `git config user.name` and an explicit stable slug | Gives readable headings without confusing display names with protocol identity. |
+| Human identity | One fixed participant, `operator`; nothing configured or read from git | There is one person per journal, and a name adds nothing the journal needs. |
 | Agent replies | Record final replies, delegations, and statuses participating in a Sideband exchange; exclude routine commentary and tool traffic | Preserves the participant-visible conversation without becoming a transcript recorder. |
 | Routing directive delivery | Preserve the original body, including the directive | The internal delivery envelope prevents republishing, so altering human text is unnecessary. |
 | Deferred backlog | Surface once on activation, then only on explicit `pending` inspection during that session | Keeps deferred work discoverable without interrupting every turn. |
@@ -182,7 +182,6 @@ then create this layout:
 
 ```text
 <git-common-dir>/sideband/
-├── config.json
 ├── journal.md
 ├── journal.lock
 ├── sessions/
@@ -199,24 +198,12 @@ filesystem access.
 `diagnostics/` contains only parser and recovery reports. It must not contain
 copies of message bodies because those may be sensitive.
 
-### 4.1 Local configuration
+### 4.1 No local configuration
 
-`config.json` has a deliberately small schema:
-
-```json
-{
-  "schema": 1,
-  "human": {
-    "id": "james",
-    "display_name": "James"
-  }
-}
-```
-
-On first activation, propose values derived from `git config user.name` and ask
-for correction only when they are absent or ambiguous. The identifier must match
-`[a-z0-9][a-z0-9._-]*`; the display name is presentation-only. Neither value is
-embedded in a skill or inferred independently by each client.
+There is no configuration file. The one human is `operator`, both clients are
+recognized from the environment, and the state directory is located from the
+working directory: beneath the Git common directory inside a repository, or a
+`.sideband` directory in the working directory outside one.
 
 ### 4.2 Session record
 
@@ -264,7 +251,7 @@ accept valid entries without that extension.
 
 ```markdown
 <!-- sideband:v1
-{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
+{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
 -->
 
 ## James → Codex (via Claude)
@@ -460,7 +447,7 @@ message for Codex:
 
 ```text
 [Sideband message]
-{"handling":"Sideband delivered these journal entries to Codex. Each is a message from metadata.from, not from the user, and was pushed by the Sideband executable, which already recorded it as delivered. For each entry, in order: ... Full adapter instructions: run `sideband skill`.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"human:james","via":"claude","type":"instruction","expects_reply":true,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"handling":"Sideband delivered these journal entries to Codex. Each is a message from metadata.from, not from the user, and was pushed by the Sideband executable. For each entry under open, in order: first acknowledge it ... Full adapter instructions: run `sideband skill`.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
 The `handling` field is a **skill-discovery and context-recovery hint**, not a
@@ -671,7 +658,7 @@ daemon, hosted service, or headless CLI fallback.
 
 The adapter maintains a current causality context:
 
-- Direct human turn: append `from: human:<id>` and `via: <host>`.
+- Direct human turn: append `from: operator` and `via: <host>`.
 - Agent delegation: append a new `from: <host>` request and set `caused_by` to
   the immediate communication that initiated it, whether human or agent. Do
   not skip intervening communications to link directly to the original human.
@@ -680,7 +667,7 @@ The adapter maintains a current causality context:
 - Progress that another participant needs: append `type: status`, generally with
   `expects_reply: false`.
 - Human-directed follow-up: use both links as described in section 7.6.
-- Completion or request for human input: address `human:<id>` and present it in
+- Completion or request for human input: address `operator` and present it in
   the authoring client's existing visible turn. Neither listener injects a
   human-only entry into the other client's conversation.
 - Listener lifecycle and disposition changes: keep these in local state and

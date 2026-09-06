@@ -39,7 +39,7 @@ class WaitCommandSpec extends CommandSpec {
             end == size
             entries.size() == 1
             entries[0].body == "ready"
-            entries[0].metadata.from == "human:james"
+            entries[0].metadata.from == "operator"
             entries[0].effective_live == "auto"
             entries[0].lineage_problem == null
             diagnostics == []
@@ -158,8 +158,8 @@ class WaitCommandSpec extends CommandSpec {
         run("wait", "--repo", repo.toString(), "--from", "0", "--timeout", "-1") == ExitCode.INVALID_INPUT
     }
 
-    void "a directory outside a repository fails with the repository exit code"() {
+    void "a directory outside a repository waits on its own .sideband journal"() {
         expect:
-        run("wait", "--repo", TempRepo.plainDirectory().toString(), "--from", "0", "--timeout", "1") == ExitCode.NOT_A_REPOSITORY
+        run("wait", "--repo", TempRepo.plainDirectory().toString(), "--from", "0", "--timeout", "0") == ExitCode.TIMED_OUT
     }
 }

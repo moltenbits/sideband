@@ -4,7 +4,6 @@ import com.moltenbits.sideband.capture.CaptureFailedException;
 import com.moltenbits.sideband.capture.Captured;
 import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.handoff.Handoffs;
-import com.moltenbits.sideband.home.NotARepositoryException;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
@@ -118,8 +117,6 @@ public class HookCommand {
                 stateDirectory = home.locate(cwd);
             } catch (InvalidPathException e) {
                 return skipped("invalid working directory in the hook payload");
-            } catch (NotARepositoryException e) {
-                return ExitCode.OK;
             }
             if (!Files.isDirectory(stateDirectory)) {
                 return ExitCode.OK;

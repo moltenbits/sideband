@@ -42,10 +42,10 @@ class EntryCodecSpec extends Specification {
         expect:
         new String(entry(BODY), StandardCharsets.UTF_8) == '''\
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
-## James → Claude + Codex (via Claude)
+## Operator → Claude + Codex (via Claude)
 
 @all independently review the proposed database migration.
 <!-- /sideband -->
@@ -186,7 +186,7 @@ class EntryCodecSpec extends Specification {
         ({ byte[] b -> replace(b, '"body_bytes":3', '"body_bytes":99') })                  | "body_bytes"
         ({ byte[] b -> replace(b, 'sideband:v1\n', 'sideband:v2\n') })                     | "unsupported protocol version 'v2'"
         ({ byte[] b -> replace(b, '-->\n\n## ', '-->\n## ') })                              | "blank line before heading"
-        ({ byte[] b -> replace(b, '\n## James', '\nJames') })                               | "missing heading"
+        ({ byte[] b -> replace(b, '\n## Operator', '\nOperator') })                               | "missing heading"
         ({ byte[] b -> replace(b, '{"id"', '{"id') })                                       | "invalid metadata"
     }
 

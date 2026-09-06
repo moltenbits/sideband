@@ -136,9 +136,9 @@ exit $(cat "''' + exitFile + '''")
     void "an agent's own role and human recipients are never pushed to"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
-        Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.JAMES],
+        Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.OPERATOR],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "note to self"))
-        Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.JAMES],
+        Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.OPERATOR],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "done"))
 
         expect:

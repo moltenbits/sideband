@@ -70,15 +70,14 @@ class GitCommonDirHomeSpec extends Specification {
         home.initialize(repo) == first
     }
 
-    void "a directory outside any repository is rejected"() {
+    void "a directory outside any repository resolves to a .sideband directory inside it"() {
         given:
         Path plain = TempRepo.plainDirectory()
 
-        when:
-        home.locate(plain)
-
-        then:
-        NotARepositoryException e = thrown()
-        e.message.contains(plain.toString())
+        expect:
+        home.locate(plain) == plain.toRealPath().resolve(".sideband")
+        !Files.exists(plain.resolve(".sideband"))
+        home.initialize(plain) == plain.toRealPath().resolve(".sideband")
+        Files.isDirectory(plain.resolve(".sideband"))
     }
 }

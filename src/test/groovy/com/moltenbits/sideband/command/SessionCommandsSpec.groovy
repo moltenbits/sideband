@@ -18,7 +18,7 @@ class SessionCommandsSpec extends CommandSpec {
     }
 
     String capture(String via, String text) {
-        runJson("capture-human", "--repo", repo.toString(), "--via", via, "--human", "james", "--body-file",
+        runJson("capture-human", "--repo", repo.toString(), "--via", via, "--body-file",
                 Files.writeString(repo.resolve("body.md"), text).toString()).metadata.id
     }
 

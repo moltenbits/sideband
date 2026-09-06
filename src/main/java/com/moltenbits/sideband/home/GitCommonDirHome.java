@@ -14,7 +14,10 @@ import java.util.Set;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
-/** Resolves the state directory through {@code git rev-parse --git-common-dir}. */
+/**
+ * Resolves the state directory through {@code git rev-parse --git-common-dir}, or, outside
+ * any repository, to a {@code .sideband} directory in the working directory.
+ */
 @Singleton
 class GitCommonDirHome implements SidebandHome {
 
@@ -35,7 +38,8 @@ class GitCommonDirHome implements SidebandHome {
             String stdout = new String(git.getInputStream().readAllBytes(), UTF_8);
             String stderr = new String(git.getErrorStream().readAllBytes(), UTF_8);
             if (git.waitFor() != 0) {
-                throw new NotARepositoryException(workingDirectory, stderr);
+                // Not a repository: the state lives in a plain directory beside the work instead.
+                return realPath(workingDirectory).resolve(PLAIN_DIRECTORY_NAME);
             }
             return Path.of(stdout.strip()).resolve(DIRECTORY_NAME);
         } catch (IOException e) {
@@ -43,6 +47,14 @@ class GitCommonDirHome implements SidebandHome {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("interrupted while running git", e);
+        }
+    }
+
+    private static Path realPath(Path directory) {
+        try {
+            return directory.toRealPath();
+        } catch (IOException e) {
+            return directory.toAbsolutePath().normalize();
         }
     }
 

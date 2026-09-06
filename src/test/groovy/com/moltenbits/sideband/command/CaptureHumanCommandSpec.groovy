@@ -17,13 +17,13 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "an undirected prompt is journaled for the client it was typed into"() {
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "james",
+        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude",
                 "--body-file", body("fix the typo").toString())
 
         then:
         code == ExitCode.OK
         with(json()) {
-            metadata.from == "human:james"
+            metadata.from == "operator"
             metadata.via == "claude"
             metadata.to == ["claude"]
             metadata.type == "request"
@@ -35,12 +35,12 @@ class CaptureHumanCommandSpec extends CommandSpec {
             start == 0
             pushes == []
         }
-        Files.readString(journalFile).contains("\n## James → Claude (via Claude)\n\nfix the typo\n<!-- /sideband -->\n")
+        Files.readString(journalFile).contains("\n## Operator → Claude (via Claude)\n\nfix the typo\n<!-- /sideband -->\n")
     }
 
     void "a directive routes to the named client and the body keeps the directive"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "james",
+        run("capture-human", "--repo", repo.toString(), "--via", "claude",
                 "--body-file", body("@codex review the locking behavior.").toString())
 
         then:
@@ -51,7 +51,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "@all is one broadcast entry naming both clients and the originating client"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "codex", "--human", "james",
+        run("capture-human", "--repo", repo.toString(), "--via", "codex",
                 "--body-file", body("@all review this").toString())
 
         then:
@@ -63,7 +63,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "the originating client's own turn is never pushed to it"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "codex", "--human", "james",
+        run("capture-human", "--repo", repo.toString(), "--via", "codex",
                 "--body-file", body("just for codex").toString())
 
         then:
@@ -72,17 +72,8 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "the via option is case-insensitive and validated"() {
         expect:
-        run("capture-human", "--repo", repo.toString(), "--via", "Claude", "--human", "james", "--body-file", body("hi").toString()) == ExitCode.OK
-        run("capture-human", "--repo", repo.toString(), "--via", "gemini", "--human", "james", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
-    }
-
-    void "an invalid human identifier is invalid input"() {
-        when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "James Hardwick", "--body-file", body("hi").toString())
-
-        then:
-        code == ExitCode.INVALID_INPUT
-        stderr.toString().contains("not a participant")
+        run("capture-human", "--repo", repo.toString(), "--via", "Claude", "--body-file", body("hi").toString()) == ExitCode.OK
+        run("capture-human", "--repo", repo.toString(), "--via", "gemini", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
     }
 
     void "reads the body from standard input when no file is given"() {
@@ -91,7 +82,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
         System.in = new ByteArrayInputStream("from stdin".bytes)
 
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "james")
+        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude")
 
         then:
         code == ExitCode.OK
@@ -103,19 +94,20 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "an empty body is rejected before anything is written"() {
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "james", "--body-file", body("  \n").toString())
+        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", body("  \n").toString())
 
         then:
         code == ExitCode.INVALID_INPUT
         !Files.exists(journalFile)
     }
 
-    void "a directory outside a repository fails with the repository exit code"() {
+    void "a directory outside a repository gets a .sideband directory of its own"() {
         given:
         Path plain = TempRepo.plainDirectory()
         Path text = Files.writeString(plain.resolve("body.md"), "hello")
 
         expect:
-        run("capture-human", "--repo", plain.toString(), "--via", "claude", "--human", "james", "--body-file", text.toString()) == ExitCode.NOT_A_REPOSITORY
+        run("capture-human", "--repo", plain.toString(), "--via", "claude", "--body-file", text.toString()) == ExitCode.OK
+        Files.exists(plain.resolve(".sideband/journal.md"))
     }
 }

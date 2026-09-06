@@ -1,7 +1,5 @@
 package com.moltenbits.sideband.command;
 
-import com.moltenbits.sideband.config.Config;
-import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
@@ -37,10 +35,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * Reports the state of a repository's Sideband installation without printing any message
- * body: paths, permissions, protocol and build versions, configuration, journal health,
+ * body: paths, permissions, protocol and build versions, journal health,
  * each role's session and pending counts, lock ownership, and skill links.
  */
-@Command(name = "doctor", description = "Report paths, versions, configuration, journal health, sessions, and skill links", mixinStandardHelpOptions = true)
+@Command(name = "doctor", description = "Report paths, versions, journal health, sessions, and skill links", mixinStandardHelpOptions = true)
 @Prototype
 public class DoctorCommand implements Callable<Integer> {
 
@@ -54,16 +52,14 @@ public class DoctorCommand implements Callable<Integer> {
     Path homeDirectory = Path.of(System.getProperty("user.home"));
 
     private final SidebandHome home;
-    private final Configs configs;
     private final Journal journal;
     private final Sessions sessions;
     private final Pending pending;
     private final Installer installer;
     private final ObjectMapper json;
 
-    DoctorCommand(SidebandHome home, Configs configs, Journal journal, Sessions sessions, Pending pending, Installer installer, ObjectMapper json) {
+    DoctorCommand(SidebandHome home, Journal journal, Sessions sessions, Pending pending, Installer installer, ObjectMapper json) {
         this.home = home;
-        this.configs = configs;
         this.journal = journal;
         this.sessions = sessions;
         this.pending = pending;
@@ -102,7 +98,6 @@ public class DoctorCommand implements Callable<Integer> {
                 stateDirectory.toString(),
                 exists,
                 exists ? permissions(stateDirectory) : null,
-                configs.load(stateDirectory).orElse(null),
                 health,
                 roles,
                 lockOwner,
@@ -120,7 +115,7 @@ public class DoctorCommand implements Callable<Integer> {
 
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Report(String version, String protocol, String stateDirectory, boolean initialized,
-                  @Nullable String permissions, @Nullable Config config, @Nullable JournalHealth journal,
+                  @Nullable String permissions, @Nullable JournalHealth journal,
                   Map<String, RoleReport> roles, @Nullable String lockOwnerPid, InstallReport clients) {
     }
 

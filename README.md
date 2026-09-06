@@ -72,10 +72,10 @@ and a closing marker:
 
 ```markdown
 <!-- sideband:v1
-{"id":"…","created_at":"…","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
+{"id":"…","created_at":"…","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
 -->
 
-## James → Codex (via Claude)
+## Operator → Codex (via Claude)
 
 @codex review the locking behavior.
 <!-- /sideband -->
@@ -168,8 +168,7 @@ sideband init         # private state directory, config, both skills, the captur
 sideband doctor       # paths, versions, journal health, sessions, skill links
 ```
 
-`init` records the human's identifier from `git config user.name`, installs the
-skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
+`init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
 and registers the same `sideband hook prompt` command in the repository's
 `.claude/settings.json` and `.codex/hooks.json`. Rerunning it is safe.
 In Codex, review and trust the new hook through `/hooks`; a registered command

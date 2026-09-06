@@ -16,7 +16,7 @@ import java.time.ZoneOffset
 /** Shared sample data. The fixed clock and IDs let specifications assert exact bytes. */
 class Fixtures {
 
-    static final ParticipantId JAMES = ParticipantId.human("james")
+    static final ParticipantId OPERATOR = ParticipantId.OPERATOR
     static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
     static final ParticipantId CODEX = ParticipantId.of(Role.CODEX)
     static final OffsetDateTime T0 = OffsetDateTime.of(2026, 9, 2, 16, 42, 0, 0, ZoneOffset.ofHours(-5))
@@ -30,7 +30,7 @@ class Fixtures {
 
     static EntryMetadata metadata(Map overrides = [:]) {
         Map m = [
-                id: "019a", createdAt: T0, from: JAMES, via: Role.CLAUDE, to: [CLAUDE, CODEX],
+                id: "019a", createdAt: T0, from: OPERATOR, via: Role.CLAUDE, to: [CLAUDE, CODEX],
                 type: MessageType.REQUEST, route: Route.BROADCAST, replyTo: null, causedBy: null,
                 expectsReply: true, heartbeatSeconds: null, delivery: Delivery.DEFAULT, bodyBytes: 58,
         ] + overrides
@@ -40,7 +40,7 @@ class Fixtures {
 
     static Draft humanDraft(String body = "@all independently review the proposed database migration.",
                             List<ParticipantId> to = [CLAUDE, CODEX], Role via = Role.CLAUDE) {
-        Draft.humanRequest(JAMES, via, to, body)
+        Draft.humanRequest(via, to, body)
     }
 
     static Draft agentDraft(Map overrides = [:]) {

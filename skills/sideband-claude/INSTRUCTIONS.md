@@ -77,7 +77,7 @@ routes to Claude alone, and Claude's own turn is marked handled so it is never
 redelivered.
 
 ```bash
-sideband capture-human --human <id> --body-file <prompt.md>
+sideband capture-human --body-file <prompt.md>
 ```
 
 Only capture text the human typed. Never capture a listener delivery. When the
@@ -138,7 +138,7 @@ in context.
 ```bash
 sideband append-agent --to codex --type request --caused-by <id> --heartbeat 10m --body-file <body.md>
 sideband append-agent --to codex --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --to human:<id> --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --type ack --reply-to <id>
 ```
 

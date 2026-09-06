@@ -14,7 +14,7 @@ class AppendAgentCommandSpec extends CommandSpec {
     }
 
     String captureHuman(String text) {
-        run("capture-human", "--repo", repo.toString(), "--via", "claude", "--human", "james", "--body-file", body(text).toString())
+        run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", body(text).toString())
         String id = json().metadata.id
         stdout = new StringWriter()
         id
@@ -48,12 +48,12 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "human:james", "--type", "reply",
+        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "reply",
                 "--reply-to", humanId, "--body-file", body("Looks fine.").toString())
 
         then:
         code == ExitCode.OK
-        json().metadata.to == ["human:james"]
+        json().metadata.to == ["operator"]
         json().metadata.expects_reply == false
     }
 
@@ -125,7 +125,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "human:james", "--type", "ack",
+        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "ack",
                 "--reply-to", humanId, "--body-file", body("starting the review").toString())
 
         then:
@@ -171,11 +171,11 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@all do the thing")
 
         when:
-        run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "human:james", "--type", "status",
+        run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "operator", "--type", "status",
                 "--reply-to", humanId, "--body-file", body("finished my half").toString())
 
         then:
         json().metadata.route == "broadcast"
-        json().metadata.to == ["codex", "human:james"]
+        json().metadata.to == ["codex", "operator"]
     }
 }

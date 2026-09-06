@@ -1,10 +1,8 @@
 package com.moltenbits.sideband.capture;
 
-import com.moltenbits.sideband.config.Configs;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
-import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.routing.Destination;
@@ -18,23 +16,19 @@ class JournalHumanCapture implements HumanCapture {
 
     private final Journal journal;
     private final Routing routing;
-    private final Configs configs;
     private final Pushes pushes;
 
-    JournalHumanCapture(Journal journal, Routing routing, Configs configs, Pushes pushes) {
+    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes) {
         this.journal = journal;
         this.routing = routing;
-        this.configs = configs;
         this.pushes = pushes;
     }
 
     @Override
     public Captured capture(Path stateDirectory, Role via, String body) {
         Destination destination;
-        ParticipantId human;
         try {
             destination = routing.resolve(body, via);
-            human = ParticipantId.human(configs.require(stateDirectory).id());
         } catch (IllegalArgumentException e) {
             throw e; // invalid input keeps its own exit code; nothing was written
         } catch (RuntimeException e) {
@@ -43,7 +37,7 @@ class JournalHumanCapture implements HumanCapture {
         Entry entry;
         try {
             entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME),
-                    Draft.humanRequest(human, via, destination.to(), body));
+                    Draft.humanRequest(via, destination.to(), body));
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }

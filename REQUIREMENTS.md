@@ -57,8 +57,8 @@ invocations such as `claude -p` or `codex exec resume`.
   Codex.
 - **Author**: the participant that composed a message.
 - **Via**: the client in which a human entered a message.
-- **Recipient**: a participant addressed by a message: a client role such as
-  `claude` or `codex`, or a human identifier such as `human:james`.
+- **Recipient**: a participant addressed by a message: a client role, `claude`
+  or `codex`, or the one human, `operator`.
 - **Instance**: one active interactive session of a client role. Version one
   permits at most one instance of each role per repository.
 - **Live message**: a message appended after a recipient's listener became
@@ -109,7 +109,8 @@ The initial layout is:
 └── journal.lock
 ```
 
-Supporting non-Git directories is not required for version one.
+Outside any Git repository, the state directory is `.sideband` in the
+working directory itself, with the same contents.
 
 ### 5.2 Persistence boundaries
 
@@ -135,7 +136,7 @@ For example:
 
 ```markdown
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
 ## James → Claude + Codex (via Claude)
@@ -154,10 +155,10 @@ Every entry must include:
 
 - `id`: a globally unique, stable message identifier.
 - `created_at`: an RFC 3339 timestamp including an offset.
-- `from`: the actual author, such as `human:james`, `claude`, or `codex`.
-- `to`: a non-empty array of intended participant identifiers. Client
-  recipients use `claude` or `codex`; a human recipient uses the same
-  `human:<id>` form accepted by `from`.
+- `from`: the actual author: `operator`, `claude`, or `codex`.
+- `to`: a non-empty array of intended participant identifiers: `claude`,
+  `codex`, or `operator`. There is exactly one human per journal, so nothing
+  about who they are is configured or recorded.
 - `type`: `request`, `reply`, `status`, or `ack` (section 9.8). There is no
   separate human-only type: a human's prompt and an agent's delegation are
   both requests. A request defaults to actionable regardless of author, but
@@ -331,7 +332,7 @@ a listener's wake line says what arrived and where to read it, and a delivered
 batch or the `pending` listing identifies Sideband, preserves the entries'
 recorded authorship, and points to `sideband skill` for the adapter instructions.
 Transport arrival is not a new local human prompt; an entry whose recorded
-author is `human:<id>` nevertheless retains that human authorship.
+author is `operator` nevertheless retains that human authorship.
 
 **Purpose of `handling`: skill discovery and context recovery.** The field
 helps an agent recognize a Sideband delivery and find the installed skill when
@@ -350,8 +351,7 @@ client reads the entries with `sideband pending`.
 
 ### 7.5 Agent-to-human messages
 
-An agent addresses the human by placing the configured `human:<id>` identifier
-in `to`. An agent may do this to request input, return a result, or report that
+An agent addresses the human by placing `operator` in `to`. An agent may do this to request input, return a result, or report that
 its part of a workflow is complete.
 
 Delivery to the human is satisfied by the authoring client's visible turn; no
@@ -908,7 +908,7 @@ neither shared nor replaced.
 ### 14.11 Agent-to-human message
 
 Given Claude completes work requested through Sideband, when it records its
-result for the human, the entry uses `from: claude` and `to: [human:<id>]` and
+result for the human, the entry uses `from: claude` and `to: [operator]` and
 is visible in Claude's existing turn. Codex does not inject the human-only entry
 into its conversation. The human may later reply through either client using
 the result entry's ID as `reply_to`.
@@ -1035,10 +1035,6 @@ The following questions remain intentionally unresolved:
 - Whether an idle requester should be woken by its own listener when one of
   its requests first becomes overdue, and if so how Codex, which runs no
   listener, is told.
-- Whether the local human identifier should be configurable beyond the
-  version-one rule: `sideband init` records a slug of `git config user.name`
-  (or an explicit `--human`) and the git name as display name in the state
-  directory's `config.json`.
 - Whether every visible agent-to-human response is journaled automatically or
   only responses participating in Sideband workflows.
 - Whether a routing directive is removed from the delivered body while being
@@ -1047,7 +1043,6 @@ The following questions remain intentionally unresolved:
 - Whether a later version should add structured amendment and replacement
   metadata, automatic supersession state, and revision-aware backlog
   presentation. Version one uses ordinary linked follow-ups (section 9.7).
-- Whether and how to support non-Git directories.
 - Retention, archive, compaction, and export policies for very large journals.
 - Future attachment representation.
 - Future support for multiple sessions of the same client role.
