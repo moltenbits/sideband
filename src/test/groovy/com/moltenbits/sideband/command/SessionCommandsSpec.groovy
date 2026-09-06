@@ -18,12 +18,12 @@ class SessionCommandsSpec extends CommandSpec {
     }
 
     String capture(String via, String text) {
-        runJson("capture-human", "--repo", repo.toString(), "--via", via, "--body-file",
+        runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", via, "--body-file",
                 Files.writeString(repo.resolve("body.md"), text).toString()).metadata.id
     }
 
     String appendAgent(String... rest) {
-        runJson(["append-agent", "--repo", repo.toString(), "--body-file",
+        runJson(["append", "--repo", repo.toString(), "--body-file",
                  Files.writeString(repo.resolve("agent.md"), "body").toString()] + rest.toList() as String[]).metadata.id
     }
 
@@ -92,7 +92,7 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("pending", "--repo", repo.toString(), "--role", "codex").open*.entry*.metadata*.id == [ask]
 
         when:
-        Map ack = runJson("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", ask)
+        Map ack = runJson("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", ask)
 
         then: "an ack needs no body, never expects a reply, and is never pushed"
         ack.metadata.type == "ack"

@@ -73,7 +73,7 @@ class HookAndSkillSpec extends CommandSpec {
         String note = json().hookSpecificOutput.additionalContext
         String id = (note =~ /recorded this prompt as ([0-9a-f-]{36})/)[0][1]
         stdout = new StringWriter()
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
+        int code = run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
                 "--caused-by", id, "--body-file", Files.writeString(repo.resolve("ask.md"), "review the locking").toString())
 
         then:
@@ -337,7 +337,7 @@ class HookAndSkillSpec extends CommandSpec {
         hook("lost before the journal") == ExitCode.OK
         json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
         json().hookSpecificOutput.additionalContext.contains("It is not in the discussion")
-        json().hookSpecificOutput.additionalContext.contains("capture it with `sideband capture-human`")
+        json().hookSpecificOutput.additionalContext.contains("record it with `sideband append --from operator`")
         !Files.exists(journalFile)
     }
 

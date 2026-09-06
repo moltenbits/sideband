@@ -17,7 +17,7 @@ class InitAndDoctorSpec extends CommandSpec {
         json()
     }
 
-    void "init creates the state directory, installs both skills and the hook, and capture-human journals the operator"() {
+    void "init creates the state directory, installs both skills and the hook, and append --from operator journals the operator"() {
         when:
         Map init = runJson("init", "--repo", repo.toString(), "--home", home.toString())
 
@@ -29,7 +29,7 @@ class InitAndDoctorSpec extends CommandSpec {
         Files.exists(repo.resolve(".claude/settings.json"))
 
         when:
-        Map captured = runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file",
+        Map captured = runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file",
                 Files.writeString(repo.resolve("p.md"), "hello").toString())
 
         then:
@@ -37,9 +37,9 @@ class InitAndDoctorSpec extends CommandSpec {
         Files.readString(repo.resolve(".git/sideband/journal.md")).contains("## Operator → Claude (via Claude)")
     }
 
-    void "capture-human works without init because nothing about the operator is configured"() {
+    void "append --from operator works without init because nothing about the operator is configured"() {
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file",
+        int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file",
                 Files.writeString(repo.resolve("p.md"), "hello").toString())
 
         then:
@@ -68,7 +68,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         when:
         stdout = new StringWriter()
-        int code = run("capture-human", "--repo", plain.toString(), "--via", "codex", "--body-file",
+        int code = run("append", "--from", "operator", "--repo", plain.toString(), "--via", "codex", "--body-file",
                 Files.writeString(plain.resolve("p.md"), "no repo here").toString())
 
         then:
@@ -93,7 +93,7 @@ class InitAndDoctorSpec extends CommandSpec {
     void "doctor reports journal health, sessions, pending counts, and the lock owner"() {
         given:
         runJson("init", "--repo", repo.toString(), "--skip-clients")
-        runJson("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
+        runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", ProcessHandle.current().pid().toString())
         Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
 

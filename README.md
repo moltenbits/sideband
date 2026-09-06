@@ -119,11 +119,11 @@ sequenceDiagram
     James->>Claude: "Add retries to the uploader, have Codex review the tests"
     Claude->>SB: hook prompt, which journals the prompt as a request from James
     Note over Claude: Claude implements the change
-    Claude->>SB: append-agent --to codex --type request --caused-by (James's entry)
+    Claude->>SB: append --to codex --type request --caused-by (James's entry)
     SB->>Codex: codex queue starts a turn with the envelope
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
-    Codex->>SB: append-agent --type ack --reply-to (the request)
-    Codex->>SB: append-agent --type reply --reply-to (the request)
+    Codex->>SB: append --type ack --reply-to (the request)
+    Codex->>SB: append --type reply --reply-to (the request)
     SB-->>Claude: the streaming pending wakes the idle conversation
     Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found

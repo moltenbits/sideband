@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.ancestry.Ancestry;
 import com.moltenbits.sideband.ancestry.EntryIndex;
 import com.moltenbits.sideband.capture.Captured;
+import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
@@ -34,12 +35,14 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
- * Journals an agent-authored request, reply, or status. Actionable messages to another
- * client must trace to a human-authored entry; the command refuses to append one that does not.
+ * Adds one entry to the discussion. The author is the calling client unless {@code --from
+ * operator} says the entry is the operator's own words, which are routed by their first
+ * token and recorded with the calling client as {@code via}. An agent's actionable entry to
+ * another client must trace to a human-authored one; the command refuses one that does not.
  */
-@Command(name = "append-agent", description = "Add an agent-authored request, reply, status, or ack to the Sideband discussion", mixinStandardHelpOptions = true)
+@Command(name = "append", description = "Add an entry to the Sideband discussion: a request, reply, status, or ack from this client, or with --from operator the operator's own words", mixinStandardHelpOptions = true)
 @Prototype
-public class AppendAgentCommand implements Callable<Integer> {
+public class AppendCommand implements Callable<Integer> {
 
     /** Stands in for the identifier the journal will assign, so lineage errors read naturally. */
     private static final String DRAFT_ID = "the-new-entry";
@@ -50,14 +53,18 @@ public class AppendAgentCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--from", hidden = true, description = "Override the client detected from the environment")
-    Role from;
+    @Option(names = "--from", converter = ParticipantIdConverter.class,
+            description = "Author: operator for the operator's own words (routed by their first token), otherwise the calling client")
+    ParticipantId from;
+
+    @Option(names = "--via", hidden = true, description = "Override the client detected from the environment")
+    Role via;
 
     @Option(names = "--to", arity = "1..*", converter = ParticipantIdConverter.class,
             description = "Recipients: claude, codex, or operator. With --reply-to it defaults to the author of the entry being answered")
     List<ParticipantId> to;
 
-    @Option(names = "--type", required = true, description = "request, reply, status, or ack")
+    @Option(names = "--type", description = "request, reply, status, or ack (required unless --from operator, whose entries are requests)")
     MessageType type;
 
     @Option(names = "--reply-to", description = "The entry this directly answers")
@@ -77,23 +84,30 @@ public class AppendAgentCommand implements Callable<Integer> {
     private final HostEnvironment host;
     private final Journal journal;
     private final Ancestry ancestry;
+    private final HumanCapture capture;
     private final Pushes pushes;
     private final ObjectMapper json;
 
-    AppendAgentCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry,
-                       Pushes pushes, ObjectMapper json) {
+    AppendCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry, HumanCapture capture,
+                  Pushes pushes, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.journal = journal;
         this.ancestry = ancestry;
+        this.capture = capture;
         this.pushes = pushes;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
-        if (from == null) {
-            from = host.requireRole("--from");
+        Role client = via != null ? via : from != null && from.role().isPresent() ? from.role().get() : host.requireRole("--from");
+        if (from != null && from.isHuman()) {
+            return appendOperator(client);
+        }
+        Role author = client;
+        if (type == null) {
+            throw new IllegalArgumentException("--type is required: request, reply, status, or ack");
         }
         boolean actionable;
         String body;
@@ -123,11 +137,22 @@ public class AppendAgentCommand implements Callable<Integer> {
             }
             to = List.of(answered.from()); // an answer goes to whoever asked
         }
-        Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
+        Draft draft = new Draft(ParticipantId.of(author), null, to, type, Route.forRecipients(to),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
         checkLineage(byId, draft);
         Entry entry = journal.append(file, draft);
         Output.print(spec, json, Captured.of(entry, pushes.deliver(stateDirectory, entry)));
+        return ExitCode.OK;
+    }
+
+    /** The operator's own words: routed by their first token, never linked, always a request. */
+    private int appendOperator(Role client) throws IOException {
+        if ((to != null && !to.isEmpty()) || replyTo != null || causedBy != null || expectsReply != null
+                || (type != null && type != MessageType.REQUEST)) {
+            throw new IllegalArgumentException("--from operator takes only the body: recipients come from its first token, and it is always a request");
+        }
+        String body = Bodies.read(bodyFile);
+        Output.print(spec, json, capture.capture(repository.stateDirectory(home), client, body));
         return ExitCode.OK;
     }
 

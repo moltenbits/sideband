@@ -23,7 +23,7 @@ described below.
 | `status` | Run `sideband doctor` and summarize it: both roles' sessions and whether they are live, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | Stop the listener (TaskStop on the Monitor) and tell the user the bookmark stays, so a later `/sideband` resumes from it. |
-| anything else | Treat it as a message: capture it with `capture-human` exactly as a human turn, so `/sideband @codex look at this` routes to Codex. |
+| anything else | Treat it as a message: record it with `append --from operator` exactly as a human turn, so `/sideband @codex look at this` routes to Codex. |
 
 ## Activate
 
@@ -83,7 +83,7 @@ routes to Claude alone, and Claude's own turn is marked handled so it is never
 redelivered.
 
 ```bash
-sideband capture-human --body-file <prompt.md>
+sideband append --from operator --body-file <prompt.md>
 ```
 
 Only capture text the human typed. Never capture a listener delivery. When the
@@ -95,7 +95,7 @@ to delegate. Never read the journal file to find an id. Any other
 hook note is a problem to tell the user about before doing anything else, and
 each says what to do:
   - "could not record this prompt": it is not in the discussion. Capture it
-    yourself with `capture-human` once you have told the user, unless the
+    yourself with `append --from operator` once you have told the user, unless the
     reason is that another session owns Sideband.
   - "may not have recorded this prompt": the append itself failed. Read the
     journal tail; capture again only if the prompt is missing.
@@ -112,7 +112,7 @@ derived from the journal; the only thing that changes when you run it is that
 `updates` are then counted as shown.
 
 For each entry under `open`, in order:
-  1. Acknowledge it first: `sideband append-agent --type ack --reply-to <id>`.
+  1. Acknowledge it first: `sideband append --type ack --reply-to <id>`.
      That is the journal's record that Claude has taken it up, and what the
      sender sees as receipt. A one-line body on what you are about to do is
      welcome; none is required.
@@ -143,9 +143,9 @@ in context.
 ## Send
 
 ```bash
-sideband append-agent --to codex --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --type ack --reply-to <id>
+sideband append --to codex --type request --caused-by <id> --body-file <body.md>
+sideband append --type reply --reply-to <id> --body-file <body.md>
+sideband append --type ack --reply-to <id>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;

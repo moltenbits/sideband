@@ -168,7 +168,7 @@ public class HookCommand {
         private int failed(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
             return report("Sideband could not record this prompt: " + reason
-                    + ". It is not in the discussion; tell the user, then capture it with `sideband capture-human` if Sideband is active.");
+                    + ". It is not in the discussion; tell the user, then record it with `sideband append --from operator` if Sideband is active.");
         }
 
         /** The append itself failed, so the journal may or may not hold the entry. */

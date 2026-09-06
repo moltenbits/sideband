@@ -5,7 +5,7 @@ import com.moltenbits.sideband.TempRepo
 import java.nio.file.Files
 import java.nio.file.Path
 
-class AppendAgentCommandSpec extends CommandSpec {
+class AppendCommandSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
 
@@ -14,7 +14,7 @@ class AppendAgentCommandSpec extends CommandSpec {
     }
 
     String captureHuman(String text) {
-        run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", body(text).toString())
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", body(text).toString())
         String id = json().metadata.id
         stdout = new StringWriter()
         id
@@ -25,7 +25,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("review the change and ask Codex to test concurrency")
 
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
+        int code = run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
                 "--caused-by", humanId, "--body-file", body("independently test the concurrency behavior").toString())
 
         then:
@@ -48,7 +48,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "reply",
+        int code = run("append", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "reply",
                 "--reply-to", humanId, "--body-file", body("Looks fine.").toString())
 
         then:
@@ -62,7 +62,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when:
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply",
                 "--reply-to", humanId, "--expects-reply", "true", "--body-file", body("Which ordering did you expect?").toString())
 
         then:
@@ -71,7 +71,7 @@ class AppendAgentCommandSpec extends CommandSpec {
 
     void "an actionable agent message with no human ancestor is refused"() {
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
+        int code = run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
                 "--body-file", body("do some work").toString())
 
         then:
@@ -82,7 +82,7 @@ class AppendAgentCommandSpec extends CommandSpec {
 
     void "an actionable agent message pointing at a missing ancestor is refused"() {
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
+        int code = run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--type", "request",
                 "--caused-by", "ghost", "--body-file", body("do some work").toString())
 
         then:
@@ -92,7 +92,7 @@ class AppendAgentCommandSpec extends CommandSpec {
 
     void "a status with no links is fine because it is not actionable"() {
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "status",
+        int code = run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "status",
                 "--body-file", body("still running the suite").toString())
 
         then:
@@ -102,7 +102,7 @@ class AppendAgentCommandSpec extends CommandSpec {
 
     void "a reply without reply-to is invalid input"() {
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply",
+        int code = run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply",
                 "--body-file", body("done").toString())
 
         then:
@@ -112,7 +112,7 @@ class AppendAgentCommandSpec extends CommandSpec {
 
     void "the former instruction type is no longer a type an agent can name"() {
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "instruction",
+        int code = run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "instruction",
                 "--body-file", body("do this").toString())
 
         then:
@@ -125,7 +125,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when:
-        int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "ack",
+        int code = run("append", "--repo", repo.toString(), "--from", "codex", "--to", "operator", "--type", "ack",
                 "--reply-to", humanId, "--body-file", body("starting the review").toString())
 
         then:
@@ -135,9 +135,9 @@ class AppendAgentCommandSpec extends CommandSpec {
         json().body == "starting the review"
 
         expect: "without reply-to or with expects-reply it is invalid input"
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack",
                 "--body-file", body("x").toString()) == ExitCode.INVALID_INPUT
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack",
                 "--reply-to", humanId, "--expects-reply", "true", "--body-file", body("x").toString()) == ExitCode.INVALID_INPUT
     }
 
@@ -146,10 +146,10 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@codex review this")
 
         when: "an ack with neither --to nor a body, exactly as the skill advertises"
-        int ack = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", humanId)
+        int ack = run("append", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", humanId)
         Map ackJson = json()
         stdout = new StringWriter()
-        int reply = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "reply", "--reply-to", humanId,
+        int reply = run("append", "--repo", repo.toString(), "--from", "codex", "--type", "reply", "--reply-to", humanId,
                 "--body-file", body("Looks fine.").toString())
 
         then:
@@ -161,20 +161,20 @@ class AppendAgentCommandSpec extends CommandSpec {
 
         and: "an explicit --to still wins, so a reply can also copy someone"
         (stdout = new StringWriter()) != null
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "operator", "--type", "reply",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "operator", "--type", "reply",
                 "--reply-to", humanId, "--body-file", body("both of you").toString()) == ExitCode.OK
         json().metadata.to == ["claude", "operator"]
     }
 
     void "an unknown --reply-to is invalid input with or without --to, and no --reply-to needs --to"() {
         expect:
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
+        run("append", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
         stderr.toString().contains("names no entry")
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
+        run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
                 "--body-file", body("orphan").toString()) == ExitCode.INVALID_INPUT
         !Files.exists(repo.resolve(".git/sideband/journal.md"))
-        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "status",
+        run("append", "--repo", repo.toString(), "--from", "codex", "--type", "status",
                 "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--to is required unless --reply-to")
     }
@@ -184,7 +184,7 @@ class AppendAgentCommandSpec extends CommandSpec {
         String humanId = captureHuman("@all do the thing")
 
         when:
-        run("append-agent", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "operator", "--type", "status",
+        run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "operator", "--type", "status",
                 "--reply-to", humanId, "--body-file", body("finished my half").toString())
 
         then:

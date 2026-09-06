@@ -1446,17 +1446,19 @@ session already owns the role (`3` was "not a repository" and is retired,
 since every directory now has a state location). Bodies travel through
 `--body-file` or stdin, never as an argument. No command needs to be told
 which client it runs inside: each recognizes the client from the environment
-the client gives its subprocesses, so `--role`, `--via`, `--from`, and
-`--client` are hidden overrides for tests.
+the client gives its subprocesses, so `--role`, `--via`, and `--client` are
+hidden overrides for tests. `append --from` is the one visible author flag:
+`operator` means the entry is the operator's own words; a client name is an
+override for tests.
 
 ```text
 sideband init [--skip-clients]                     # state directory, both skill stubs, both hook registrations
 sideband join [--resume] [--replace]               # start this client's session; prints the first pending report
-sideband capture-human [--body-file <path>]        # record a human prompt, routing by its first token
-sideband append-agent --type request --to <role> --caused-by <id> [--body-file <path>]
-sideband append-agent --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]
-sideband append-agent --type status --to <role|operator> [--reply-to <id>] [--body-file <path>]
-sideband append-agent --type ack --reply-to <id>   # receipt; body optional; never delivered as such
+sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
+sideband append --type request --to <role> --caused-by <id> [--body-file <path>]
+sideband append --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]
+sideband append --type status --to <role|operator> [--reply-to <id>] [--body-file <path>]
+sideband append --type ack --reply-to <id>         # receipt; body optional; never delivered as such
 sideband pending                                   # open, in progress, updates, outgoing; advances the bookmark
 sideband pending --wait [--timeout <s>]            # block until something new, then report; never advances
 sideband pending --wait --stream                   # the listener: one report per batch, forever; never advances
@@ -1466,8 +1468,8 @@ sideband doctor                                    # paths, versions, discussion
 ```
 
 Rules the commands enforce, each stated in the section that motivates it:
-`capture-human` routes on the first token only and never changes the body
-(8.1); `append-agent` refuses an actionable agent-to-agent entry with no path
+`append --from operator` routes on the first token only and never changes the
+body (8.1); `append` refuses an actionable agent-to-agent entry with no path
 to a human-authored one (8.3), defaults a reply's or ack's recipients to the author
 of the entry named by `--reply-to` and rejects a `--reply-to` that names no
 entry (9.6, 9.8); a request expecting a reply is closed only by a reply that

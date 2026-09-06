@@ -6,7 +6,7 @@ import com.moltenbits.sideband.journal.Journal
 import java.nio.file.Files
 import java.nio.file.Path
 
-class CaptureHumanCommandSpec extends CommandSpec {
+class AppendOperatorSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
     Path journalFile = repo.resolve(".git/sideband/journal.md")
@@ -17,7 +17,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "an undirected prompt is journaled for the client it was typed into"() {
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude",
+        int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude",
                 "--body-file", body("fix the typo").toString())
 
         then:
@@ -40,7 +40,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "a directive routes to the named client and the body keeps the directive"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "claude",
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude",
                 "--body-file", body("@codex review the locking behavior.").toString())
 
         then:
@@ -51,7 +51,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "@all is one broadcast entry naming both clients and the originating client"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "codex",
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "codex",
                 "--body-file", body("@all review this").toString())
 
         then:
@@ -63,17 +63,33 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "the originating client's own turn is never pushed to it"() {
         when:
-        run("capture-human", "--repo", repo.toString(), "--via", "codex",
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "codex",
                 "--body-file", body("just for codex").toString())
 
         then:
         json().pushes == []
     }
 
+    void "the operator's entry takes only a body: recipients, links, and other types are refused"() {
+        expect:
+        run("append", "--repo", repo.toString(), "--from", "operator", "--via", "claude", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--repo", repo.toString(), "--from", "operator", "--via", "claude", "--type", "status", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--repo", repo.toString(), "--from", "operator", "--via", "claude", "--reply-to", "x", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--from operator takes only the body")
+        !Files.exists(journalFile)
+    }
+
+    void "an agent entry needs --type; an unknown --from is rejected"() {
+        expect:
+        run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--type is required")
+        run("append", "--repo", repo.toString(), "--from", "gemini", "--type", "status", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+    }
+
     void "the via option is case-insensitive and validated"() {
         expect:
-        run("capture-human", "--repo", repo.toString(), "--via", "Claude", "--body-file", body("hi").toString()) == ExitCode.OK
-        run("capture-human", "--repo", repo.toString(), "--via", "gemini", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "Claude", "--body-file", body("hi").toString()) == ExitCode.OK
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "gemini", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
     }
 
     void "reads the body from standard input when no file is given"() {
@@ -82,7 +98,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
         System.in = new ByteArrayInputStream("from stdin".bytes)
 
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude")
+        int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude")
 
         then:
         code == ExitCode.OK
@@ -94,7 +110,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
 
     void "an empty body is rejected before anything is written"() {
         when:
-        int code = run("capture-human", "--repo", repo.toString(), "--via", "claude", "--body-file", body("  \n").toString())
+        int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", body("  \n").toString())
 
         then:
         code == ExitCode.INVALID_INPUT
@@ -107,7 +123,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
         Path text = Files.writeString(plain.resolve("body.md"), "hello")
 
         expect:
-        run("capture-human", "--repo", plain.toString(), "--via", "claude", "--body-file", text.toString()) == ExitCode.OK
+        run("append", "--from", "operator", "--repo", plain.toString(), "--via", "claude", "--body-file", text.toString()) == ExitCode.OK
         Files.exists(plain.resolve(".sideband/journal.md"))
     }
 }
