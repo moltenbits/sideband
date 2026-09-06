@@ -102,6 +102,10 @@ class HookAndSkillSpec extends CommandSpec {
         "hello"                         | "s1"    | true
     }
 
+    List<String> bodies() {
+        Files.exists(journalFile) ? context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.body() : []
+    }
+
     void "a message typed as the skill's argument is the operator's words: the hook records the text after the invocation"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
@@ -113,7 +117,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty() == (expected == null)
-        expected == null || context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.body() == [expected]
+        bodies() == (expected == null ? [] : [expected])
         expected == null || json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as")
 
         where:
