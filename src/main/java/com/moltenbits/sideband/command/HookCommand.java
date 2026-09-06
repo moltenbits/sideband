@@ -197,13 +197,13 @@ public class HookCommand {
         }
 
         /**
-         * A prompt that should have been recorded and was not. The host shows the model only
-         * the context field, so the failure goes there, and the model tells the operator.
-         * Nothing else: no second attempt by anyone.
+         * Recording could not be completed or confirmed; the entry may or may not exist. The
+         * host shows the model only the context field, so the failure goes there, and the
+         * model tells the operator. Nothing else: no second attempt by anyone.
          */
         private int failed(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
-            return report("Sideband could not record this prompt: " + reason + ". Tell the user.");
+            return report("Sideband could not confirm recording this prompt: " + reason + ". Tell the user.");
         }
 
         /** The entry is recorded; only the push to the recipient failed. */

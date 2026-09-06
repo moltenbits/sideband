@@ -93,9 +93,10 @@ before you see it and says so in a hook note that names the entry's id; do
 not capture again, and use that id as `--caused-by` when the prompt leads you
 to delegate. Never read the journal file to find an id. Any other hook note
 is something to tell the user before doing anything else, and that is all it
-asks of you: "could not record this prompt" means the prompt is not in the
-discussion; "recorded this prompt as <id> but could not deliver it" means it
-is, but the push to Codex failed; "not active in this session and N entries
+asks of you: "could not confirm recording this prompt" means recording did
+not complete, and the prompt may or may not be in the discussion; "recorded
+this prompt as <id> but could not deliver it" means it is, but the push to
+Codex failed; "not active in this session and N entries
 are waiting" means offer `/sideband`. Never record a prompt yourself; the
 hook records prompts, and reporting a failure is the whole recovery.
 

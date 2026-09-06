@@ -269,8 +269,9 @@ hook's context field is the shared, non-blocking channel both hosts show the
 model. A prompt that should have been journaled and was not is therefore
 reported in that field, with the reason, so the model tells the human rather
 than the loss going to stderr where nobody reads it. The report says either
-that the prompt was not recorded, or that it was recorded under a stated id
-and the push to its recipient failed. Reporting is the whole recovery: no
+that recording could not be completed or confirmed, since a failure after the
+write can leave the entry in place, or that the prompt was recorded under a
+stated id and the push to its recipient failed. Reporting is the whole recovery: no
 client records a prompt on the hook's behalf. Prompts that were never meant to be captured
 (commands, delivered envelopes, blank input) and repositories where Sideband
 is installed but not active stay silent, except that an inactive session

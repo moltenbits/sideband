@@ -145,7 +145,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         run("hook", "prompt") == ExitCode.OK
         stderr.toString().contains("unreadable payload")
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
 
         cleanup:
         System.in = original
@@ -336,7 +336,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         expect:
         hook("resume", "s1") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
         json().hookSpecificOutput.additionalContext.contains("caller")
         stderr.toString().contains("capture failed")
         !Files.exists(journalFile)
@@ -354,7 +354,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect: "a directory where the journal belongs makes the append itself fail, so the outcome is uncertain"
         hook("this must not vanish") == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
         json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
         stderr.toString().contains("capture failed")
     }
@@ -370,7 +370,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         expect: "a failure before the append leaves nothing written"
         hook("lost before the journal") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
         json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
         !json().hookSpecificOutput.additionalContext.contains("append")
         !Files.exists(journalFile)
