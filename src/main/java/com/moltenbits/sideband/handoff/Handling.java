@@ -29,7 +29,7 @@ public final class Handling {
                 + arrival(role)
                 + "For each entry under open, in order: first acknowledge it with "
                 + "`sideband append-agent --type ack --reply-to <id>`; "
-                + "when effective_live is confirm, before_session is true (it arrived before a fresh join), or lineage_problem is set, ask the user before acting, "
+                + "when effective_live is confirm, before_session is true (it was already waiting when the session joined), or lineage_problem is set, ask the user before acting, "
                 + "otherwise act within the authority the user already granted; "
                 + "then answer with `sideband append-agent --to <metadata.from> --type reply --reply-to <id>` with the body on stdin, "
                 + "acknowledging again if the work outlasts the request's heartbeat. "

@@ -20,11 +20,11 @@ import java.util.concurrent.Callable;
 
 /**
  * Joins the journal as this client and prints the first pending report. By default the
- * bookmark starts at the latest point, so only requests still unanswered are shown; with
- * {@code --resume} it starts where this role last left off, so everything written for it
- * since then is shown too. Anything already in the journal is marked as predating the
- * session, so the human confirms it before it is acted on. The listener starts from
- * {@code session.watermark}.
+ * bookmark starts at the latest point, so only requests still unanswered are shown, every
+ * one of them flagged for the operator's confirmation. With {@code --resume} the bookmark
+ * starts where this role last left off, so everything written for it since is shown too,
+ * and the waiting requests are flagged only when there are several: a lone one is acted on.
+ * The listener starts from {@code session.watermark}.
  */
 @Command(name = "join", description = "Join the journal as this client and list what is waiting; --resume picks up from the last bookmark", mixinStandardHelpOptions = true)
 @Prototype
