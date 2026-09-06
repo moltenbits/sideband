@@ -72,8 +72,8 @@ Human turn in Claude                         Human turn in Codex
                   shared sideband executable
           ┌────────────────────┼────────────────────┐
           │                    │                    │
-       journal              cursor               wait
-    parse / append      state / backlog       live detection
+       journal             pending               wait
+    parse / append    derived from journal    live detection
           │                    │                    │
           └────────────────────┼────────────────────┘
                                ▼
@@ -100,7 +100,8 @@ sideband/
 │   │   ├── SidebandCommand.java       # Picocli root command
 │   │   ├── protocol/                  # entry and delivery value types
 │   │   ├── journal/                   # journal interface, codec, parser, lock
-│   │   ├── recipient/                 # recipient/outgoing state and cursor store
+│   │   ├── session/                   # per-role session record: identity and read position
+│   │   ├── pending/                   # what a role has to look at, derived from the journal
 │   │   ├── routing/                   # routing interface and directive parser
 │   │   ├── waiting/                   # journal-follow interface and polling
 │   │   └── command/                   # Picocli subcommands
@@ -184,7 +185,7 @@ then create this layout:
 ├── config.json
 ├── journal.md
 ├── journal.lock
-├── cursors/
+├── sessions/
 │   ├── claude.json
 │   └── codex.json
 └── diagnostics/
@@ -217,90 +218,40 @@ for correction only when they are absent or ambiguous. The identifier must match
 `[a-z0-9][a-z0-9._-]*`; the display name is presentation-only. Neither value is
 embedded in a skill or inferred independently by each client.
 
-### 4.2 Recipient cursor
+### 4.2 Session record
 
-Each client owns one cursor file. It contains separate incoming delivery and
-outgoing-request records; it is client-local state, not another communication
-channel. Illustrative IDs below are abbreviated:
+Each role owns one small file, `sessions/<role>.json`. It is identity and a
+read position, never a record of what was said or done:
 
 ```json
 {
-  "schema": 1,
-  "role": "codex",
-  "sessions": {
-    "current": {
-      "id": "8ccadbe2-...",
-      "started_at": "2026-09-02T17:00:00-05:00",
-      "watermark_id": "98fb7e8c-...",
-      "watermark_end": 4821
-    }
-  },
-  "entries": {
-    "98fb7e8c-...": {
-      "seen_at": "2026-09-02T17:00:01-05:00",
-      "delivered_at": null,
-      "resolved_at": null,
-      "resolution": null
-    }
-  },
-  "outgoing": {
-    "request-id": {
-      "state": "pending",
-      "acknowledged_at": null,
-      "ack_ids": [],
-      "reply_ids": [],
-      "overdue_notified_at": null,
-      "resolved_at": null
-    }
-  }
+  "id": "8ccadbe2-...",
+  "started_at": "2026-09-02T17:00:00-05:00",
+  "parent_pid": 66503,
+  "watermark": 4821,
+  "offset": 5210
 }
 ```
 
-The stored fields distinguish three separate facts:
+`watermark` is the journal size at activation: an entry ending at or before it
+predates the session, and the human confirms such a request before it is
+acted on. `offset` is the read position: informational entries ending at or
+before it have been shown to the role. `pending` and `activate` advance it to
+the end of what they report. Requests are not tracked by position at all; a
+request to the role stays listed until the journal holds the role's ack (in
+progress) or reply (done), and the role's own requests stay listed as
+outgoing until a recipient's reply exists.
 
-- `seen_at`: included in a backlog summary or shown to the parent.
-- `delivered_at`: accepted by the host's native parent-wake mechanism for
-  handoff; it does not prove that the parent read or acted on the message.
-- `resolved_at` and `resolution`: acted on, dismissed, or consumed by the
-  originating turn.
+Everything else `pending` reports is derived from the journal on each read:
+open and in-progress requests, updates past the read position, and outgoing
+requests with the recipient's acks, the silence since the latest one, and
+whether that exceeds the request's `heartbeat_seconds`. A reply answers the
+nearest actionable entry reachable through its `reply_to` links that someone
+else wrote, so a reply to a clarification still answers the original request.
 
-Pending is derived as an addressed entry without `resolved_at`. A live
-actionable message is marked delivered after the parent handoff and resolved
-only after the parent completes or explicitly dismisses it. An informational
-message can be resolved as `presented` immediately after successful delivery.
-
-`outgoing` is keyed by an agent-authored request's journal ID. Here a request
-means any outgoing agent message with `expects_reply: true`, including an
-actionable reply or follow-up, not just entries with `type: request`. Its state is
-`pending`, `answered`, or `dismissed`; it is independent of the peer's incoming
-delivery/resolution state. `reply_ids` records correlated replies without
-claiming their content is sufficient. Only the parent marks a request answered
-or explicitly dismissed, recording `resolved_at`. Recipient lists, provenance,
-and bodies remain authoritative in the journal rather than being duplicated.
-For multi-recipient requests, the parent assesses which recipients have answered
-from those entries before deciding whether the overall request is satisfied.
-
-`acknowledged_at` and `ack_ids` are set by the executable each time the
-recipient appends an `ack` for the request (requirements 9.8); they are facts
-about the recipient's model having received it and still being responsive,
-distinct from `reply_ids`. `overdue_notified_at` records that the listener
-has emitted the wake line for the current silence, so a restarted listener
-does not repeat it; a later ack clears it. Overdue itself is never stored:
-`pending` and `follow` derive it from the request's `heartbeat`, its
-`created_at`, and the latest `acknowledged_at`. The request's `heartbeat` is
-metadata on the journal entry, chosen by the sender (`--heartbeat`, default
-from `config.json` `heartbeat`, ten minutes unless configured), so the
-recipient can read the cadence it is held to.
-
-Appending a request and registering its outgoing state happen under the shared
-lock. Because the journal and cursor are separate files, recovery rescans the
-journal for the role's requests and restores missing records as pending without
-resending anything. Reconciliation preserves existing answered/dismissed state.
-Human-directed follow-ups do not automatically supersede earlier records.
-
-Cursor mutations use write-to-temp, `fsync`, and atomic rename while holding the
-shared Sideband lock. Unknown cursor fields are preserved, allowing compatible
-extensions.
+Session files use write-to-temp, `fsync`, and atomic rename under the shared
+lock. There is no reconciliation step because there is nothing to reconcile:
+a crash between an append and anything else loses no state.
 
 ## 5. Journal protocol
 
@@ -312,7 +263,7 @@ accept valid entries without that extension.
 
 ```markdown
 <!-- sideband:v1
-{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
+{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
 -->
 
 ## James → Codex (via Claude)
@@ -403,15 +354,10 @@ sideband append-agent --from codex --to claude --type reply \
 sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt or still working, body optional
 sideband append-agent --from claude --to codex --type request --caused-by <id> \
   --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
-sideband activate --role codex --session-id <id>
-sideband backlog --role codex --session-id <id>
+sideband activate --role codex --session-id <id>            # start the session; prints the first pending report
 sideband wait --role <role> --from <offset> [--timeout s]     # one batch, then exit
-sideband follow --role <role> --from <offset>                # one JSON batch per line, forever
-sideband mark-seen --role codex <id>...
-sideband mark-delivered --role codex <id>...
-sideband resolve --role codex --as acted|dismissed|presented|originating-turn <id>...
-sideband resolve-outgoing --role codex --as answered|dismissed <id>...
-sideband pending --role codex
+sideband follow --role <role> --from <offset>                # one wake line per batch, forever
+sideband pending --role codex                                # open, in progress, updates, outgoing
 sideband skill                          # the calling client's adapter instructions
 sideband hook prompt                    # prompt-submit hook, payload on stdin
 sideband version
@@ -425,8 +371,8 @@ passes. `hook prompt` works the same way. It is the one capture hook for both
 clients, registered by `init` under the same command line in each client's
 hook configuration; it identifies the calling client (environment first, the
 payload's unique recorded-session match as fallback), parses that
-client's payload, journals the prompt for that client's cursor, and answers in
-that client's response shape. `--agent codex|claude` is an optional override,
+client's payload, journals the prompt as a request from the human through that
+client, and answers in that client's response shape. `--agent codex|claude` is an optional override,
 not a bypass of session ownership. Both hosts use `UserPromptSubmit`; that
 event name is validated when supplied, not used as a client discriminator.
 `init` registers `.codex/hooks.json` alongside `.claude/settings.json`.
@@ -452,22 +398,20 @@ append.
 `capture-human` applies routing only to the first non-whitespace token and keeps
 the body unchanged. It accepts only the known directives. A missing directive
 routes to `via`; `@all` writes one entry with both roles. For a direct human
-message addressed to its `via` role, the append result identifies that role as
-already consumed by the originating turn. The adapter immediately records
-`originating-turn`, and the deterministic `from`/`via` rule also prevents later
-self-redelivery if that cursor update was interrupted.
+message addressed to its `via` role, the deterministic `from`/`via` rule keeps
+the entry from ever being listed or delivered to that role: the client acts on
+it in the turn it was typed.
 
 `append-agent` accepts both `--caused-by` and `--reply-to` when a message has
 both relationships, including a human-directed follow-up. It validates
-provenance and records actionable outgoing requests before returning their IDs.
-With `--type ack` it requires `--reply-to`, forces `expects_reply` false,
-accepts an empty body, stamps `acknowledged_at` and appends to `ack_ids` on
-the author of the acknowledged entry's outgoing record when that entry is an
-agent request, and resolves the ack for every recipient at once so it is
-never delivered as an open entry. Repeated acks for one request are allowed.
-`pending` reports unresolved incoming entries and pending outgoing requests
-separately. `resolve-outgoing` records the parent's disposition, not a delivery
-acknowledgement or a time-based decision.
+provenance before appending. With `--type ack` it requires `--reply-to`,
+forces `expects_reply` false, and journals `received` when no body is given;
+the ack is never pushed and never listed, its effect being what `pending`
+derives for both sides. Repeated acks for one request are allowed.
+`--heartbeat` is accepted only on an entry that expects a reply and is stored
+as `heartbeat_seconds`. `pending` reports open and in-progress requests,
+updates past the read position, and outgoing requests, all derived from the
+journal.
 
 `wait` is one-shot and belongs only to the session's background listener.
 It blocks in a low-frequency stat loop until one or more new complete addressed
@@ -538,15 +482,9 @@ reads the batch with `sideband pending`, whose output carries the same
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the
-parent checks resolved state and IDs it has already processed in its
-conversation. Duplicate envelopes may be acknowledged but must not repeat work.
-A delivered flag alone must not suppress the parent's first processing of an
-accepted handoff: delivery and resolution are separate facts.
-
-After the host's parent-message operation succeeds, the worker calls
-`mark-delivered`. If the worker crashes between those two operations, the entry
-may be delivered again, which is the intentional at-least-once failure mode.
-The stable envelope ID makes the retry idempotent at the parent.
+parent checks `pending`, where its own ack or reply in the journal shows what
+it has already taken up or finished. Duplicate envelopes must not repeat work;
+the stable id and the journal's record of the ack make a redelivery harmless.
 
 ### 7.3 Live entries
 
@@ -598,20 +536,17 @@ startup watermark are backlog; neither correlation nor a pending request grants
 permission to execute actionable backlog. Newer human instructions govern any
 resumed work. Passage of time changes no request state.
 
-Receipt is acknowledged before work starts. When the parent takes up an
-agent request it appends an `ack` first (requirements 9.8), and while the
-work runs it acknowledges again within each `heartbeat` interval the request
-named; the executable turns each into `acknowledged_at` on the requester's
-outgoing record without waking the requester. `pending` reports, per outgoing
-request, the latest acknowledgement, whether the silence has exceeded the
-heartbeat (`overdue`), how long it has lasted, and the recipient's session
-liveness as a secondary signal. The sending parent decides what to do with
+Receipt is acknowledged before work starts. When the parent takes up a
+request it appends an `ack` first (requirements 9.8), and while the work runs
+it acknowledges again within each heartbeat interval the request named. For
+the recipient that moves the request from `open` to `in_progress` in
+`pending`; for the sender it sets `acknowledged_at` and `ack_ids` on the
+outgoing report, with the silence since the latest ack and whether it exceeds
+`heartbeat_seconds` (`overdue`). The sending parent decides what to do with
 that: keep waiting, move on, or tell the human the other agent is not
-responding. Sideband never resends or resolves on its own. `follow` evaluates
-the role's outgoing requests on its periodic cursor re-reads and emits one
-wake line when a request first becomes overdue, recorded in
-`overdue_notified_at` and cleared by a later ack; a Claude `follow` does the
-same for Codex's requests and pushes the notice with `codex queue`.
+responding. Sideband never resends or resolves on its own. Whether `follow`
+should also emit a wake line when a request first becomes overdue is open
+(requirements section 15).
 
 ### 7.6 Human-directed follow-ups
 
@@ -672,13 +607,13 @@ The Claude skill is installed as a Claude-compatible `SKILL.md` and invoked as
   model processing; the hook recognizes Claude Code as the caller itself;
 - deliver entries to the original parent conversation, never answer them in the
   worker; and
-- report a stopped background task so the parent can restart it from the durable
-  cursor.
+- report a stopped background task so the parent can restart it from the last
+  wake line's `end`.
 
 The recorded Claude spike proved that completion of a background native `wait`
 task wakes the idle parent, with the task's JSON stdout as the delivery envelope.
 Use that evidence to develop the adapter; it does not yet prove full routing,
-capture, or cursor behavior. A wake notification prompts a cursor-based scan,
+capture, or session behavior. A wake notification prompts a read of `pending`,
 not an assumption that exactly one message arrived. After handoff, acknowledge
 the batch and re-arm the one-shot listener. Explicit skill activation remains
 the proposed lifecycle boundary; a supported capture hook is mandatory while
@@ -787,9 +722,10 @@ application context is needed. Most protocol specifications need no context.
 - Metadata validation, unknown-field tolerance, and invalid-enum rejection.
 - Bodies containing headings, HTML comments, the closing marker, no final
   newline, Unicode, and invalid UTF-8 input.
-- Cursor transitions, repeated transitions, and invalid state regressions.
-- Separate outgoing-request transitions and reply-chain correlation, including
-  clarifications, multi-recipient requests, and late replies to earlier work.
+- Session activation, conflict, replacement, refresh, and read-position
+  advance.
+- Pending derivation: open, in progress, updates, outgoing, reply-chain
+  correlation through clarifications, acks, heartbeat silence and overdue.
 - Immediate-cause ancestry, missing/cyclic links, depth-five boundaries, and
   unbounded reply iterations with an optional notification-only threshold.
 - Lock ownership, dead owners, live owners, PID reuse, and foreign hosts.
@@ -803,11 +739,9 @@ application context is needed. Most protocol specifications need no context.
   a later writer recovers the trailing fragment append-only.
 - Entry creation before activation, during activation, between activation and
   wait, and while wait is blocked; none may be lost.
-- Crash after parent handoff but before `mark-delivered`; retry emits the same ID
-  and the simulated parent performs work once.
-- Atomic cursor updates under interruption.
-- Crash between a durable request append and its cursor update; recovery restores
-  pending state without resending or reopening already-resolved requests.
+- Crash after parent handoff but before the read position advances; the entry
+  is shown again and the journal's ack prevents a second round of work.
+- Atomic session-record updates under interruption.
 - Request persistence across session endings and backlog/live reply boundaries.
 - Human input and linked follow-ups while a request remains pending, with no
   extra listener, blocking sender call, timer, or automatic supersession.
@@ -887,8 +821,8 @@ than mocking `git rev-parse`.
    Use Groovy/Spock specifications throughout.
 3. Add shared-directory discovery, secure initialization, locking, serialized
    append, and concurrent/crash tests, including native-binary execution.
-4. Add incoming and outgoing cursor state, activation watermarking, backlog
-   queries, background journal following, reply correlation, and recovery tests.
+4. Add session records, activation watermarking, journal-derived pending,
+   background journal following, and reply correlation tests.
    Cover human-directed follow-ups without structured revision machinery.
 5. Implement fake-host contracts and automated acceptance specifications for
    host-independent behavior. Keep real-host acceptance checks explicit.
@@ -956,8 +890,8 @@ Version one is complete when:
 - restart/replay can redeliver but cannot cause duplicate work for one message
   ID;
 - separate worktrees share one private journal; and
-- `sideband doctor` reports paths, permissions, protocol versions, cursor health,
-  outgoing-request state, skill links, capture guarantee, lock ownership, and
+- `sideband doctor` reports paths, permissions, protocol versions, each role's
+  session and pending counts, skill links, capture guarantee, lock ownership, and
   listener state without printing message bodies.
 
 ## 14. Review addenda

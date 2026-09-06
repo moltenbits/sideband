@@ -30,10 +30,12 @@ native image, and everything a client runs is a subcommand of it.
   each agent is spoken to in its own session; `@codex` at the start of a
   prompt typed into Claude Code routes it to Codex anyway, `@claude` does the
   reverse, and `@all` reaches both.
-- **Nothing is lost.** Each role keeps a cursor recording what it has seen,
-  accepted, and resolved. Entries that arrive while a client is away surface as
-  backlog at its next activation and are confirmed with the human before any
-  action.
+- **Nothing is lost, and nothing is tracked outside the journal.** A request
+  stays listed for its recipient until the journal holds that recipient's
+  acknowledgement or reply, and listed for its sender until a reply exists.
+  Requests that arrived while a client was away are confirmed with the human
+  before any action. The only thing kept beside the journal is each role's
+  session record: who it is and how far it has read.
 
 ## How the pieces fit
 
@@ -57,7 +59,7 @@ flowchart LR
 ```
 
 The executable is the only thing that parses or writes the journal, takes the
-append lock, resolves routing, checks provenance, or touches a cursor. The
+append lock, resolves routing, checks provenance, or touches a session record. The
 skills contain no logic of their own: the installed `SKILL.md` files are stubs
 that run `sideband skill`, which prints the adapter instructions embedded in
 the executable, so upgrading the binary upgrades both adapters.
@@ -70,7 +72,7 @@ and a closing marker:
 
 ```markdown
 <!-- sideband:v1
-{"id":"…","created_at":"…","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
+{"id":"…","created_at":"…","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"heartbeat_seconds":null,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
 -->
 
 ## James → Codex (via Claude)
@@ -118,13 +120,12 @@ sequenceDiagram
     Note over Claude: Claude implements the change
     Claude->>SB: append-agent --to codex --type request --caused-by (James's entry)
     SB->>Codex: codex queue starts a turn with the envelope
-    Note over Codex: Codex reviews the tests and runs them
+    Note over Codex: Codex acknowledges, then reviews the tests and runs them
+    Codex->>SB: append-agent --type ack --reply-to (the request)
     Codex->>SB: append-agent --to claude --type reply --reply-to (the request)
-    Codex->>SB: resolve --as acted
     SB-->>Claude: follow emits a wake line into the idle conversation
-    Claude->>SB: pending, then mark-delivered
+    Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found
-    Claude->>SB: resolve --as acted, resolve-outgoing --as answered
     Claude->>James: The change, with Codex's review folded in
 ```
 
@@ -135,24 +136,26 @@ its own session at any point, including to redirect the review while Claude
 was still waiting for it. Waiting costs nothing: Claude's conversation stays
 free for James until the reply arrives.
 
-### What a recipient records about an entry
+### What is waiting for a role
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Open: appended, addressed to this role
-    Open --> Backlog: role activates later
-    Open --> Live: role has an active session
-    Backlog --> Presented: shown, human confirms first
-    Live --> Delivered: mark-delivered (Claude) or pushed (Codex)
-    Delivered --> Resolved
-    Presented --> Resolved
-    Resolved --> [*]: acted, presented, or dismissed
+    [*] --> Open: a request addressed to the role is appended
+    Open --> InProgress: the role appends an ack
+    InProgress --> InProgress: another ack while the work runs
+    Open --> Done: the role appends a reply
+    InProgress --> Done: the role appends a reply
+    Done --> [*]
 ```
 
-Delivery and resolution are separate facts. An entry can be delivered more
-than once, but the stable id makes that harmless, and only the recipient's
-disposition closes it. A human's own turn is resolved for the client it was
-typed into at capture time, so it is never delivered back to that client.
+None of this is stored as state. `pending` derives it from the journal on
+every read: a request is open until the role's ack exists and in progress
+until its reply exists, and the same entries tell the sender that its request
+was acknowledged and then answered. A request may say how often it expects a
+reply or a fresh ack; silence longer than that is reported to the sender as
+overdue, and the sender decides what to do. The only thing a role keeps
+beside the journal is its session record: identity and how far it has read,
+so informational updates are shown once.
 
 ## Install
 

@@ -4,7 +4,7 @@ import com.moltenbits.sideband.ancestry.InvalidLineageException;
 import com.moltenbits.sideband.home.NotARepositoryException;
 import com.moltenbits.sideband.locking.LockTimeoutException;
 import com.moltenbits.sideband.protocol.InvalidEntryException;
-import com.moltenbits.sideband.recipient.SessionConflictException;
+import com.moltenbits.sideband.session.SessionConflictException;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
 import picocli.CommandLine.ParseResult;

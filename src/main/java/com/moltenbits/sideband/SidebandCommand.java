@@ -10,7 +10,6 @@ import com.moltenbits.sideband.command.HookCommand;
 import com.moltenbits.sideband.command.InitCommand;
 import com.moltenbits.sideband.command.PendingCommand;
 import com.moltenbits.sideband.command.SkillCommand;
-import com.moltenbits.sideband.command.StateCommands;
 import com.moltenbits.sideband.command.WaitCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
 import io.micronaut.context.ApplicationContext;
@@ -36,10 +35,6 @@ import picocli.CommandLine.IVersionProvider;
                 WaitCommand.class,
                 FollowCommand.class,
                 PendingCommand.class,
-                StateCommands.MarkSeen.class,
-                StateCommands.MarkDelivered.class,
-                StateCommands.Resolve.class,
-                StateCommands.ResolveOutgoing.class,
                 SkillCommand.class,
                 HookCommand.class,
                 DoctorCommand.class

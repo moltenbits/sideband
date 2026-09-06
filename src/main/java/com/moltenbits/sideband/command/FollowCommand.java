@@ -7,8 +7,8 @@ import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Cursor;
-import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.pending.Addressing;
+import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.waiting.JournalWatcher;
 import com.moltenbits.sideband.waiting.Waited;
 import io.micronaut.context.annotation.Prototype;
@@ -37,8 +37,8 @@ import java.util.function.Predicate;
 @Prototype
 public class FollowCommand implements Callable<Integer> {
 
-    /** Re-check the cursor this often so entries resolved elsewhere stop being re-reported. */
-    static final Duration CURSOR_REFRESH = Duration.ofSeconds(30);
+    /** Wake from the watcher this often even when nothing arrived, so a hung watch is bounded. */
+    static final Duration IDLE_RECHECK = Duration.ofSeconds(30);
 
     @Spec
     CommandSpec spec;
@@ -58,14 +58,12 @@ public class FollowCommand implements Callable<Integer> {
     private final SidebandHome home;
     private final HostEnvironment host;
     private final JournalWatcher watcher;
-    private final RecipientState recipients;
     private final ObjectMapper json;
 
-    FollowCommand(SidebandHome home, HostEnvironment host, JournalWatcher watcher, RecipientState recipients, ObjectMapper json) {
+    FollowCommand(SidebandHome home, HostEnvironment host, JournalWatcher watcher, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.watcher = watcher;
-        this.recipients = recipients;
         this.json = json;
     }
 
@@ -82,10 +80,10 @@ public class FollowCommand implements Callable<Integer> {
         PrintWriter out = spec.commandLine().getOut();
         long offset = from;
         int batches = 0;
+        Predicate<Entry> concernsRole = entry -> Addressing.concerns(entry.metadata(), role)
+                && entry.metadata().type() != MessageType.ACK;
         while (maxBatches == null || batches < maxBatches) {
-            Cursor cursor = recipients.load(stateDirectory, role);
-            Predicate<Entry> open = entry -> recipients.isOpen(cursor, entry);
-            Waited waited = watcher.await(file, offset, CURSOR_REFRESH, open);
+            Waited waited = watcher.await(file, offset, IDLE_RECHECK, concernsRole);
             Read read = waited.read();
             offset = read.end();
             if (waited.timedOut()) {

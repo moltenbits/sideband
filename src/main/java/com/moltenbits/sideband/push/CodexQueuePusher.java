@@ -1,7 +1,7 @@
 package com.moltenbits.sideband.push;
 
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Session;
+import com.moltenbits.sideband.session.Session;
 import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 

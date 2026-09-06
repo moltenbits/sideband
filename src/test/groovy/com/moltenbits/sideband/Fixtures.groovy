@@ -32,10 +32,10 @@ class Fixtures {
         Map m = [
                 id: "019a", createdAt: T0, from: JAMES, via: Role.CLAUDE, to: [CLAUDE, CODEX],
                 type: MessageType.REQUEST, route: Route.BROADCAST, replyTo: null, causedBy: null,
-                expectsReply: true, delivery: Delivery.DEFAULT, bodyBytes: 58,
+                expectsReply: true, heartbeatSeconds: null, delivery: Delivery.DEFAULT, bodyBytes: 58,
         ] + overrides
         new EntryMetadata(m.id, m.createdAt, m.from, m.via, m.to, m.type, m.route, m.replyTo, m.causedBy,
-                m.expectsReply, m.delivery, m.bodyBytes)
+                m.expectsReply, m.heartbeatSeconds, m.delivery, m.bodyBytes)
     }
 
     static Draft humanDraft(String body = "@all independently review the proposed database migration.",
@@ -46,9 +46,10 @@ class Fixtures {
     static Draft agentDraft(Map overrides = [:]) {
         Map m = [
                 from: CLAUDE, to: [CODEX], type: MessageType.REQUEST, replyTo: null, causedBy: "019a",
-                expectsReply: true, delivery: Delivery.DEFAULT, body: "independently test the concurrency behavior",
+                expectsReply: true, heartbeatSeconds: null, delivery: Delivery.DEFAULT,
+                body: "independently test the concurrency behavior",
         ] + overrides
         new Draft(m.from, null, m.to, m.type, Route.forRecipients(m.to), m.replyTo, m.causedBy,
-                m.expectsReply, m.delivery, m.body)
+                m.expectsReply, m.heartbeatSeconds, m.delivery, m.body)
     }
 }

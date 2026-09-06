@@ -5,7 +5,8 @@ import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.protocol.Role
-import com.moltenbits.sideband.recipient.RecipientState
+import com.moltenbits.sideband.pending.Pending
+import com.moltenbits.sideband.session.Sessions
 import io.micronaut.serde.ObjectMapper
 import picocli.CommandLine
 
@@ -37,7 +38,7 @@ class HookAndSkillSpec extends CommandSpec {
                 parentPid(_) >> Optional.ofNullable(detectedPid)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
-                    context.getBean(RecipientState), captureOverride ?: context.getBean(HumanCapture), context.getBean(ObjectMapper))
+                    context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
             cli.err = new PrintWriter(stderr, true)
@@ -124,7 +125,7 @@ class HookAndSkillSpec extends CommandSpec {
         run("pending", "--repo", repo.toString(), "--role", "codex")
 
         then:
-        json().live == []
+        json().open == [] && json().in_progress == [] && json().updates == []
     }
 
     void "Codex delivered envelopes are never recaptured"() {
@@ -219,9 +220,9 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = detected
         detectedPid = ProcessHandle.current().pid()
         run("activate", "--repo", repo.toString(), "--role", owner, "--session-id", "s1", "--parent-pid", "999999999")
-        RecipientState state = context.getBean(RecipientState)
+        Sessions state = context.getBean(Sessions)
         Path dir = context.getBean(SidebandHome).locate(repo)
-        def before = state.load(dir, Role.valueOf(owner.toUpperCase())).session()
+        def before = state.load(dir, Role.valueOf(owner.toUpperCase())).get()
         stdout = new StringWriter()
 
         when:
@@ -230,12 +231,12 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         json().hookSpecificOutput.additionalContext.contains("Sideband journaled this prompt")
-        with(state.load(dir, Role.valueOf(owner.toUpperCase())).session()) {
+        with(state.load(dir, Role.valueOf(owner.toUpperCase())).get()) {
             parentPid() == detectedPid
             id() == before.id()
             startedAt() == before.startedAt()
-            watermarkId() == before.watermarkId()
-            watermarkEnd() == before.watermarkEnd()
+            watermark() == before.watermark()
+            offset() == before.offset()
         }
 
         where:
@@ -295,13 +296,13 @@ class HookAndSkillSpec extends CommandSpec {
 
     void "a failure after the append reports the journaled id and forbids a second capture"() {
         given:
+        detectedAgent = Role.CLAUDE
         run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        Path cursors = repo.resolve(".git/sideband/cursors")
+        Path codexSession = Files.createDirectories(repo.resolve(".git/sideband/sessions/codex.json"))
         stdout = new StringWriter()
-        cursors.toFile().setWritable(false, false)
 
-        when: "the originating-turn cursor update cannot be written after the entry is in the journal"
-        int code = hook("journaled but not finished")
+        when: "delivery to Codex cannot read its session record after the entry is in the journal"
+        int code = hook("@codex journaled but not finished")
         String journal = Files.readString(journalFile)
         String id = (journal =~ /"id":"([0-9a-f-]{36})"/)[-1][1]
 
@@ -313,7 +314,7 @@ class HookAndSkillSpec extends CommandSpec {
         stderr.toString().contains("journaled " + id)
 
         cleanup:
-        cursors.toFile().setWritable(true, false)
+        Files.deleteIfExists(codexSession)
     }
 
     void "a hook payload without a session id is reported only where Sideband is in use"() {
@@ -364,11 +365,11 @@ class HookAndSkillSpec extends CommandSpec {
         run("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "before-clear",
                 "--parent-pid", detectedPid.toString())
         stdout = new StringWriter()
-        def before = context.getBean(RecipientState).load(repo.resolve(".git/sideband"), Role.CLAUDE).session()
+        def before = context.getBean(Sessions).load(repo.resolve(".git/sideband"), Role.CLAUDE).get()
 
         when:
         int code = hook("first prompt after /clear", "after-clear")
-        def after = context.getBean(RecipientState).load(repo.resolve(".git/sideband"), Role.CLAUDE).session()
+        def after = context.getBean(Sessions).load(repo.resolve(".git/sideband"), Role.CLAUDE).get()
 
         then:
         code == ExitCode.OK
@@ -377,7 +378,7 @@ class HookAndSkillSpec extends CommandSpec {
         after.id() == "after-clear"
         after.parentPid() == detectedPid
         after.startedAt() == before.startedAt()
-        after.watermarkEnd() == before.watermarkEnd()
+        after.watermark() == before.watermark()
 
         where:
         markers << [true, false]
@@ -434,7 +435,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedPid = ProcessHandle.current().pid()
         run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
         Path dir = context.getBean(SidebandHome).locate(repo)
-        RecipientState state = context.getBean(RecipientState)
+        Sessions state = context.getBean(Sessions)
         def before = state.load(dir, Role.CODEX)
         stdout = new StringWriter()
 
@@ -458,7 +459,7 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.additionalContext.contains("multiple roles")
         stderr.toString().contains("multiple roles")
         !Files.exists(journalFile)
-        !context.getBean(RecipientState).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).session().isLive()
-        !context.getBean(RecipientState).load(context.getBean(SidebandHome).locate(repo), Role.CLAUDE).session().isLive()
+        !context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).get().isLive()
+        !context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CLAUDE).get().isLive()
     }
 }

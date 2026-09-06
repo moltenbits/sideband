@@ -5,7 +5,7 @@ import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.Role
-import com.moltenbits.sideband.recipient.RecipientState
+import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
 import spock.lang.Shared
@@ -25,7 +25,7 @@ class HostPushesSpec extends Specification {
             ["sideband.codex.executable": fakeBin.resolve("codex").toString()])
 
     Journal journal = context.getBean(Journal)
-    RecipientState recipients = context.getBean(RecipientState)
+    Sessions sessions = context.getBean(Sessions)
     Pushes pushes = context.getBean(Pushes)
     Path repo = TempRepo.init()
     Path state = Files.createDirectories(repo.resolve(".git/sideband"))
@@ -65,9 +65,9 @@ exit $(cat "''' + exitFile + '''")
         !Files.exists(log)
     }
 
-    void "with a live Codex session the envelope is queued to its thread and the entry is marked delivered"() {
+    void "with a live Codex session the envelope is queued to its thread"() {
         given:
-        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
         Entry entry = toCodex("@codex please look")
 
         when:
@@ -84,13 +84,24 @@ exit $(cat "''' + exitFile + '''")
         message.contains('"effective_live":"auto"')
         message.contains('"handling":"Sideband delivered these journal entries to Codex.')
         !message.contains("mark-delivered")
-        recipients.load(state, Role.CODEX).stateOf(entry.metadata().id()).deliveredAt() != null
-        !recipients.load(state, Role.CODEX).isResolved(entry.metadata().id())
+    }
+
+    void "an ack is never pushed; it waits for the requester's next look at its outgoing requests"() {
+        given:
+        sessions.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        Entry request = toCodex("@codex please look")
+        Entry ack = journal.append(file, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX],
+                type: com.moltenbits.sideband.protocol.MessageType.ACK, replyTo: request.metadata().id(),
+                causedBy: null, expectsReply: false, body: "received"))
+
+        expect:
+        pushes.deliver(state, ack).isEmpty()
+        !Files.exists(log)
     }
 
     void "a dead Codex session is reported and nothing is queued"() {
         given:
-        recipients.activate(state, Role.CODEX, "thread-old", 999999999L, false)
+        sessions.activate(state, Role.CODEX, "thread-old", 999999999L, false)
 
         when:
         List<PushResult> results = pushes.deliver(state, toCodex())
@@ -102,7 +113,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "a failing codex queue leaves the entry pending with the reason"() {
         given:
-        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
         Files.writeString(exitFile, "3")
         Entry entry = toCodex()
 
@@ -112,7 +123,6 @@ exit $(cat "''' + exitFile + '''")
         then:
         results*.outcome() == [PushOutcome.FAILED]
         results[0].detail().contains("exited 3")
-        recipients.load(state, Role.CODEX).stateOf(entry.metadata().id()).deliveredAt() == null
     }
 
     void "Claude has no push command, so its own listener delivers"() {
@@ -125,7 +135,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "an agent's own role and human recipients are never pushed to"() {
         given:
-        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
         Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.JAMES],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "note to self"))
         Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.JAMES],
@@ -139,7 +149,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "a broadcast pushes to each client recipient except the one the human typed into"() {
         given:
-        recipients.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
+        sessions.activate(state, Role.CODEX, "thread-123", ProcessHandle.current().pid(), false)
         Entry viaClaude = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
         Entry viaCodex = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
 

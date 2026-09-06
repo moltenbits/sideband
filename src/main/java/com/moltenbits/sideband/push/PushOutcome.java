@@ -7,7 +7,7 @@ import java.util.Locale;
 /** What happened when the writer tried to wake a recipient's host. */
 public enum PushOutcome implements Wire {
 
-    /** The host accepted the message; the entry is marked delivered for that role. */
+    /** The host accepted the message and started a turn with it. */
     PUSHED,
     /** The role has never activated in this repository; the entry waits as backlog. */
     NO_SESSION,

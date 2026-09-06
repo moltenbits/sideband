@@ -1,19 +1,13 @@
 package com.moltenbits.sideband.command;
 
-import com.moltenbits.sideband.handoff.Handling;
-import com.moltenbits.sideband.handoff.Handoff;
-import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
-import com.moltenbits.sideband.journal.Journal;
+import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.OutgoingState;
-import com.moltenbits.sideband.recipient.Pending;
-import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
-import io.micronaut.serde.annotation.Serdeable;
-import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
 import picocli.CommandLine.Option;
@@ -22,16 +16,15 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.Callable;
 
 /**
- * Lists what a role still has open: unresolved incoming entries and unanswered outgoing
- * requests. This is where a listener's wake line sends the client, so the output starts
- * with the handling steps and each entry is a full handoff.
+ * Everything a role has to look at, derived from the journal: unanswered requests to it,
+ * informational entries it has not been shown, and its own requests still awaiting a reply.
+ * This is where a listener's wake line sends the client, so the output starts with the
+ * handling steps. Showing the report advances the role's read position past the updates.
  */
-@Command(name = "pending", description = "List a role's unresolved incoming entries and unanswered requests", mixinStandardHelpOptions = true)
+@Command(name = "pending", description = "List a role's unanswered requests, unseen updates, and unanswered outgoing requests", mixinStandardHelpOptions = true)
 @Prototype
 public class PendingCommand implements Callable<Integer> {
 
@@ -46,15 +39,15 @@ public class PendingCommand implements Callable<Integer> {
 
     private final SidebandHome home;
     private final HostEnvironment host;
-    private final RecipientState recipients;
-    private final Handoffs handoffs;
+    private final Sessions sessions;
+    private final Pending pending;
     private final ObjectMapper json;
 
-    PendingCommand(SidebandHome home, HostEnvironment host, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
+    PendingCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
         this.home = home;
         this.host = host;
-        this.recipients = recipients;
-        this.handoffs = handoffs;
+        this.sessions = sessions;
+        this.pending = pending;
         this.json = json;
     }
 
@@ -62,14 +55,11 @@ public class PendingCommand implements Callable<Integer> {
     public Integer call() throws IOException {
         Role who = role != null ? role : host.requireRole("--role");
         Path stateDirectory = repository.stateDirectory(home);
-        Path file = stateDirectory.resolve(Journal.FILE_NAME);
-        Pending pending = recipients.pending(stateDirectory, who);
-        Output.print(spec, json, new Report(Handling.pending(who),
-                handoffs.prepare(file, pending.backlog()), handoffs.prepare(file, pending.live()), pending.outgoing()));
+        PendingReport report = pending.report(stateDirectory, who);
+        if (report.session() != null) {
+            sessions.advance(stateDirectory, who, report.end());
+        }
+        Output.print(spec, json, report);
         return ExitCode.OK;
-    }
-
-    @Serdeable(naming = SnakeCaseStrategy.class)
-    record Report(String handling, List<Handoff> backlog, List<Handoff> live, Map<String, OutgoingState> outgoing) {
     }
 }

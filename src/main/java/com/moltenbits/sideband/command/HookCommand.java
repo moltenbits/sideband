@@ -9,10 +9,10 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
-import com.moltenbits.sideband.recipient.Pending;
-import com.moltenbits.sideband.recipient.RecipientState;
-import com.moltenbits.sideband.recipient.Session;
-import com.moltenbits.sideband.recipient.SessionRefresh;
+import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.session.Session;
+import com.moltenbits.sideband.session.SessionRefresh;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -57,14 +57,16 @@ public class HookCommand {
 
         private final SidebandHome home;
         private final HostEnvironment host;
-        private final RecipientState recipients;
+        private final Sessions sessions;
+        private final Pending pending;
         private final HumanCapture capture;
         private final ObjectMapper json;
 
-        Prompt(SidebandHome home, HostEnvironment host, RecipientState recipients, HumanCapture capture, ObjectMapper json) {
+        Prompt(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture, ObjectMapper json) {
             this.home = home;
             this.host = host;
-            this.recipients = recipients;
+            this.sessions = sessions;
+            this.pending = pending;
             this.capture = capture;
             this.json = json;
         }
@@ -143,7 +145,7 @@ public class HookCommand {
                 }
                 role = matching.getFirst();
             }
-            SessionRefresh refreshed = recipients.refreshSession(stateDirectory, role, payload.sessionId(),
+            SessionRefresh refreshed = sessions.refresh(stateDirectory, role, payload.sessionId(),
                     host.parentPid(role).orElse(null));
             switch (refreshed) {
                 case NOT_ACTIVE -> { return inactive(stateDirectory, role); }
@@ -197,8 +199,7 @@ public class HookCommand {
          * addressed to the caller are waiting, so nothing sits unread in silence.
          */
         private int inactive(Path stateDirectory, Role role) throws IOException {
-            Pending pending = recipients.pending(stateDirectory, role);
-            int waiting = pending.backlog().size() + pending.live().size();
+            int waiting = pending.report(stateDirectory, role).waiting();
             if (waiting == 0) {
                 return skipped("Sideband is not activated for " + role.id());
             }
@@ -211,19 +212,19 @@ public class HookCommand {
         }
 
         private boolean matchesSession(Path stateDirectory, Role role, String sessionId) {
-            Session session = recipients.load(stateDirectory, role).session();
-            if (session == null) {
+            Optional<Session> session = sessions.load(stateDirectory, role);
+            if (session.isEmpty()) {
                 return false;
             }
-            if (session.id().equals(sessionId)) {
+            if (session.get().id().equals(sessionId)) {
                 return true;
             }
             Optional<Long> caller = host.parentPid(role);
-            return caller.isPresent() && caller.get().equals(session.parentPid());
+            return caller.isPresent() && caller.get().equals(session.get().parentPid());
         }
 
         private boolean isActive(Path stateDirectory, Role role) {
-            return recipients.load(stateDirectory, role).session() != null;
+            return sessions.load(stateDirectory, role).isPresent();
         }
 
         private boolean anyActive(Path stateDirectory) {

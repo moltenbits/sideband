@@ -18,6 +18,7 @@ public record Draft(
         @Nullable String replyTo,
         @Nullable String causedBy,
         boolean expectsReply,
+        @Nullable Long heartbeatSeconds,
         Delivery delivery,
         String body) {
 
@@ -38,12 +39,14 @@ public record Draft(
         if (body.isBlank()) {
             throw new InvalidEntryException("the body must not be blank");
         }
+        if (heartbeatSeconds != null && heartbeatSeconds <= 0) {
+            throw new InvalidEntryException("'heartbeat_seconds' must be positive");
+        }
     }
 
-    /** A human's direct prompt, routed to {@code to}, entered through {@code via}. */
-    /** What a human typed: a request whoever it is addressed to, and the root of every chain. */
+    /** What a human typed: a request whoever it is addressed to, entered through {@code via}. */
     public static Draft humanRequest(ParticipantId human, Role via, List<ParticipantId> to, String body) {
         return new Draft(human, via, to, MessageType.REQUEST, Route.forRecipients(to),
-                null, null, true, Delivery.DEFAULT, body);
+                null, null, true, null, Delivery.DEFAULT, body);
     }
 }

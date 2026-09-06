@@ -2,9 +2,10 @@ package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
+import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Activation;
-import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
@@ -14,14 +15,15 @@ import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.concurrent.Callable;
 
 /**
- * Starts a Sideband session for a role: initializes state, sets the startup watermark,
- * and prints the backlog the human must decide on. The listener starts from
- * {@code session.watermark_end}.
+ * Starts a Sideband session for a role and prints its first pending report. Everything
+ * already in the journal is marked as predating the session, so the human confirms it
+ * before anything actionable is acted on. The listener starts from {@code session.watermark}.
  */
-@Command(name = "activate", description = "Start a session for a role, establish its watermark, and list its backlog", mixinStandardHelpOptions = true)
+@Command(name = "activate", description = "Start a session for a role and list what is waiting for it", mixinStandardHelpOptions = true)
 @Prototype
 public class ActivateCommand implements Callable<Integer> {
 
@@ -45,13 +47,15 @@ public class ActivateCommand implements Callable<Integer> {
 
     private final SidebandHome home;
     private final HostEnvironment host;
-    private final RecipientState recipients;
+    private final Sessions sessions;
+    private final Pending pending;
     private final ObjectMapper json;
 
-    ActivateCommand(SidebandHome home, HostEnvironment host, RecipientState recipients, ObjectMapper json) {
+    ActivateCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
         this.home = home;
         this.host = host;
-        this.recipients = recipients;
+        this.sessions = sessions;
+        this.pending = pending;
         this.json = json;
     }
 
@@ -61,8 +65,11 @@ public class ActivateCommand implements Callable<Integer> {
         String id = sessionId != null ? sessionId : host.sessionId(who).orElseThrow(() -> new IllegalArgumentException(
                 "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
         Long pid = parentPid != null ? parentPid : host.parentPid(who).orElse(null);
-        Activation activation = recipients.activate(repository.stateDirectory(home), who, id, pid, replace);
-        Output.print(spec, json, activation);
+        Path stateDirectory = repository.stateDirectory(home);
+        sessions.activate(stateDirectory, who, id, pid, replace);
+        PendingReport report = pending.report(stateDirectory, who);
+        sessions.advance(stateDirectory, who, report.end());
+        Output.print(spec, json, report);
         return ExitCode.OK;
     }
 }

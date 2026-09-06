@@ -71,22 +71,22 @@ class WaitCommandSpec extends CommandSpec {
         json() == [handling: null, start: 0, end: 0, entries: [], diagnostics: [], timed_out: true]
     }
 
-    void "with a role, only open entries for that role are returned and the end offset still advances"() {
+    void "with a role, only entries that concern it are returned, acks excluded, and the end offset still advances"() {
         given:
         Entry toCodex = append(Fixtures.humanDraft("@codex one", [Fixtures.CODEX]))
         Entry toClaude = append(Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE]))
         Entry fromCodex = append(Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "status from codex"))
-        run("resolve", "--repo", repo.toString(), "--role", "codex", "--as", "dismissed", toCodex.metadata().id())
-        stdout = new StringWriter()
-        Entry stillOpen = append(Fixtures.humanDraft("@codex three", [Fixtures.CODEX]))
+        Entry ackToCodex = append(Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.ACK,
+                replyTo: toClaude.metadata().id(), causedBy: null, expectsReply: false, body: "received"))
+        Entry later = append(Fixtures.humanDraft("@codex three", [Fixtures.CODEX]))
 
         when:
         int code = run("wait", "--repo", repo.toString(), "--role", "codex", "--from", "0", "--timeout", "5")
 
         then:
         code == ExitCode.OK
-        json().entries*.metadata*.id == [stillOpen.metadata().id()]
+        json().entries*.metadata*.id == [toCodex.metadata().id(), later.metadata().id()]
         json().end == Files.size(journalFile)
         json().handling.startsWith("Sideband delivered these journal entries to Codex.")
     }

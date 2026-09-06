@@ -18,7 +18,7 @@ class HandlingSpec extends Specification {
         !text.contains("\n")
     }
 
-    void "Claude's handling says the listener delivered it and that Claude records the handoff itself"() {
+    void "Claude's handling says the listener delivered it and tells it to acknowledge, act, and reply through the journal"() {
         when:
         String text = Handling.forRole(Role.CLAUDE)
 
@@ -26,29 +26,24 @@ class HandlingSpec extends Specification {
         text.startsWith("Sideband delivered these journal entries to Claude.")
         text.contains("not from the user")
         text.contains("listener, which keeps running and must not be restarted or duplicated")
-        text.contains("run `sideband mark-delivered <id>`")
-        text.contains("run `sideband resolve --as acted|presented|dismissed <id>`")
+        text.contains("first acknowledge it with `sideband append-agent --type ack --reply-to <id>`")
         text.contains("ask the user before acting")
+        text.contains("answer with `sideband append-agent --to <metadata.from> --type reply --reply-to <id>`")
+        text.contains("updates are context only")
         text.endsWith("Full adapter instructions: run `sideband skill`.")
         !text.contains("\n")
+        !text.contains("mark-delivered")
     }
 
-    void "Codex's handling says the executable pushed it and already recorded delivery"() {
+    void "Codex's handling says the executable pushed it and gives the same steps"() {
         when:
         String text = Handling.forRole(Role.CODEX)
 
         then:
         text.startsWith("Sideband delivered these journal entries to Codex.")
-        text.contains("already recorded it as delivered")
-        !text.contains("mark-delivered")
+        text.contains("was pushed by the Sideband executable")
         !text.contains("listener")
-        text.contains("run `sideband resolve --as acted|presented|dismissed <id>`")
+        text.contains("first acknowledge it with `sideband append-agent --type ack --reply-to <id>`")
         text.endsWith("Full adapter instructions: run `sideband skill`.")
-    }
-
-    void "the pending handling adds the backlog confirmation rule to the full steps"() {
-        expect:
-        Handling.pending(Role.CLAUDE).startsWith(Handling.forRole(Role.CLAUDE))
-        Handling.pending(Role.CLAUDE).endsWith("ask the user before acting on any.")
     }
 }

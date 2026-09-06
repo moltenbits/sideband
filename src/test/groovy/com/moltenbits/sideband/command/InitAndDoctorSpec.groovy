@@ -85,9 +85,9 @@ class InitAndDoctorSpec extends CommandSpec {
         report.journal.incomplete_tail == false
         report.roles.codex.session_id == "s1"
         report.roles.codex.session_live == true
-        report.roles.codex.backlog == 1
+        report.roles.codex.open == 1
         report.roles.claude.session_id == null
-        report.roles.claude.backlog == 0
+        report.roles.claude.open == 0
         report.lock_owner_pid == "12345"
         !stdout.toString().contains("@codex hi")
     }

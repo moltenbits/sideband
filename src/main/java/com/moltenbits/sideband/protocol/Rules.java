@@ -21,8 +21,11 @@ final class Rules {
         if (from.isHuman() && via == null) {
             throw new InvalidEntryException("'via' is required when the author is a human");
         }
-        if (type == MessageType.REPLY && replyTo == null) {
-            throw new InvalidEntryException("a reply must set 'reply_to'");
+        if ((type == MessageType.REPLY || type == MessageType.ACK) && replyTo == null) {
+            throw new InvalidEntryException("a " + type.id() + " must set 'reply_to'");
+        }
+        if (type == MessageType.ACK && expectsReply) {
+            throw new InvalidEntryException("an ack never expects a reply");
         }
         Route expected = Route.forRecipients(to);
         if (route != expected) {

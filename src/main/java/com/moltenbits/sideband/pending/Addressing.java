@@ -1,10 +1,10 @@
-package com.moltenbits.sideband.recipient;
+package com.moltenbits.sideband.pending;
 
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 
-/** Which entries concern a role. */
+/** Which entries a role must look at, derived from metadata alone. */
 public final class Addressing {
 
     private Addressing() {
@@ -12,9 +12,7 @@ public final class Addressing {
 
     /**
      * Addressed to the role, not authored by it, and not a human turn typed into it. The
-     * client a human typed into acts on that turn directly, so it is never open for that
-     * client regardless of cursor state; this keeps a listener from seeing the entry in
-     * the instant between its append and its originating-turn resolution.
+     * client a human typed into acts on that turn directly, so it is never for that client.
      */
     public static boolean concerns(EntryMetadata metadata, Role role) {
         ParticipantId self = ParticipantId.of(role);

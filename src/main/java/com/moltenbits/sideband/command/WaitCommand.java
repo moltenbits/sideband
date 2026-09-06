@@ -8,8 +8,8 @@ import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Cursor;
-import com.moltenbits.sideband.recipient.RecipientState;
+import com.moltenbits.sideband.pending.Addressing;
+import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.waiting.JournalWatcher;
 import com.moltenbits.sideband.waiting.Waited;
 import io.micronaut.context.annotation.Prototype;
@@ -52,14 +52,12 @@ public class WaitCommand implements Callable<Integer> {
 
     private final SidebandHome home;
     private final JournalWatcher watcher;
-    private final RecipientState recipients;
     private final Handoffs handoffs;
     private final ObjectMapper json;
 
-    WaitCommand(SidebandHome home, JournalWatcher watcher, RecipientState recipients, Handoffs handoffs, ObjectMapper json) {
+    WaitCommand(SidebandHome home, JournalWatcher watcher, Handoffs handoffs, ObjectMapper json) {
         this.home = home;
         this.watcher = watcher;
-        this.recipients = recipients;
         this.handoffs = handoffs;
         this.json = json;
     }
@@ -80,13 +78,12 @@ public class WaitCommand implements Callable<Integer> {
         return waited.timedOut() ? ExitCode.TIMED_OUT : ExitCode.OK;
     }
 
-    /** Open entries for the role, or everything when no role is given. */
+    /** Entries that concern the role, or everything when no role is given. */
     Predicate<Entry> filter(Path stateDirectory) {
         if (role == null) {
             return entry -> true;
         }
-        Cursor cursor = recipients.load(stateDirectory, role);
-        return entry -> recipients.isOpen(cursor, entry);
+        return entry -> Addressing.concerns(entry.metadata(), role) && entry.metadata().type() != MessageType.ACK;
     }
 
     Batch batch(Path file, Waited waited) {

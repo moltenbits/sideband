@@ -1,7 +1,7 @@
 package com.moltenbits.sideband.push;
 
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Session;
+import com.moltenbits.sideband.session.Session;
 
 /** A host's native command for starting a new turn in an existing session. */
 public interface HostPusher {

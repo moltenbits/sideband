@@ -5,7 +5,7 @@ import com.moltenbits.sideband.TempRepo
 import java.nio.file.Files
 import java.nio.file.Path
 
-/** activate, pending, mark-seen, mark-delivered, resolve, and resolve-outgoing through the CLI. */
+/** activate, pending, and ack through the CLI. */
 class SessionCommandsSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
@@ -27,7 +27,7 @@ class SessionCommandsSpec extends CommandSpec {
                  Files.writeString(repo.resolve("agent.md"), "body").toString()] + rest.toList() as String[]).metadata.id
     }
 
-    void "activate reports the watermark and backlog, and a second live session is refused with its own exit code"() {
+    void "activate starts the session and lists what predates it; a second live session is refused with its own exit code"() {
         given:
         String toCodex = capture("claude", "@codex review this")
         capture("claude", "just for claude")
@@ -38,9 +38,15 @@ class SessionCommandsSpec extends CommandSpec {
 
         then:
         activation.session.id == "s1"
-        activation.session.watermark_end == Files.size(repo.resolve(".git/sideband/journal.md"))
-        activation.backlog*.metadata*.id == [toCodex]
+        activation.session.watermark == Files.size(repo.resolve(".git/sideband/journal.md"))
+        activation.session.offset == activation.session.watermark
+        activation.open*.entry*.metadata*.id == [toCodex]
+        activation.open*.before_session == [true]
+        activation.in_progress == []
+        activation.updates == []
+        activation.outgoing == []
         activation.diagnostics == []
+        activation.handling.startsWith("Sideband delivered these journal entries to Codex.")
 
         when:
         int code = run("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2")
@@ -53,10 +59,10 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2", "--replace").session.id == "s2"
     }
 
-    void "the originating client never sees its own human turn as pending"() {
+    void "the originating client never sees its own human turn"() {
         given:
         runJson("activate", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
-        String direct = capture("claude", "fix the typo")
+        capture("claude", "fix the typo")
         String broadcast = capture("claude", "@all review this")
 
         when:
@@ -64,46 +70,58 @@ class SessionCommandsSpec extends CommandSpec {
         Map codex = runJson("pending", "--repo", repo.toString(), "--role", "codex")
 
         then:
-        claude.backlog == [] && claude.live == []
-        codex.live*.metadata*.id == [broadcast]
-        codex.backlog == []
-        codex.live[0].effective_live == "auto"
-        codex.live[0].lineage_problem == null
-        codex.handling.startsWith("Sideband delivered these journal entries to Codex.")
+        claude.open == [] && claude.updates == []
+        codex.open*.entry*.metadata*.id == [broadcast]
+        codex.open[0].before_session == false
+        codex.open[0].entry.effective_live == "auto"
+        codex.open[0].entry.lineage_problem == null
     }
 
-    void "state transitions round-trip through the CLI and outgoing requests are tracked"() {
+    void "an ack moves a request to in progress for the recipient and shows on the sender's outgoing request; a reply closes both"() {
         given:
         String h = capture("claude", "@claude ask codex")
-        String ask = appendAgent("--from", "claude", "--to", "codex", "--type", "request", "--caused-by", h)
+        String ask = appendAgent("--from", "claude", "--to", "codex", "--type", "request", "--caused-by", h, "--heartbeat", "10m")
 
-        expect: "append-agent registered the request as outgoing"
-        runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing.keySet() == [ask] as Set
+        expect: "the sender sees its request awaiting a reply, unacknowledged"
+        with(runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing) {
+            size() == 1
+            it[0].id == ask
+            it[0].heartbeat_seconds == 600
+            it[0].acknowledged_at == null
+            it[0].overdue == false
+        }
+        runJson("pending", "--repo", repo.toString(), "--role", "codex").open*.entry*.metadata*.id == [ask]
+
+        when:
+        Map ack = runJson("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", ask)
+
+        then: "an ack needs no body, never expects a reply, and is never pushed"
+        ack.metadata.type == "ack"
+        ack.metadata.expects_reply == false
+        ack.body == "received"
+        ack.pushes == []
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing[0].acknowledged_at != null
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing[0].ack_ids == [ack.metadata.id]
+        runJson("pending", "--repo", repo.toString(), "--role", "codex").open == []
+        runJson("pending", "--repo", repo.toString(), "--role", "codex").in_progress*.entry*.metadata*.id == [ask]
 
         when:
         String answer = appendAgent("--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", ask)
-        Map afterSeen = runJson("mark-seen", "--repo", repo.toString(), "--role", "claude", answer)
-        Map afterDelivered = runJson("mark-delivered", "--repo", repo.toString(), "--role", "claude", answer)
 
         then:
-        afterSeen.entries[answer].seen_at != null
-        afterSeen.entries[answer].delivered_at == null
-        afterDelivered.entries[answer].delivered_at != null
-        afterDelivered.outgoing[ask].reply_ids == [answer]
-        afterDelivered.outgoing[ask].state == "pending"
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").outgoing == []
+        runJson("pending", "--repo", repo.toString(), "--role", "codex").in_progress == []
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").updates*.metadata*.id == [answer]
+    }
 
-        when:
-        Map resolved = runJson("resolve", "--repo", repo.toString(), "--role", "claude", "--as", "presented", answer)
-        Map answered = runJson("resolve-outgoing", "--repo", repo.toString(), "--role", "claude", "--as", "answered", ask)
+    void "pending advances the read position, so an update is shown once"() {
+        given:
+        runJson("activate", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        appendAgent("--from", "codex", "--to", "claude", "--type", "status")
 
-        then:
-        resolved.entries[answer].resolution == "presented"
-        answered.outgoing[ask].state == "answered"
-        with(runJson("pending", "--repo", repo.toString(), "--role", "claude")) {
-            handling.startsWith("Sideband delivered these journal entries to Claude.")
-            handling.endsWith("ask the user before acting on any.")
-            backlog == [] && live == [] && outgoing == [:]
-        }
+        expect:
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").updates.size() == 1
+        runJson("pending", "--repo", repo.toString(), "--role", "claude").updates.size() == 0
     }
 
     void "activate for a role whose session id the environment does not expose is invalid input"() {
@@ -114,11 +132,10 @@ class SessionCommandsSpec extends CommandSpec {
         (System.getenv("CODEX_THREAD_ID") != null) || (code == ExitCode.INVALID_INPUT && stderr.toString().contains("--session-id"))
     }
 
-    void "bad dispositions are invalid input"() {
+    void "the cursor commands are gone"() {
         expect:
-        run("resolve", "--repo", repo.toString(), "--role", "claude", "--as", "ignored", "x") == ExitCode.INVALID_INPUT
-        run("resolve-outgoing", "--repo", repo.toString(), "--role", "claude", "--as", "pending", "x") == ExitCode.INVALID_INPUT
-        run("resolve-outgoing", "--repo", repo.toString(), "--role", "claude", "--as", "answered", "ghost") == ExitCode.INVALID_INPUT
-        run("mark-seen", "--repo", repo.toString(), "--role", "claude") == ExitCode.INVALID_INPUT
+        run("mark-delivered", "--repo", repo.toString(), "x") != ExitCode.OK
+        run("resolve", "--repo", repo.toString(), "--as", "acted", "x") != ExitCode.OK
+        run("resolve-outgoing", "--repo", repo.toString(), "--as", "answered", "x") != ExitCode.OK
     }
 }

@@ -9,10 +9,10 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.locking.Locks;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.recipient.Cursor;
-import com.moltenbits.sideband.recipient.Pending;
-import com.moltenbits.sideband.recipient.RecipientState;
-import com.moltenbits.sideband.recipient.Session;
+import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.pending.PendingReport;
+import com.moltenbits.sideband.session.Session;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -56,15 +56,17 @@ public class DoctorCommand implements Callable<Integer> {
     private final SidebandHome home;
     private final Configs configs;
     private final Journal journal;
-    private final RecipientState recipients;
+    private final Sessions sessions;
+    private final Pending pending;
     private final Installer installer;
     private final ObjectMapper json;
 
-    DoctorCommand(SidebandHome home, Configs configs, Journal journal, RecipientState recipients, Installer installer, ObjectMapper json) {
+    DoctorCommand(SidebandHome home, Configs configs, Journal journal, Sessions sessions, Pending pending, Installer installer, ObjectMapper json) {
         this.home = home;
         this.configs = configs;
         this.journal = journal;
-        this.recipients = recipients;
+        this.sessions = sessions;
+        this.pending = pending;
         this.installer = installer;
         this.json = json;
     }
@@ -83,14 +85,13 @@ public class DoctorCommand implements Callable<Integer> {
         Map<String, RoleReport> roles = new LinkedHashMap<>();
         if (exists) {
             for (Role role : Role.values()) {
-                Cursor cursor = recipients.load(stateDirectory, role);
-                Pending pending = recipients.pending(stateDirectory, role);
-                Session session = cursor.session();
+                Session session = sessions.load(stateDirectory, role).orElse(null);
+                PendingReport report = pending.report(stateDirectory, role);
                 roles.put(role.id(), new RoleReport(
                         session == null ? null : session.id(),
                         session == null ? null : session.isLive(),
-                        session == null ? null : session.watermarkEnd(),
-                        pending.backlog().size(), pending.live().size(), pending.outgoing().size()));
+                        session == null ? null : session.offset(),
+                        report.open().size(), report.inProgress().size(), report.updates().size(), report.outgoing().size()));
             }
         }
         Path lockFile = stateDirectory.resolve(Locks.FILE_NAME);
@@ -128,7 +129,7 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)
-    record RoleReport(@Nullable String sessionId, @Nullable Boolean sessionLive, @Nullable Long watermarkEnd,
-                      int backlog, int live, int outgoing) {
+    record RoleReport(@Nullable String sessionId, @Nullable Boolean sessionLive, @Nullable Long offset,
+                      int open, int inProgress, int updates, int outgoing) {
     }
 }

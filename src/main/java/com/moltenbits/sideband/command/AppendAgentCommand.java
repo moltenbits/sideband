@@ -16,8 +16,6 @@ import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.protocol.Route;
-import com.moltenbits.sideband.recipient.Addressing;
-import com.moltenbits.sideband.recipient.RecipientState;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
@@ -39,7 +37,7 @@ import java.util.concurrent.Callable;
  * Journals an agent-authored request, reply, or status. Actionable messages to another
  * client must trace to a human-authored entry; the command refuses to append one that does not.
  */
-@Command(name = "append-agent", description = "Journal an agent-authored request, reply, or status", mixinStandardHelpOptions = true)
+@Command(name = "append-agent", description = "Journal an agent-authored request, reply, status, or ack", mixinStandardHelpOptions = true)
 @Prototype
 public class AppendAgentCommand implements Callable<Integer> {
 
@@ -59,7 +57,7 @@ public class AppendAgentCommand implements Callable<Integer> {
             description = "Recipients: claude, codex, or human:<id>")
     List<ParticipantId> to;
 
-    @Option(names = "--type", required = true, description = "request, reply, or status")
+    @Option(names = "--type", required = true, description = "request, reply, status, or ack")
     MessageType type;
 
     @Option(names = "--reply-to", description = "The entry this directly answers")
@@ -72,44 +70,60 @@ public class AppendAgentCommand implements Callable<Integer> {
             description = "Whether recipients should treat this as actionable (default: true for requests, false otherwise)")
     Boolean expectsReply;
 
-    @Option(names = "--body-file", description = "File holding the body; standard input is read when omitted")
+    @Option(names = "--heartbeat", paramLabel = "DURATION",
+            description = "How often the recipient must reply or re-ack while working, e.g. 10m, 90s, 2h (actionable entries only)")
+    String heartbeat;
+
+    @Option(names = "--body-file", description = "File holding the body; standard input is read when omitted (an ack may have none)")
     Path bodyFile;
 
     private final SidebandHome home;
     private final HostEnvironment host;
     private final Journal journal;
     private final Ancestry ancestry;
-    private final RecipientState recipients;
     private final Pushes pushes;
     private final ObjectMapper json;
 
-    AppendAgentCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry, RecipientState recipients,
+    AppendAgentCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry,
                        Pushes pushes, ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.journal = journal;
         this.ancestry = ancestry;
-        this.recipients = recipients;
         this.pushes = pushes;
         this.json = json;
     }
 
     @Override
     public Integer call() throws IOException {
-        String body = Bodies.read(bodyFile);
         if (from == null) {
             from = host.requireRole("--from");
         }
-        boolean actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
+        boolean actionable;
+        String body;
+        if (type == MessageType.ACK) {
+            if (expectsReply != null && expectsReply) {
+                throw new IllegalArgumentException("an ack never expects a reply");
+            }
+            actionable = false;
+            body = bodyFile == null && System.in.available() == 0 ? "received" : Bodies.read(bodyFile);
+            if (body.isBlank()) {
+                body = "received";
+            }
+        } else {
+            actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
+            body = Bodies.read(bodyFile);
+        }
+        Long heartbeatSeconds = heartbeat == null ? null : Heartbeats.seconds(heartbeat);
+        if (heartbeatSeconds != null && !actionable) {
+            throw new IllegalArgumentException("--heartbeat only applies to an entry that expects a reply");
+        }
         Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
-                replyTo, causedBy, actionable, Delivery.DEFAULT, body);
+                replyTo, causedBy, actionable, heartbeatSeconds, Delivery.DEFAULT, body);
         Path stateDirectory = repository.stateDirectory(home);
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
         checkLineage(file, draft);
         Entry entry = journal.append(file, draft);
-        if (Addressing.isOutgoingRequest(entry.metadata(), from)) {
-            recipients.registerOutgoing(stateDirectory, from, entry.metadata().id());
-        }
         Output.print(spec, json, Captured.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
@@ -124,7 +138,7 @@ public class AppendAgentCommand implements Callable<Integer> {
         EntryIndex index = id -> Optional.ofNullable(byId.get(id));
         EntryMetadata candidate = new EntryMetadata(DRAFT_ID, OffsetDateTime.MIN, draft.from(), draft.via(),
                 draft.to(), draft.type(), draft.route(), draft.replyTo(), draft.causedBy(), draft.expectsReply(),
-                draft.delivery(), 0);
+                draft.heartbeatSeconds(), draft.delivery(), 0);
         ancestry.trace(candidate, index);
     }
 }
