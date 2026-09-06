@@ -509,8 +509,8 @@ are pushed by their writers as they are appended.
 This boundary must be race-safe: an entry may be classified as backlog or live,
 but it must not be lost between the join's scan and the first push. An entry
 whose push failed or found no session is not lost either: it stays addressed
-and unresolved in the journal, and `pending` lists it until the role's ack or
-reply exists.
+and unresolved in the journal, and `pending` lists it as open until the role's
+ack exists and as in progress until the role's reply exists.
 
 ### 9.4 Backlog handling
 
@@ -946,8 +946,9 @@ instances.
 Given a push fails, or the recipient's host accepts an entry and the
 conversation ends before the entry is handled, the entry is still addressed
 and unresolved in the journal: the next `join --resume` or `pending` shows it
-again, and the journal's own record of the role's ack or reply prevents
-duplicate work.
+again, as open when no ack exists and as in progress when one does, so the
+role acknowledges once and continues unfinished work rather than restarting
+it; only its reply closes the request.
 
 ### 14.10 Duplicate role activation
 
