@@ -8,6 +8,9 @@ Everything about parsing, routing, session state and pending work belongs to
 the executable. This adapter says when to call it and how to handle its output.
 `just install` installs the executable, including these instructions.
 
+In user-facing summaries, call it the "Sideband discussion" and say prompts
+are "recorded". Keep "journal" for technical explanations and code terminology.
+
 Commands resolve the state location and calling client from the current shell.
 Bodies travel through `--body-file` or stdin, never as command-line arguments.
 Exit codes are 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
@@ -20,7 +23,7 @@ The text after `$sideband` selects what to do. With no argument, join and resume
 | Argument | What to do |
 | --- | --- |
 | `help` | Show this table and the command summaries from `sideband --help`, without joining. Remind the user that `! sideband <command>` runs it directly without a model turn. |
-| `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, journal health and skill links. Do not join. |
+| `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
 | anything else | Capture the actual human prompt verbatim once, following the hook rules below. A leading routing directive is interpreted by the executable. |
@@ -84,15 +87,22 @@ override and does not bypass ownership checks.
 
 Only capture text the human actually typed, never a `[Sideband message]`
 envelope, notification, or inserted skill instructions. Handle hook notes as
-follows, reporting problems to the user before substantive work:
+follows, reporting problems to the user before substantive work. Recognize
+both the new "recorded/record" and older "journaled/journal" forms during
+the installed-binary transition; neither wording alone indicates a missing
+capture. Distinguish the complete note, including uncertainty or failure:
 
-- `Sideband journaled this prompt`: do not capture or route it again.
-- `journaled this prompt as <id> but could not finish`: do not recapture;
+- `Sideband recorded this prompt` (older: `Sideband journaled this prompt`):
+  do not capture or route it again.
+- `recorded this prompt as <id> but could not finish` (older:
+  `journaled this prompt as <id> but could not finish`): do not recapture;
   report the ID and the incomplete delivery or other follow-up step.
-- `may not have journaled this prompt`: the append outcome is uncertain.
+- `may not have recorded this prompt` (older: `may not have journaled this prompt`):
+  the append outcome is uncertain.
   Do not blindly retry. Inspect only through the executable; if absence cannot
   be established reliably, report the uncertainty and ask the user.
-- `could not journal this prompt`: capture once only after establishing that
+- `could not record this prompt` (older: `could not journal this prompt`):
+  capture once only after establishing that
   this session owns the role and nothing was written. An ownership conflict
   or unidentified caller is not permission to bypass the failed check with
   manual capture. Resolve session ownership/identity first.
