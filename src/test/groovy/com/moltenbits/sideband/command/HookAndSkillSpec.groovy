@@ -345,7 +345,7 @@ class HookAndSkillSpec extends CommandSpec {
         caller << [null, 999999998L]
     }
 
-    void "a prompt that should have been journaled and was not is reported to the model, never only to stderr"() {
+    void "a prompt that should have been recorded and was not is reported to the model, never only to stderr"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
@@ -354,12 +354,12 @@ class HookAndSkillSpec extends CommandSpec {
         expect: "a directory where the journal belongs makes the append itself fail, so the outcome is uncertain"
         hook("this must not vanish") == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband may not have recorded this prompt")
-        json().hookSpecificOutput.additionalContext.endsWith("Do not capture it again unless the Sideband discussion shows it is missing.")
-        stderr.toString().contains("capture failed during the append")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
+        stderr.toString().contains("capture failed")
     }
 
-    void "a failure before the append says the prompt is not journaled and may be captured again"() {
+    void "a failure before the append says the prompt was not recorded"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         captureOverride = { Path dir, Role via, String body ->
@@ -371,12 +371,12 @@ class HookAndSkillSpec extends CommandSpec {
         expect: "a failure before the append leaves nothing written"
         hook("lost before the journal") == ExitCode.OK
         json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
-        json().hookSpecificOutput.additionalContext.contains("It is not in the discussion")
-        json().hookSpecificOutput.additionalContext.contains("record it with `sideband append --from operator`")
+        json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
+        !json().hookSpecificOutput.additionalContext.contains("append")
         !Files.exists(journalFile)
     }
 
-    void "a failure after the append reports the journaled id and forbids a second capture"() {
+    void "a failure after the append reports the recorded id and the failed delivery"() {
         given:
         detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
@@ -391,9 +391,9 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         journal.contains("journaled but not finished")
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as " + id + " but could not finish afterwards")
-        json().hookSpecificOutput.additionalContext.contains("Do not capture it again")
-        stderr.toString().contains("recorded " + id)
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as " + id + " but could not deliver it")
+        json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
+        stderr.toString().contains("recorded " + id + " but could not deliver it")
 
         cleanup:
         Files.deleteIfExists(codexSession)

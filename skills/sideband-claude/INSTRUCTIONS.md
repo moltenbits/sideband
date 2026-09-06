@@ -91,17 +91,13 @@ prompt hook is installed (`sideband init` registers `sideband hook prompt` in
 this repository's `.claude/settings.json`), it has already captured the prompt
 before you see it and says so in a hook note that names the entry's id; do
 not capture again, and use that id as `--caused-by` when the prompt leads you
-to delegate. Never read the journal file to find an id. Any other
-hook note is a problem to tell the user about before doing anything else, and
-each says what to do:
-  - "could not record this prompt": it is not in the discussion. Capture it
-    yourself with `append --from operator` once you have told the user, unless the
-    reason is that another session owns Sideband.
-  - "may not have recorded this prompt": the append itself failed. Read the
-    journal tail; capture again only if the prompt is missing.
-  - "recorded this prompt as <id> but could not finish": never capture it
-    again; delivery to Codex may not have happened.
-  - "not active in this session and N entries are waiting": offer `/sideband`.
+to delegate. Never read the journal file to find an id. Any other hook note
+is something to tell the user before doing anything else, and that is all it
+asks of you: "could not record this prompt" means the prompt is not in the
+discussion; "recorded this prompt as <id> but could not deliver it" means it
+is, but the push to Codex failed; "not active in this session and N entries
+are waiting" means offer `/sideband`. Never record a prompt yourself; the
+hook records prompts, and reporting a failure is the whole recovery.
 
 ## When a Monitor notification arrives
 

@@ -268,12 +268,10 @@ The hook must never block a prompt, so it always exits successfully, and the
 hook's context field is the shared, non-blocking channel both hosts show the
 model. A prompt that should have been journaled and was not is therefore
 reported in that field, with the reason, so the model tells the human rather
-than the loss going to stderr where nobody reads it. Because capture appends
-to the journal before it pushes, the report says how far it got: nothing written, the append itself failed and the journal must
-be inspected, or the entry is journaled under a stated id with a later step
-missing. Only the first invites a second capture; the model never recaptures
-after an uncertain outcome, after a journaled one, or when the reason is that
-another session owns the role. Prompts that were never meant to be captured
+than the loss going to stderr where nobody reads it. The report says either
+that the prompt was not recorded, or that it was recorded under a stated id
+and the push to its recipient failed. Reporting is the whole recovery: no
+client records a prompt on the hook's behalf. Prompts that were never meant to be captured
 (commands, delivered envelopes, blank input) and repositories where Sideband
 is installed but not active stay silent, except that an inactive session
 whose role has entries waiting is told how many, so nothing waits unread.

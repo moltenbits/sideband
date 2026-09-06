@@ -76,11 +76,9 @@ public class HookCommand {
                 return capturePrompt();
             } catch (CaptureFailedException e) {
                 try {
-                    return switch (e.stage()) {
-                        case NOT_JOURNALED -> failed("capture failed: " + e.getMessage());
-                        case UNCERTAIN -> uncertain(e.getMessage());
-                        case JOURNALED -> journaledButIncomplete(e.journaledId(), e.getMessage());
-                    };
+                    return e.stage() == CaptureFailedException.Stage.JOURNALED
+                            ? recordedButNotDelivered(e.journaledId(), e.getMessage())
+                            : failed(e.getMessage());
                 } catch (IOException unreportable) {
                     spec.commandLine().getErr().println("sideband hook: could not report the failure: " + unreportable.getMessage());
                     return ExitCode.OK;
@@ -199,27 +197,19 @@ public class HookCommand {
         }
 
         /**
-         * A prompt that should have been journaled and was not. The host shows the model only
-         * the context field, so a failure must go there too or the loss is invisible.
+         * A prompt that should have been recorded and was not. The host shows the model only
+         * the context field, so the failure goes there, and the model tells the operator.
+         * Nothing else: no second attempt by anyone.
          */
         private int failed(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
-            return report("Sideband could not record this prompt: " + reason
-                    + ". It is not in the discussion; tell the user, then record it with `sideband append --from operator` if Sideband is active.");
+            return report("Sideband could not record this prompt: " + reason + ". Tell the user.");
         }
 
-        /** The append itself failed, so the journal may or may not hold the entry. */
-        private int uncertain(String reason) throws IOException {
-            spec.commandLine().getErr().println("sideband hook: capture failed during the append: " + reason);
-            return report("Sideband may not have recorded this prompt: " + reason
-                    + ". Tell the user. Do not capture it again unless the Sideband discussion shows it is missing.");
-        }
-
-        /** The entry is journaled; only what follows the append failed. */
-        private int journaledButIncomplete(String id, String reason) throws IOException {
-            spec.commandLine().getErr().println("sideband hook: recorded " + id + " but could not finish: " + reason);
-            return report("Sideband recorded this prompt as " + id + " but could not finish afterwards: " + reason
-                    + ". Do not capture it again. Tell the user; its delivery or cursor update may be missing.");
+        /** The entry is recorded; only the push to the recipient failed. */
+        private int recordedButNotDelivered(String id, String reason) throws IOException {
+            spec.commandLine().getErr().println("sideband hook: recorded " + id + " but could not deliver it: " + reason);
+            return report("Sideband recorded this prompt as " + id + " but could not deliver it: " + reason + ". Tell the user.");
         }
 
         private int report(String context) throws IOException {
