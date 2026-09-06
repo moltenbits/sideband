@@ -8,6 +8,7 @@ import io.micronaut.serde.ObjectMapper
 import spock.lang.AutoCleanup
 import spock.lang.Shared
 import spock.lang.Specification
+import spock.lang.Timeout
 
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
@@ -169,10 +170,8 @@ class ClaudeSocketPusherSpec extends Specification {
         lone.push(state, "hi").outcome() == PushOutcome.NO_SESSION
     }
     void "a frame over Claude Code's inbox cap is refused before any connection, counting the escaped form: #label"() {
-        given:
-        Path socket = socketPath()
-        def received = inbox(socket)
-        register(5, repo, socket)
+        given: "a registration whose socket nothing is bound to: a connection attempt would fail with a different reason"
+        register(5, repo, socketPath())
 
         when:
         PushResult result = pusher.push(state, text)
@@ -180,27 +179,32 @@ class ClaudeSocketPusherSpec extends Specification {
         then:
         result.outcome() == PushOutcome.FAILED
         result.detail().contains("over Claude Code's inbox cap of 1000000")
-        !received.isDone()
+        result.detail().contains("pending lists it")
+        !result.detail().contains("did not accept the connection")
 
         where:
         label            | text
         "plain"          | "x" * 1_000_000
-        "escaped quotes" | '"' * 600_000      // every quote serializes as two characters
-        "newlines"       | "\n" * 600_000     // so does every newline
+        "escaped quotes" | '"' * 600_000         // every quote serializes as two characters
+        "newlines"       | "\n" * 600_000        // so does every newline
+        "non-ascii"      | "\u00e9" * 1_000_000  // counted as characters, however they serialize
     }
 
-    void "a frame just under the cap is posted whole"() {
+    void "the cap is exact: the largest frame that fits is posted whole, one more character is refused"() {
         given:
+        int overhead = context.getBean(ObjectMapper).writeValueAsString([type: "user", message: [role: "user", content: ""]]).length() + 1
+        String largest = "w" * (ClaudeSocketPusher.FRAME_CAP - overhead)
         Path socket = socketPath()
         def received = inbox(socket)
-        register(6, repo, socket)
-        String text = "y" * (ClaudeSocketPusher.FRAME_CAP - 100)
+        register(9, repo, socket)
 
         expect:
-        pusher.push(state, text).outcome() == PushOutcome.PUSHED
-        received.get(30, TimeUnit.SECONDS).length() > text.length()
+        pusher.push(state, largest + "w").outcome() == PushOutcome.FAILED
+        pusher.push(state, largest).outcome() == PushOutcome.PUSHED
+        context.getBean(ObjectMapper).readValue(received.get(30, TimeUnit.SECONDS), Map).message.content == largest
     }
 
+    @Timeout(20)
     void "a session that accepts the connection but never reads is given up on after the timeout"() {
         given: "a bound socket with nobody draining it, and a frame far larger than its buffer"
         Path socket = socketPath()

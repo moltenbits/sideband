@@ -84,7 +84,7 @@ class ClaudeSocketPusher implements HostPusher {
         }
         if (frame.length() > FRAME_CAP) {
             return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
-                    + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; Claude reads it from the journal instead");
+                    + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
         }
         byte[] bytes = frame.getBytes(UTF_8);
         String failure = null;
