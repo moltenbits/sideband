@@ -203,6 +203,12 @@ writer is outside the counted body.
 - Readers must not process an entry until its closing marker is present.
 - A malformed or incomplete trailing entry must not prevent processing earlier
   valid entries.
+- A reader is a byte-oriented scan for the exact opener at the start of a line,
+  the single JSON metadata line, the heading, exactly `body_bytes` bytes of
+  body, and the exact closing marker. Anything that fails that shape produces
+  one diagnostic and the scan resumes at the next opener. Unknown metadata
+  fields are ignored; an unknown value of a required enum is invalid and the
+  entry is skipped, never guessed at.
 
 ## 7. Human participation and provenance
 
@@ -332,7 +338,17 @@ one sentence: "Sideband delivery; use the Sideband skill (`/sideband` or
 `$sideband`, whichever the receiving client invokes) for handling
 instructions". It names the skill rather than `sideband skill` so that the
 host resolves it to whatever is installed, the stub or a copy the operator has
-ejected and edited.
+ejected and edited. What Codex receives is the marker line followed by one
+JSON batch holding the complete entry:
+
+```text
+[Sideband message]
+{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+```
+
+Codex handles that entry directly from the message; Claude's Monitor line is
+the `pending` report, which the host truncates, so Claude reads with `pending`.
+
 Transport arrival is not a new local human prompt; an entry whose recorded
 author is `operator` nevertheless retains that human authorship.
 
@@ -784,7 +800,16 @@ agent. Both skills invoke the same installed binary.
 - A writer crash must not interleave two entries.
 - Readers must wait for a closing marker before delivering a new entry.
 - Lock ownership must include enough information to detect and recover a stale
-  lock without disrupting a live writer.
+  lock without disrupting a live writer: the lock file holds a random token, the
+  owner's process id and start fingerprint, its host, and the acquisition time.
+  A contender on the same host reclaims a lock only when the owner is dead or
+  its fingerprint does not match, by renaming the stale file before retrying;
+  it never takes a lock from a verified live process, whatever the lock's age,
+  and reports foreign-host ownership rather than stealing it.
+- A writer encodes the complete entry before taking the lock, rescans the tail
+  while holding it, closes any incomplete fragment a crashed writer left with an
+  explicit abort marker without rewriting existing bytes, appends, syncs, and
+  releases the lock only if its token still matches.
 - A write failure must leave prior journal content intact.
 - Malformed metadata must be reported and skipped, not interpreted
   heuristically as an instruction.
@@ -1396,3 +1421,73 @@ Neither is a release blocker for the Claude Code path.
 
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.
+
+## 18. Executable command contract
+
+Every command prints one JSON document on stdout and human-readable errors on
+stderr, and exits with a stable code: `0` ok, `2` invalid input, `4` lock
+contention, `5` corrupt state or I/O failure, `6` timed out, `7` another live
+session already owns the role (`3` was "not a repository" and is retired,
+since every directory now has a state location). Bodies travel through
+`--body-file` or stdin, never as an argument. No command needs to be told
+which client it runs inside: each recognizes the client from the environment
+the client gives its subprocesses, so `--role`, `--via`, `--from`, and
+`--client` are hidden overrides for tests.
+
+```text
+sideband init [--skip-clients]                     # state directory, both skill stubs, both hook registrations
+sideband join [--resume] [--replace]               # start this client's session; prints the first pending report
+sideband capture-human [--body-file <path>]        # record a human prompt, routing by its first token
+sideband append-agent --type request --to <role> --caused-by <id> [--body-file <path>]
+sideband append-agent --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]
+sideband append-agent --type status --to <role|operator> [--reply-to <id>] [--body-file <path>]
+sideband append-agent --type ack --reply-to <id>   # receipt; body optional; never delivered as such
+sideband pending                                   # open, in progress, updates, outgoing; advances the bookmark
+sideband pending --wait [--timeout <s>]            # block until something new, then report; never advances
+sideband pending --wait --stream                   # the listener: one report per batch, forever; never advances
+sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
+sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
+sideband doctor                                    # paths, versions, discussion health, sessions, skill links
+```
+
+Rules the commands enforce, each stated in the section that motivates it:
+`capture-human` routes on the first token only and never changes the body
+(8.1); `append-agent` refuses an actionable agent entry with no path to a
+human-authored one (8.3), defaults a reply's or ack's recipients to the author
+of the entry named by `--reply-to` and rejects a `--reply-to` that names no
+entry (9.6, 9.8); a request expecting a reply is closed only by a reply that
+expects nothing back and is addressed to the requester (9.6); acks are never
+pushed, never wake a listener, and are never listed (9.8); a waited `pending`
+report never advances the bookmark and a plain one advances only after the
+report was written (9.5); `hook prompt` reports every capture outcome in the
+host's context field and names the recorded entry so a delegation can cite it
+(7.1); `skill --eject` refuses to overwrite an ejected skill unless forced
+(10.1).
+
+## 19. Definition of done
+
+Version one is complete when:
+
+- one native `sideband` executable is installed and both skills defer to it,
+  neither containing a private copy, with `skill --eject` as the operator's way
+  to take a skill's text over;
+- local installation is repeatable, and `doctor` reports paths, versions,
+  discussion health, each role's session and pending counts, skill state, and
+  lock ownership without printing message bodies;
+- the JVM suite passes, and the native build is exercised whenever the Java
+  sources change;
+- concurrent writers and forced crashes cannot corrupt prior complete entries;
+- the Claude-to-Codex and Codex-to-Claude live paths work with no MCP server,
+  daemon, hosted service, or headless peer invocation;
+- what a role has to look at is derived from the journal alone, with only a
+  session record beside it, and the acknowledgement and completion rules of
+  sections 9.5 to 9.8 hold live;
+- a fresh join confirms what was waiting and a resumed join applies the
+  one-or-several rule (9.4);
+- every prompt the human types is captured by the hook or its loss is reported
+  to the model in the host's context field (7.1);
+- delegation depth, human-rooted authority, and human-only delivery match
+  sections 7.5, 8.3, and 12; and
+- the acceptance scenarios of section 14 have been walked against the real
+  hosts with the operator present, and the ones that passed are recorded.
+
