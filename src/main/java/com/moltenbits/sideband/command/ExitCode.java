@@ -3,7 +3,6 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.ancestry.InvalidLineageException;
 import com.moltenbits.sideband.locking.LockTimeoutException;
 import com.moltenbits.sideband.protocol.InvalidEntryException;
-import com.moltenbits.sideband.session.SessionConflictException;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
 import picocli.CommandLine.ParseResult;
@@ -18,6 +17,7 @@ public final class ExitCode {
     public static final int LOCK_CONTENTION = 4;
     public static final int IO_FAILURE = 5;
     public static final int TIMED_OUT = 6;
+    /** Retired: whoever joins as a role last holds it. Kept so the numbers stay stable. */
     public static final int ALREADY_ACTIVE = 7;
 
     private ExitCode() {
@@ -30,7 +30,6 @@ public final class ExitCode {
         command.getErr().println(command.getColorScheme().errorText("sideband: " + failure.getMessage()));
         return switch (failure) {
             case LockTimeoutException e -> LOCK_CONTENTION;
-            case SessionConflictException e -> ALREADY_ACTIVE;
             case InvalidEntryException e -> INVALID_INPUT;
             case InvalidLineageException e -> INVALID_INPUT;
             case IllegalArgumentException e -> INVALID_INPUT;

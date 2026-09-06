@@ -27,14 +27,13 @@ class SessionCommandsSpec extends CommandSpec {
                  Files.writeString(repo.resolve("agent.md"), "body").toString()] + rest.toList() as String[]).metadata.id
     }
 
-    void "activate starts the session and lists what predates it; a second live session is refused with its own exit code"() {
+    void "activate starts the session and lists what predates it; a second join takes the role over"() {
         given:
         String toCodex = capture("claude", "@codex review this")
         capture("claude", "just for claude")
 
         when:
-        Map activation = runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1",
-                "--parent-pid", ProcessHandle.current().pid().toString())
+        Map activation = runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
 
         then:
         activation.session.id == "s1"
@@ -48,15 +47,9 @@ class SessionCommandsSpec extends CommandSpec {
         activation.diagnostics == []
         activation.intent == "Sideband delivery; use the Sideband skill (\$sideband) for handling instructions"
 
-        when:
-        int code = run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2")
-
-        then:
-        code == ExitCode.ALREADY_ACTIVE
-        stderr.toString().contains("--replace")
-
-        expect:
-        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2", "--replace").session.id == "s2"
+        expect: "whoever joins last holds the role; there is no conflict and no --replace"
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s2").session.id == "s2"
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s3", "--replace") == ExitCode.INVALID_INPUT
     }
 
     void "the originating client never sees its own human turn"() {
@@ -115,7 +108,7 @@ class SessionCommandsSpec extends CommandSpec {
 
     void "a reply that arrived while the role was away is shown by join --resume and hidden by a plain join"() {
         given:
-        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "away", "--parent-pid", "999999999")
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "away")
         String h = capture("codex", "ask claude")
         String ask = appendAgent("--from", "codex", "--to", "claude", "--type", "request", "--caused-by", h)
         String answer = appendAgent("--from", "claude", "--to", "codex", "--type", "reply", "--reply-to", ask)
@@ -124,7 +117,7 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates*.metadata*.id == [answer]
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").session.resumed == true
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "back", "--resume").updates == []
-        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "again", "--replace").updates == []
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "again").updates == []
     }
 
     void "pending advances the read position, so an update is shown once"() {

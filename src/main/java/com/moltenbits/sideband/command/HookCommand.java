@@ -9,8 +9,6 @@ import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.pending.Pending;
-import com.moltenbits.sideband.session.Session;
-import com.moltenbits.sideband.session.SessionRefresh;
 import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
@@ -27,7 +25,6 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -40,9 +37,10 @@ public class HookCommand {
 
     /**
      * Both clients' {@code UserPromptSubmit} hook. Reads the hook payload on stdin and journals
-     * the prompt verbatim when this session owns the detected client's cursor in the repository.
-     * Delivered envelopes, slash commands, and shell commands are never captured. Capture
-     * never blocks the prompt: any problem goes to stderr and the exit code is always 0.
+     * the prompt verbatim, attributed to the operator via the calling client, whenever that
+     * client's role has joined in the repository. Delivered envelopes, slash commands, and
+     * shell commands are never captured. Capture never blocks the prompt: any problem goes to
+     * stderr and the exit code is always 0.
      */
     @Command(name = "prompt", description = "Claude Code/Codex UserPromptSubmit hook: record the human's prompt in the Sideband discussion", mixinStandardHelpOptions = true)
     @Prototype
@@ -51,7 +49,7 @@ public class HookCommand {
         @Spec
         CommandSpec spec;
 
-        @Option(names = "--agent", description = "Override automatic caller detection: claude or codex")
+        @Option(names = "--agent", description = "The client whose hook this is, claude or codex; init registers it, and it wins over the shell markers")
         Role agent;
 
         private final SidebandHome home;
@@ -123,34 +121,16 @@ public class HookCommand {
             if (!Files.isDirectory(stateDirectory)) {
                 return ExitCode.OK;
             }
+            // Both hosts use the same event name and payload shape, so the client is known only
+            // from the registered --agent or the shell's markers. Which conversation or process
+            // is calling does not matter: the prompt belongs to whoever holds the role here.
             Role role = agent != null ? agent : host.role().orElse(null);
-            if (payload.sessionId() == null || payload.sessionId().isBlank()) {
-                // Without a session id the caller cannot be tied to a recorded session. That is a
-                // host defect worth hearing about only where Sideband is actually in use.
-                String reason = "hook payload has no session_id";
-                return (role != null ? isActive(stateDirectory, role) : anyActive(stateDirectory)) ? failed(reason) : skipped(reason);
-            }
             if (role == null) {
-                // Both hosts use the same event name. When hook shells omit the usual environment
-                // markers, the caller is the one role whose recorded session it presents, or whose
-                // recorded host process it runs inside (a cleared conversation carries a new id).
-                var matching = Arrays.stream(Role.values())
-                        .filter(candidate -> matchesSession(stateDirectory, candidate, payload.sessionId()))
-                        .toList();
-                if (matching.size() != 1) {
-                    String reason = matching.isEmpty() ? "no recorded session matches this caller; join Sideband"
-                            : "session matches multiple roles; use --agent to identify the caller";
-                    return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
-                }
-                role = matching.getFirst();
+                String reason = "cannot tell which client this is; register the hook with --agent claude or --agent codex";
+                return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
             }
-            SessionRefresh refreshed = sessions.refresh(stateDirectory, role, payload.sessionId(),
-                    host.parentPid(role).orElse(null));
-            switch (refreshed) {
-                case NOT_ACTIVE -> { return inactive(stateDirectory, role); }
-                case SESSION_MISMATCH -> { return failed("another " + role.displayName() + " session owns Sideband in this repository"); }
-                case CALLER_UNAVAILABLE -> { return failed("the recorded " + role.displayName() + " host is dead and a living caller process could not be identified; join Sideband again"); }
-                case READY, REFRESHED -> { /* capture below */ }
+            if (!isActive(stateDirectory, role)) {
+                return inactive(stateDirectory, role);
             }
             Captured captured = capture.capture(stateDirectory, role, prompt);
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
@@ -235,18 +215,6 @@ public class HookCommand {
                     + " waiting. Tell the user; " + invocation + " joins and reviews them.");
         }
 
-        private boolean matchesSession(Path stateDirectory, Role role, String sessionId) {
-            Optional<Session> session = sessions.load(stateDirectory, role);
-            if (session.isEmpty()) {
-                return false;
-            }
-            if (session.get().id().equals(sessionId)) {
-                return true;
-            }
-            Optional<Long> caller = host.parentPid(role);
-            return caller.isPresent() && caller.get().equals(session.get().parentPid());
-        }
-
         private boolean isActive(Path stateDirectory, Role role) {
             return sessions.load(stateDirectory, role).isPresent();
         }
@@ -268,8 +236,7 @@ public class HookCommand {
         }
 
         @Serdeable(naming = SnakeCaseStrategy.class)
-        record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String sessionId,
-                       @Nullable String hookEventName) {
+        record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String hookEventName) {
         }
 
         @Serdeable

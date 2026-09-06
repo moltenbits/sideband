@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook prompt"
+            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook prompt --agent claude"
           }
         ]
       }

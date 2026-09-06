@@ -33,12 +33,6 @@ class EnvironmentVariablesSpec extends Specification {
         [CODEX_THREAD_ID: "   "]                                         | null        | null
     }
 
-    void "Claude's published pid is used when present and ignored when unparsable"() {
-        expect:
-        new EnvironmentVariables([CLAUDECODE: "1", CLAUDE_PID: "4242"]).parentPid(Role.CLAUDE) == Optional.of(4242L)
-        new EnvironmentVariables([CLAUDECODE: "1", CLAUDE_PID: "nope"]).parentPid(Role.CLAUDE).map { it > 0 }.orElse(true)
-    }
-
     void "codex wins when both clients' markers are present, because its thread id is the more specific signal"() {
         expect:
         new EnvironmentVariables([CODEX_THREAD_ID: "t", CLAUDECODE: "1"]).role() == Optional.of(Role.CODEX)
@@ -53,8 +47,9 @@ class EnvironmentVariablesSpec extends Specification {
         e.message.contains("--role")
     }
 
-    void "the ancestry walk finds nothing for a client that is not an ancestor of the test JVM"() {
+    void "nothing about the process tree is consulted: an unmarked shell belongs to no client"() {
         expect:
-        new EnvironmentVariables([:]).parentPid(Role.CODEX).isEmpty()
+        new EnvironmentVariables([:]).role().isEmpty()
+        new EnvironmentVariables([:]).sessionId(Role.CODEX).isEmpty()
     }
 }

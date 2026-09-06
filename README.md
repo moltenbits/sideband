@@ -35,7 +35,9 @@ native image, and everything a client runs is a subcommand of it.
   acknowledgement or reply, and listed for its sender until a reply exists.
   Requests that arrived while a client was away are confirmed with the human
   before any action. The only thing kept beside the journal is each role's
-  session record: who it is and how far it has read.
+  session record: how to reach it and how far it has read. Whoever joins as a
+  role last holds it; one client per role per repository is a convention the
+  operator keeps, not something the executable polices.
 
 ## How the pieces fit
 
@@ -159,14 +161,18 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 ```
 
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers the same `sideband hook prompt` command in the repository's
-`.claude/settings.json` and `.codex/hooks.json`. Rerunning it is safe.
+and registers the `sideband hook prompt` command in the repository's
+`.claude/settings.json` and `.codex/hooks.json`, each naming its client with
+`--agent claude` or `--agent codex`. Rerunning it is safe.
 In Codex, review and trust the new hook through `/hooks`; a registered command
 is not necessarily enabled or trusted by the host. The hook is the only thing
 that records prompts: when it cannot, it tells the model to tell you, and no
-client records a prompt on its behalf. Caller detection is automatic;
-`sideband hook prompt --agent codex` (or `--agent claude`) is an optional
-override, still subject to the active session ownership check.
+client records a prompt on its behalf. The registration names the client
+because both hosts send the same payload and Codex gives hook shells no
+environment markers. Nothing else about the caller matters: a prompt is
+recorded for its client's role whenever that role has joined here, whichever
+conversation or process is running the hook, so restarting a client or
+clearing its context needs nothing.
 
 ## Use
 
@@ -187,8 +193,7 @@ Any command runs directly from the prompt with no model turn: in Claude Code,
 prints Markdown, `--help` prints text, the hook follows its host's contract
 and may print nothing, and the streaming `pending` prints one report per
 line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
-contention, 5 I/O failure, 6 timed out, 7 another live session already owns
-the role.
+contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
 
 ## Development
 

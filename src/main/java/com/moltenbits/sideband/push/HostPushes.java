@@ -59,9 +59,6 @@ class HostPushes implements Pushes {
         if (session.isEmpty()) {
             return new PushResult(role, PushOutcome.NO_SESSION, null);
         }
-        if (!session.get().isLive()) {
-            return new PushResult(role, PushOutcome.SESSION_DEAD, "session " + session.get().id() + " process " + session.get().parentPid() + " is gone");
-        }
         Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
         Batch batch = Batch.forRole(role, entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
         return pusher.push(session.get(), handoffs.envelope(batch));

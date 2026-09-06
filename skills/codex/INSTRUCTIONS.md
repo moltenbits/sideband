@@ -14,7 +14,7 @@ are "recorded". Keep "journal" for technical explanations and code terminology.
 Commands resolve the state location and calling client from the current shell.
 Bodies travel through `--body-file` or stdin, never as command-line arguments.
 Exit codes are 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
-6 timed out, and 7 another live session owns the role. Code 3 is retired.
+and 6 timed out. Codes 3 and 7 are retired.
 
 ## Arguments
 
@@ -24,7 +24,7 @@ The named command arguments below are case-insensitive.
 | Argument | What to do |
 | --- | --- |
 | `help` | Show this table and the command summaries from `sideband --help`, without joining. Remind the user that `! sideband <command>` runs it directly without a model turn. |
-| `status` | Run `sideband doctor` and summarize sessions, liveness, pending counts, discussion health and skill links. Do not join. |
+| `status` | Run `sideband doctor` and summarize sessions, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
 | anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. |
@@ -42,10 +42,10 @@ Never record the skill argument yourself; reporting is the whole recovery.
 sideband join --resume
 ```
 
-The executable records the thread from `CODEX_THREAD_ID` and the host process.
-Exit 7 means another live session owns this role: report it and use `--replace`
-only when the user authorizes replacement. Do not join again merely to
-check status or on each notification.
+The executable records the thread from `CODEX_THREAD_ID`, which is where
+pushes for Codex are queued. Whoever joins last holds the role, so a
+restarted Codex simply joins again and nothing is refused. Do not join again
+merely to check status or on each notification.
 
 Use `--resume` unless the user explicitly asks to start fresh. It retains the
 previous read position (or starts at the beginning when the role has never

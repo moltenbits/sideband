@@ -18,7 +18,6 @@ class HookAndSkillSpec extends CommandSpec {
     Path repo = TempRepo.init()
     Path journalFile = repo.resolve(".git/sideband/journal.md")
     Role detectedAgent
-    Long detectedPid
     Map extraPayload = [:]
     HumanCapture captureOverride
 
@@ -35,7 +34,6 @@ class HookAndSkillSpec extends CommandSpec {
         try {
             HostEnvironment host = Stub() {
                 role() >> Optional.ofNullable(detectedAgent)
-                parentPid(_) >> Optional.ofNullable(detectedPid)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
                     context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(ObjectMapper))
@@ -48,8 +46,9 @@ class HookAndSkillSpec extends CommandSpec {
         }
     }
 
-    void "the hook journals a prompt for the session that owns the Claude cursor and tells the model so"() {
+    void "the hook journals a prompt for the joined Claude role and tells the model so"() {
         given:
+        detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
 
@@ -65,6 +64,7 @@ class HookAndSkillSpec extends CommandSpec {
 
     void "the hook's note names the entry so a delegation can cite it without reading the journal"() {
         given:
+        detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
 
@@ -83,7 +83,7 @@ class HookAndSkillSpec extends CommandSpec {
         context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.metadata()*.from()*.toString() == ["operator", "claude"]
     }
 
-    void "the hook stays silent and writes nothing when the session does not own the cursor, or the prompt is not a human message"() {
+    void "the hook stays silent and writes nothing when the prompt is not a human message, or Sideband is not set up here"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
@@ -108,6 +108,7 @@ class HookAndSkillSpec extends CommandSpec {
 
     void "a message typed as the skill's argument is the operator's words: the hook records the text after the invocation"() {
         given:
+        detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
 
@@ -153,6 +154,7 @@ class HookAndSkillSpec extends CommandSpec {
 
     void "the same hook captures Codex prompts verbatim and never redelivers them to the originating turn"() {
         given:
+        detectedAgent = Role.CODEX
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "codex-session")
         stdout = new StringWriter()
         String prompt = "  Please check café\nwith trailing spaces  "
@@ -193,7 +195,7 @@ class HookAndSkillSpec extends CommandSpec {
         !Files.exists(journalFile)
     }
 
-    void "automatic markers, unique session fallback and explicit agent all preserve the correct author and route"() {
+    void "shell markers and the registered agent both preserve the correct author and route, and the agent wins"() {
         given:
         detectedAgent = detected
         extraPayload = [hook_event_name: "UserPromptSubmit", turn_id: "turn-1", model: "host-model", transcript_path: null]
@@ -219,8 +221,8 @@ class HookAndSkillSpec extends CommandSpec {
         detected    | owner    | peer     | flag
         Role.CODEX  | "codex"  | "claude" | null
         Role.CLAUDE | "claude" | "codex"  | null
-        null        | "codex"  | "claude" | null
-        null        | "claude" | "codex"  | null
+        null        | "codex"  | "claude" | "codex"
+        null        | "claude" | "codex"  | "claude"
         Role.CLAUDE | "codex"  | "claude" | "codex"
         Role.CODEX  | "claude" | "codex"  | "claude"
     }
@@ -294,55 +296,32 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString() == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
     }
 
-    void "a resumed conversation refreshes its dead process before capturing without reactivation"() {
+    void "the role is all that matters: a restarted, cleared, or second client captures for the joined role and the record is untouched"() {
         given:
         detectedAgent = detected
-        detectedPid = ProcessHandle.current().pid()
-        run("join", "--repo", repo.toString(), "--role", owner, "--session-id", "s1", "--parent-pid", "999999999")
+        run("join", "--repo", repo.toString(), "--role", owner, "--session-id", "s1")
         Sessions state = context.getBean(Sessions)
         Path dir = context.getBean(SidebandHome).locate(repo)
         def before = state.load(dir, Role.valueOf(owner.toUpperCase())).get()
         stdout = new StringWriter()
 
         when:
-        int code = hook("first prompt after resume", "s1", repo.toString(), flag ? ["--agent", flag] : [])
+        int code = hook("first prompt after restart", session, repo.toString(), flag ? ["--agent", flag] : [])
 
         then:
         code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("Sideband recorded this prompt")
-        with(state.load(dir, Role.valueOf(owner.toUpperCase())).get()) {
-            parentPid() == detectedPid
-            id() == before.id()
-            startedAt() == before.startedAt()
-            watermark() == before.watermark()
-            offset() == before.offset()
-        }
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
+        Files.readString(journalFile).contains("first prompt after restart")
+        state.load(dir, Role.valueOf(owner.toUpperCase())).get() == before
 
         where:
-        detected    | owner    | flag
-        Role.CODEX  | "codex"  | null
-        null        | "codex"  | null
-        Role.CLAUDE | "codex"  | "codex"
-        Role.CLAUDE | "claude" | null
-        null        | "claude" | null
-    }
-
-    void "a dead recorded process is not revived without a living identified caller and explains skipped capture"() {
-        given:
-        detectedAgent = Role.CODEX
-        detectedPid = caller
-        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
-        stdout = new StringWriter()
-
-        expect:
-        hook("resume", "s1") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
-        json().hookSpecificOutput.additionalContext.contains("caller")
-        stderr.toString().contains("capture failed")
-        !Files.exists(journalFile)
-
-        where:
-        caller << [null, 999999998L]
+        detected    | owner    | flag     | session
+        Role.CODEX  | "codex"  | null     | "s1"
+        Role.CODEX  | "codex"  | null     | "after-restart"
+        Role.CLAUDE | "codex"  | "codex"  | "after-restart"
+        Role.CLAUDE | "claude" | null     | "after-clear"
+        null        | "claude" | "claude" | "after-clear"
+        Role.CLAUDE | "claude" | null     | null
     }
 
     void "a prompt that should have been recorded and was not is reported to the model, never only to stderr"() {
@@ -399,87 +378,25 @@ class HookAndSkillSpec extends CommandSpec {
         Files.deleteIfExists(codexSession)
     }
 
-    void "a hook payload without a session id is reported only where Sideband is in use"() {
+    void "a caller whose client cannot be told is reported when any role is active, and silent otherwise"() {
         given:
-        detectedAgent = detected
-        if (active) run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        if (active) run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
+        if (both) run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
 
         expect:
-        hook("hello", null) == ExitCode.OK
-        stderr.toString().contains("no session_id")
+        hook("hello") == ExitCode.OK
+        stderr.toString().contains("cannot tell which client")
+        stderr.toString().contains("--agent")
         stdout.toString().isEmpty() == !active
-        !active || json().hookSpecificOutput.additionalContext.contains("no session_id")
+        !active || json().hookSpecificOutput.additionalContext.contains("cannot tell which client")
         !Files.exists(journalFile)
 
         where:
-        detected    | active
-        Role.CLAUDE | true
-        Role.CLAUDE | false
-        null        | true
-        null        | false
-    }
-
-    void "a marker-free caller that cannot be identified is reported when any role is active, and silent otherwise"() {
-        given:
-        if (active) run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "1")
-        if (ambiguous) run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--parent-pid", "1")
-        stdout = new StringWriter()
-
-        expect:
-        hook("hello", session) == ExitCode.OK
-        stderr.toString().contains(reason)
-        stdout.toString().isEmpty() == !active
-        !active || json().hookSpecificOutput.additionalContext.contains(reason)
-        !Files.exists(journalFile)
-
-        where:
-        active | ambiguous | session | reason
-        false  | false     | "s1"    | "no recorded session matches"
-        true   | false     | "other" | "no recorded session matches"
-        true   | true      | "s1"    | "multiple roles"
-    }
-
-    void "a cleared conversation in the same host process keeps its session and captures under the new id"() {
-        given:
-        detectedAgent = markers ? Role.CLAUDE : null
-        detectedPid = ProcessHandle.current().pid()
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "before-clear",
-                "--parent-pid", detectedPid.toString())
-        stdout = new StringWriter()
-        def before = context.getBean(Sessions).load(repo.resolve(".git/sideband"), Role.CLAUDE).get()
-
-        when:
-        int code = hook("first prompt after /clear", "after-clear")
-        def after = context.getBean(Sessions).load(repo.resolve(".git/sideband"), Role.CLAUDE).get()
-
-        then:
-        code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
-        Files.readString(journalFile).contains("first prompt after /clear")
-        after.id() == "after-clear"
-        after.parentPid() == detectedPid
-        after.startedAt() == before.startedAt()
-        after.watermark() == before.watermark()
-
-        where:
-        markers << [true, false]
-    }
-
-    void "a caller from a second session of an active role is told another session owns Sideband"() {
-        given:
-        detectedAgent = Role.CODEX
-        detectedPid = ProcessHandle.current().pid()
-        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "1")
-        stdout = new StringWriter()
-
-        expect:
-        hook("hello", "other", repo.toString(), flag ? ["--agent", flag] : []) == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("another Codex session owns Sideband")
-        !Files.exists(journalFile)
-
-        where:
-        flag << [null, "codex"]
+        active | both
+        false  | false
+        true   | false
+        true   | true
     }
 
     void "when Sideband is not active for the caller, the model hears about it only if entries are waiting"() {
@@ -511,37 +428,20 @@ class HookAndSkillSpec extends CommandSpec {
         2       | "Sideband is not active in this session and 2 entries addressed to Claude are waiting. Tell the user; /sideband joins and reviews them."
     }
 
-    void "an envelope cannot revive a dead session"() {
+    void "an envelope is never captured, whatever the session record says"() {
         given:
         detectedAgent = Role.CODEX
-        detectedPid = ProcessHandle.current().pid()
-        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
         Path dir = context.getBean(SidebandHome).locate(repo)
         Sessions state = context.getBean(Sessions)
         def before = state.load(dir, Role.CODEX)
         stdout = new StringWriter()
 
         expect:
-        hook("[Sideband message]\n{}") == ExitCode.OK
+        hook("[Sideband message]\n{}", "other") == ExitCode.OK
         stdout.toString().isEmpty()
         stderr.toString().isEmpty()
         state.load(dir, Role.CODEX) == before
         !Files.exists(journalFile)
-    }
-
-    void "ambiguous dead sessions are not refreshed by the fallback"() {
-        given:
-        detectedPid = ProcessHandle.current().pid()
-        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1", "--parent-pid", "999999999")
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--parent-pid", "999999999")
-        stdout = new StringWriter()
-
-        expect: "both roles are active, so the failure to identify the caller is reported, not hidden"
-        hook("resume") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("multiple roles")
-        stderr.toString().contains("multiple roles")
-        !Files.exists(journalFile)
-        !context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).get().isLive()
-        !context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CLAUDE).get().isLive()
     }
 }

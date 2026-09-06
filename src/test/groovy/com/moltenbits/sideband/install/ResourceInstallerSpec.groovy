@@ -88,7 +88,7 @@ class ResourceInstallerSpec extends Specification {
         com.moltenbits.sideband.protocol.Role.CODEX   | ".agents/skills/sideband/SKILL.md"
     }
 
-    void "a fresh install writes both stubs and registers the hook against this executable"() {
+    void "a fresh install writes both stubs and registers each client's hook against this executable, naming the client"() {
         when:
         InstallReport report = installer.install(home, project)
 
@@ -105,9 +105,13 @@ class ResourceInstallerSpec extends Specification {
         and: "the settings file is pretty JSON with exactly the hook entry"
         String settings = Files.readString(project.resolve(".claude/settings.json"))
         settings.contains('"UserPromptSubmit": [')
-        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt"')
+        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
-        Files.readString(project.resolve(".codex/hooks.json")) == settings
+
+        and: "the Codex registration is the same command naming codex, so a hook shell without markers still knows its client"
+        String codexHooks = Files.readString(project.resolve(".codex/hooks.json"))
+        codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
+        codexHooks.replace("--agent codex", "--agent claude") == settings
     }
 
     void "reinstalling is idempotent and inspect agrees"() {
@@ -127,7 +131,7 @@ class ResourceInstallerSpec extends Specification {
         inspected.codexHook().state() == "installed"
     }
 
-    void "Codex registers the same native command once and preserves unrelated configuration"() {
+    void "Codex registers the native command once, naming codex, and preserves unrelated configuration"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
@@ -142,7 +146,7 @@ class ResourceInstallerSpec extends Specification {
         then:
         first == second
         second.count("hook prompt") == 1
-        second.contains('"command": "\\\"/opt/sideband/bin/sideband\\\" hook prompt"')
+        second.contains('"command": "\\\"/opt/sideband/bin/sideband\\\" hook prompt --agent codex"')
         second.contains("echo sideband audit")
         second.contains("echo done")
         second.contains("my hooks")
@@ -162,7 +166,7 @@ class ResourceInstallerSpec extends Specification {
         Files.readString(hooksFile) == "not JSON"
     }
 
-    void "reinstall preserves an explicit agent override while updating an old executable path"() {
+    void "reinstall keeps the client's agent and updates an old executable path"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
@@ -261,7 +265,7 @@ class ResourceInstallerSpec extends Specification {
         report.hook().state() == "updated"
         settings.contains('"allow": [\n      "Bash(ls:*)"')
         settings.contains('"command": "echo pre"')
-        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt"')
+        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         !settings.contains("CLAUDE_PROJECT_DIR")
         settings.count("hook prompt") == 1
     }

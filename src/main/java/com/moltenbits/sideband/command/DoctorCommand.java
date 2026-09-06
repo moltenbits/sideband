@@ -85,7 +85,6 @@ public class DoctorCommand implements Callable<Integer> {
                 PendingReport report = pending.report(stateDirectory, role);
                 roles.put(role.id(), new RoleReport(
                         session == null ? null : session.id(),
-                        session == null ? null : session.isLive(),
                         session == null ? null : session.offset(),
                         report.open().size(), report.inProgress().size(), report.updates().size(), report.outgoing().size()));
             }
@@ -124,7 +123,7 @@ public class DoctorCommand implements Callable<Integer> {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)
-    record RoleReport(@Nullable String sessionId, @Nullable Boolean sessionLive, @Nullable Long offset,
+    record RoleReport(@Nullable String sessionId, @Nullable Long offset,
                       int open, int inProgress, int updates, int outgoing) {
     }
 }
