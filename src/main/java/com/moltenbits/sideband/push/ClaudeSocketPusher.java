@@ -6,6 +6,7 @@ import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
 import io.micronaut.serde.annotation.Serdeable;
+import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 
 import java.io.IOException;
@@ -15,9 +16,11 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -32,21 +35,34 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * <p>
  * Registrations are tried newest first. A socket that refuses the connection belongs to a
  * session that has ended, so the next is tried; the entry waits in the journal when none
- * accepts. On macOS and Linux the connection needs no auth line.
+* accepts. On macOS and Linux the connection needs no auth line. A frame beyond Claude Code's
+ * inbox cap is refused before any connection, and a session that accepts the connection but
+ * stops reading is given up on after a bounded wait, so a writer is never left hanging.
  */
 @Singleton
 class ClaudeSocketPusher implements HostPusher {
 
+    /** Claude Code refuses a message whose serialized form passes about a million characters. */
+    static final int FRAME_CAP = 1_000_000;
+
     private final Path registry;
     private final SidebandHome home;
     private final ObjectMapper json;
+    private final Duration timeout;
 
-    ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry, SidebandHome home, ObjectMapper json) {
+    @Inject
+    ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry, SidebandHome home, ObjectMapper json,
+                       @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
+        this(registry, home, json, Duration.ofSeconds(timeoutSeconds));
+    }
+
+    ClaudeSocketPusher(String registry, SidebandHome home, ObjectMapper json, Duration timeout) {
         this.registry = registry == null || registry.isBlank()
                 ? Path.of(System.getProperty("user.home"), ".claude", "sessions")
                 : Path.of(registry);
         this.home = home;
         this.json = json;
+        this.timeout = timeout;
     }
 
     @Override
@@ -60,10 +76,21 @@ class ClaudeSocketPusher implements HostPusher {
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
         }
+        String frame;
+        try {
+            frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
+        } catch (IOException e) {
+            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
+        }
+        if (frame.length() > FRAME_CAP) {
+            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
+                    + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; Claude reads it from the journal instead");
+        }
+        byte[] bytes = frame.getBytes(UTF_8);
         String failure = null;
         for (Registration candidate : candidates) {
             try {
-                post(Path.of(candidate.messagingSocketPath()), text);
+                post(Path.of(candidate.messagingSocketPath()), bytes);
                 return new PushResult(Role.CLAUDE, PushOutcome.PUSHED,
                         "posted to " + candidate.messagingSocketPath() + " (session " + candidate.name() + ", pid " + candidate.pid() + ")");
             } catch (IOException e) {
@@ -97,9 +124,12 @@ class ClaudeSocketPusher implements HostPusher {
     private @Nullable Registration read(Path file) {
         try {
             Registration registration = json.readValue(Files.readString(file, UTF_8), Registration.class);
-            return registration == null || registration.cwd() == null || registration.messagingSocketPath() == null
-                    ? null : registration;
-        } catch (IOException | RuntimeException e) {
+            if (registration == null || registration.cwd() == null || registration.messagingSocketPath() == null) {
+                return null;
+            }
+            Path.of(registration.messagingSocketPath()); // a path the platform rejects is a registration to skip, not a failure
+            return registration;
+        } catch (IOException | RuntimeException e) { // InvalidPathException included
             return null;
         }
     }
@@ -126,16 +156,39 @@ class ClaudeSocketPusher implements HostPusher {
         }
     }
 
-    /** One newline-terminated JSON frame, then close: Claude Code reads a complete line and needs nothing more. */
-    private void post(Path socket, String text) throws IOException {
-        byte[] frame = (json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n").getBytes(UTF_8);
+    /**
+     * One newline-terminated JSON frame, then close: Claude Code reads a complete line and
+     * needs nothing more. The connect and write run on their own thread; if they have not
+     * finished within the timeout, the channel is closed under them and the attempt fails.
+     */
+    private void post(Path socket, byte[] frame) throws IOException {
         try (SocketChannel channel = SocketChannel.open(StandardProtocolFamily.UNIX)) {
-            channel.connect(UnixDomainSocketAddress.of(socket));
-            ByteBuffer buffer = ByteBuffer.wrap(frame);
-            while (buffer.hasRemaining()) {
-                channel.write(buffer);
+            AtomicReference<IOException> failure = new AtomicReference<>();
+            Thread writer = Thread.ofPlatform().daemon(true).name("sideband-claude-push").start(() -> {
+                try {
+                    channel.connect(UnixDomainSocketAddress.of(socket));
+                    ByteBuffer buffer = ByteBuffer.wrap(frame);
+                    while (buffer.hasRemaining()) {
+                        channel.write(buffer);
+                    }
+                    channel.shutdownOutput();
+                } catch (IOException e) {
+                    failure.set(e);
+                }
+            });
+            try {
+                writer.join(timeout);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted while posting");
             }
-            channel.shutdownOutput();
+            if (writer.isAlive()) {
+                channel.close(); // unblocks the writer with an AsynchronousCloseException
+                throw new IOException("did not accept the frame within " + timeout.toSeconds() + "s");
+            }
+            if (failure.get() != null) {
+                throw failure.get();
+            }
         }
     }
 

@@ -16,7 +16,9 @@ import java.nio.channels.ServerSocketChannel
 import java.nio.channels.SocketChannel
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.Duration
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 import static java.nio.charset.StandardCharsets.UTF_8
 
@@ -161,9 +163,77 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "an absent registry directory means no session"() {
         given:
-        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), home, context.getBean(ObjectMapper))
+        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), home, context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
         lone.push(state, "hi").outcome() == PushOutcome.NO_SESSION
+    }
+    void "a frame over Claude Code's inbox cap is refused before any connection, counting the escaped form: #label"() {
+        given:
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(5, repo, socket)
+
+        when:
+        PushResult result = pusher.push(state, text)
+
+        then:
+        result.outcome() == PushOutcome.FAILED
+        result.detail().contains("over Claude Code's inbox cap of 1000000")
+        !received.isDone()
+
+        where:
+        label            | text
+        "plain"          | "x" * 1_000_000
+        "escaped quotes" | '"' * 600_000      // every quote serializes as two characters
+        "newlines"       | "\n" * 600_000     // so does every newline
+    }
+
+    void "a frame just under the cap is posted whole"() {
+        given:
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(6, repo, socket)
+        String text = "y" * (ClaudeSocketPusher.FRAME_CAP - 100)
+
+        expect:
+        pusher.push(state, text).outcome() == PushOutcome.PUSHED
+        received.get(30, TimeUnit.SECONDS).length() > text.length()
+    }
+
+    void "a session that accepts the connection but never reads is given up on after the timeout"() {
+        given: "a bound socket with nobody draining it, and a frame far larger than its buffer"
+        Path socket = socketPath()
+        ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)
+        server.bind(UnixDomainSocketAddress.of(socket))
+        servers << server
+        register(8, repo, socket)
+        HostPusher impatient = new ClaudeSocketPusher(registry.toString(), home, context.getBean(ObjectMapper), Duration.ofSeconds(1))
+        long started = System.nanoTime()
+
+        when:
+        PushResult result = impatient.push(state, "z" * 900_000)
+
+        then:
+        result.outcome() == PushOutcome.FAILED
+        result.detail().contains("within 1s")
+        Duration.ofNanos(System.nanoTime() - started) < Duration.ofSeconds(10)
+    }
+
+    void "a registration whose socket path the platform rejects is skipped for a valid older one"() {
+        given:
+        Path live = socketPath()
+        def received = inbox(live)
+        register(21, repo, Path.of("/tmp/placeholder.sock"), 2000L, "malformed")
+        Files.writeString(registry.resolve("21.json"),
+                Files.readString(registry.resolve("21.json")).replace("/tmp/placeholder.sock", "/tmp/bad\\u0000name.sock"))
+        register(20, repo, live, 1000L, "alive")
+
+        expect:
+        with(pusher.push(state, "hi")) {
+            outcome() == PushOutcome.PUSHED
+            detail().contains("alive")
+        }
+        received.get().contains('"content":"hi"')
     }
 }
