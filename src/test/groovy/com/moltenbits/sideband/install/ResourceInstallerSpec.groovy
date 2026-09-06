@@ -138,6 +138,37 @@ class ResourceInstallerSpec extends Specification {
         inspected.inbound().state() == "installed"
     }
 
+    void "inspect reports the strictest inbound value across the project, local, and user files, naming the file"() {
+        given:
+        Map<String, Path> files = [project: project.resolve(".claude/settings.json"),
+                                   local  : project.resolve(".claude/settings.local.json"),
+                                   user   : home.resolve(".claude/settings.json")]
+        values.each { scope, inbound -> write(files[scope], inbound) }
+
+        when:
+        InstallReport.Item item = installer.inspect(home, project).inbound()
+
+        then:
+        item.state() == state
+        item.path() == files[decidedBy].toString()
+
+        where:
+        values                                   | state       | decidedBy
+        [project: "accept"]                      | "installed" | "project"
+        [project: "accept", local: "refuse"]     | "refused"   | "local"
+        [project: "accept", local: "hold"]       | "held"      | "local"
+        [project: "accept", user: "refuse"]      | "refused"   | "user"
+        [user: "hold"]                           | "held"      | "user"
+        [project: "hold", local: "accept", user: "accept"] | "held" | "project"
+        [:]                                      | "missing"   | "project"
+        [project: "accept", local: "maybe"]      | "unknown"   | "local"
+    }
+
+    private static void write(Path file, String inbound) {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, '{"crossSessionInbound": "' + inbound + '"}')
+    }
+
     void "an explicit inbound choice is kept, and inspect says what it means for delivery"() {
         given:
         Files.createDirectories(project.resolve(".claude"))

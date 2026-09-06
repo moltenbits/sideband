@@ -38,6 +38,9 @@ class ResourceInstaller implements Installer {
     static final String INBOUND_KEY = "crossSessionInbound";
     static final String INBOUND_ACCEPT = "accept";
     private static final String INBOUND_ITEM = "claude-inbound";
+    private static final String LOCAL_SETTINGS = ".claude/settings.local.json";
+    /** Looser to stricter; the strictest value present anywhere is the one Claude Code applies. */
+    private static final List<String> INBOUND_LADDER = List.of(INBOUND_ACCEPT, "hold", "refuse");
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
     private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
 
@@ -119,7 +122,7 @@ class ResourceInstaller implements Installer {
         Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
         return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings, Role.CLAUDE)),
                 new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)),
-                new InstallReport.Item(INBOUND_ITEM, settings.toString(), inboundState(settings)));
+                inboundItem(homeDir, projectDir));
     }
 
     private InstallReport.Item installSkill(String source, Path target) {
@@ -260,24 +263,47 @@ class ResourceInstaller implements Installer {
         }
     }
 
-    private String inboundState(Path settings) {
-        try {
-            if (!Files.exists(settings)) {
-                return "missing";
+    /**
+     * The inbound policy Claude Code will apply, as far as files can show it. The key has a
+     * stricter-value rule: {@code refuse} anywhere applies, then {@code hold}, so the strictest
+     * value across the project file, its local companion, and the user file wins, and the item's
+     * path names the file that decided. Managed settings and {@code --settings} are out of reach
+     * here, so a session can still be stricter than reported, never looser.
+     */
+    private InstallReport.Item inboundItem(Path homeDir, Path projectDir) {
+        Path project = projectDir.resolve(SETTINGS);
+        List<Path> sources = List.of(project, projectDir.resolve(LOCAL_SETTINGS), homeDir.resolve(SETTINGS));
+        Path deciding = project;
+        int strictest = -1;
+        for (Path source : sources) {
+            if (!Files.exists(source)) {
+                continue;
             }
-            Object value = readSettings(settings).get(INBOUND_KEY);
+            Object value;
+            try {
+                value = readSettings(source).get(INBOUND_KEY);
+            } catch (IOException | RuntimeException e) {
+                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unreadable");
+            }
             if (value == null) {
-                return "missing";
+                continue;
             }
-            return switch (String.valueOf(value)) {
-                case INBOUND_ACCEPT -> "installed";
-                case "hold" -> "held";
-                case "refuse" -> "refused";
-                default -> "unknown";
-            };
-        } catch (IOException | RuntimeException e) {
-            return "unreadable";
+            int rank = INBOUND_LADDER.indexOf(String.valueOf(value));
+            if (rank < 0) {
+                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unknown");
+            }
+            if (rank > strictest) {
+                strictest = rank;
+                deciding = source;
+            }
         }
+        String state = switch (strictest) {
+            case 0 -> "installed";
+            case 1 -> "held";
+            case 2 -> "refused";
+            default -> "missing";
+        };
+        return new InstallReport.Item(INBOUND_ITEM, deciding.toString(), state);
     }
 
     private boolean isSidebandHook(String command) {
