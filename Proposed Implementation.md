@@ -239,7 +239,8 @@ open and in-progress requests, updates past the read position, and outgoing
 requests with the recipient's acks and the silence since the latest one. A
 reply answers the
 nearest actionable entry reachable through its `reply_to` links that someone
-else wrote, so a reply to a clarification still answers the original request.
+else wrote, so a reply to a clarification still answers the original request;
+a reply that itself expects a reply is a question and closes nothing.
 
 Session files use write-to-temp, `fsync`, and atomic rename under the shared
 lock. There is no reconciliation step because there is nothing to reconcile:

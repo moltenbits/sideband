@@ -555,9 +555,11 @@ as long as no recipient has replied to it, across turns and sessions.
 The role's existing background listener delivers replies through the same
 path as other addressed messages. A reply answers the nearest actionable
 entry reachable through its `reply_to` links that someone else wrote, so a
-reply to a clarification still answers the original request. Whether an
-answer is sufficient is the sender's judgment; the journal only records that
-a reply exists.
+reply to a clarification still answers the original request. A reply that
+itself expects a reply is a question, not an answer: it closes nothing, and
+the original request stays open until a reply that expects nothing arrives.
+Whether an answer is sufficient is the sender's judgment; the journal only
+records that a reply exists.
 
 Version one has no separate blocking wait per request, response deadline,
 automatic retry, or automatic resubmission. Passage of time alone does not

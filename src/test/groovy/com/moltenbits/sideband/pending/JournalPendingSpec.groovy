@@ -148,14 +148,22 @@ class JournalPendingSpec extends Specification {
         report.ackIds() == [ack.metadata().id()]
         report.silenceSeconds() >= 1
 
-        when: "Codex asks a clarification, Claude answers it, Codex replies to the answer"
+        when: "Codex asks a clarification as an actionable reply"
         Entry clarify = agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: ask.metadata().id(), expectsReply: true])
+
+        then: "a question is not an answer: Claude's request stays outgoing and Codex's stays in progress"
+        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [ask.metadata().id()]
+        pending.report(dir, Role.CODEX).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
+        pending.report(dir, Role.CLAUDE).open()*.entry()*.metadata()*.id() == [clarify.metadata().id()]
+
+        when: "Claude answers the clarification and Codex replies to the answer"
         Entry answer = agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: clarify.metadata().id()])
         agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: answer.metadata().id()])
 
         then:
         pending.report(dir, Role.CLAUDE).outgoing().isEmpty()
         pending.report(dir, Role.CODEX).outgoing().isEmpty()
+        pending.report(dir, Role.CODEX).inProgress().isEmpty()
     }
 
 }

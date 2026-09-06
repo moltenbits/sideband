@@ -65,7 +65,7 @@ class JournalPending implements Pending {
                 if (m.expectsReply()) {
                     List<EntryMetadata> mine = responses.getOrDefault(m.id(), List.of()).stream()
                             .filter(r -> r.from().equals(self)).toList();
-                    if (mine.stream().anyMatch(r -> r.type() == MessageType.REPLY)) {
+                    if (mine.stream().anyMatch(JournalPending::answers)) {
                         continue;
                     }
                     Optional<OffsetDateTime> acked = latest(mine, MessageType.ACK);
@@ -78,7 +78,7 @@ class JournalPending implements Pending {
             if (Addressing.isOutgoingRequest(m, role)) {
                 List<EntryMetadata> theirs = responses.getOrDefault(m.id(), List.of()).stream()
                         .filter(r -> !r.from().equals(self)).toList();
-                if (theirs.stream().anyMatch(r -> r.type() == MessageType.REPLY)) {
+                if (theirs.stream().anyMatch(JournalPending::answers)) {
                     continue;
                 }
                 Optional<OffsetDateTime> acked = latest(theirs, MessageType.ACK);
@@ -111,6 +111,11 @@ class JournalPending implements Pending {
             items.add(new OpenItem(prepared.get(i), entry.end() <= watermark, acknowledged.get(entry.metadata().id())));
         }
         return items;
+    }
+
+    /** A reply closes a request; a reply that itself expects a reply is a question and closes nothing. */
+    private static boolean answers(EntryMetadata response) {
+        return response.type() == MessageType.REPLY && !response.expectsReply();
     }
 
     private static Optional<OffsetDateTime> latest(List<EntryMetadata> responses, MessageType type) {
