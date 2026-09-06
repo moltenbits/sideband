@@ -54,6 +54,15 @@ class FileSessionsSpec extends Specification {
         sessions.join(dir, Role.CODEX, "s2").id() == "s2"
     }
 
+    void "a Claude join records how entries reach it, and the record keeps it through advances"() {
+        expect:
+        sessions.join(dir, Role.CLAUDE, "s1", false, Delivery.LISTEN).delivery() == Delivery.LISTEN
+        Files.readString(dir.resolve("sessions/claude.json")).contains('"delivery":"listen"')
+        sessions.advance(dir, Role.CLAUDE, 5).delivery() == Delivery.LISTEN
+        sessions.join(dir, Role.CLAUDE, "s2", true, Delivery.PUSH).delivery() == Delivery.PUSH
+        sessions.join(dir, Role.CODEX, "t1").delivery() == null
+    }
+
     void "a record written when sessions still carried a process id loads without it"() {
         given:
         Files.createDirectories(dir.resolve("sessions"))
@@ -66,6 +75,7 @@ class FileSessionsSpec extends Specification {
             watermark() == 8898
             offset() == 203657
             resumed()
+            delivery() == null
         }
     }
 

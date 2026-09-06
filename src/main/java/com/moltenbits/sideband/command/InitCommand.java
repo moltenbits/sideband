@@ -52,7 +52,7 @@ public class InitCommand implements Callable<Integer> {
     @Override
     public Integer call() throws IOException {
         Path stateDirectory = repository.stateDirectory(home);
-        InstallReport clients = skipClients ? null : installer.install(homeDirectory, projectRoot(stateDirectory));
+        InstallReport clients = skipClients ? null : installer.install(homeDirectory, home.projectRoot(stateDirectory));
         Output.print(spec, json, new Result(stateDirectory.toString(), clients));
         return ExitCode.OK;
     }
@@ -62,20 +62,6 @@ public class InitCommand implements Callable<Integer> {
      * directory is a plain {@code .sideband} in it, otherwise the parent of the git directory
      * that holds {@code sideband}.
      */
-    static Path projectRoot(Path stateDirectory) {
-        return new SidebandHome() {
-            @Override
-            public Path locate(Path workingDirectory) {
-                throw new UnsupportedOperationException();
-            }
-
-            @Override
-            public Path initialize(Path workingDirectory) {
-                throw new UnsupportedOperationException();
-            }
-        }.projectRoot(stateDirectory);
-    }
-
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Result(String stateDirectory, @Nullable InstallReport clients) {
     }

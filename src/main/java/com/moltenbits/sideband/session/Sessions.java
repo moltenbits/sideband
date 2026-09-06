@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.session;
 
 import com.moltenbits.sideband.protocol.Role;
+import io.micronaut.core.annotation.Nullable;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -25,10 +26,14 @@ public interface Sessions {
      * one client per role per repository is the operator's convention, not something the
      * executable polices.
      */
-    Session join(Path stateDirectory, Role role, String sessionId, boolean resume);
+    Session join(Path stateDirectory, Role role, String sessionId, boolean resume, @Nullable Delivery delivery);
+
+    default Session join(Path stateDirectory, Role role, String sessionId, boolean resume) {
+        return join(stateDirectory, role, sessionId, resume, null);
+    }
 
     default Session join(Path stateDirectory, Role role, String sessionId) {
-        return join(stateDirectory, role, sessionId, false);
+        return join(stateDirectory, role, sessionId, false, null);
     }
 
     /** Records that everything ending at or before {@code offset} has been shown to the role. Never moves back. */

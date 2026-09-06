@@ -3,6 +3,8 @@ package com.moltenbits.sideband.push
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Delivery
+import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import io.micronaut.serde.ObjectMapper
 import spock.lang.AutoCleanup
@@ -178,7 +180,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Files.createDirectories(silentHome.resolve(".claude"))
         if (setting != null) Files.writeString(silentHome.resolve(".claude/settings.json"), '{"crossSessionInbound": "' + setting + '"}')
         HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(Sessions), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         when:
         PushResult result = cautious.push(state, "hi")
@@ -210,10 +212,38 @@ class ClaudeSocketPusherSpec extends Specification {
         }
     }
 
+    void "a joined session's recorded mode wins over the settings, in both directions"() {
+        given:
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(41, repo, socket)
+        Sessions sessions = context.getBean(Sessions)
+
+        when: "the session joined listening, although the settings would allow a push"
+        sessions.join(state, Role.CLAUDE, "s1", false, Delivery.LISTEN)
+        PushResult listening = pusher.push(state, "hi")
+
+        then:
+        listening.outcome() == PushOutcome.LISTENER_DELIVERS
+        listening.detail().contains("joined listening")
+        !received.isDone()
+
+        when: "the session joined for pushes, although the settings a writer sees now would hold them"
+        sessions.join(state, Role.CLAUDE, "s2", false, Delivery.PUSH)
+        Path silentHome = Files.createTempDirectory("claude-home-silent")
+        HostPusher trusting = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), sessions, context.getBean(ObjectMapper), Duration.ofSeconds(5))
+        PushResult pushed = trusting.push(state, "hi")
+
+        then:
+        pushed.outcome() == PushOutcome.PUSHED
+        received.get(30, TimeUnit.SECONDS).contains('"content":"hi"')
+    }
+
     void "an absent registry directory means no session"() {
         given:
         HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(Sessions), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
         lone.push(state, "hi").outcome() == PushOutcome.NO_SESSION
@@ -262,7 +292,7 @@ class ClaudeSocketPusherSpec extends Specification {
         servers << server
         register(8, repo, socket)
         HostPusher impatient = new ClaudeSocketPusher(registry.toString(), fakeHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(Sessions), context.getBean(ObjectMapper), Duration.ofSeconds(1))
         long started = System.nanoTime()
 
         when:

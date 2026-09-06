@@ -52,6 +52,28 @@ class SessionCommandsSpec extends CommandSpec {
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s3", "--replace") == ExitCode.INVALID_INPUT
     }
 
+    void "a Claude join fixes the delivery mode from the settings doctor can read, or from --deliver"() {
+        given:
+        Path home = Files.createTempDirectory("home")
+        if (accept) {
+            Files.createDirectories(home.resolve(".claude"))
+            Files.writeString(home.resolve(".claude/settings.json"), '{"crossSessionInbound": "accept"}')
+        }
+        List<String> args = ["join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--home", home.toString()]
+        if (flag != null) args += ["--deliver", flag]
+
+        expect:
+        runJson(*args).session.delivery == expected
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1", "--home", home.toString()).session.delivery == null
+
+        where:
+        accept | flag     | expected
+        false  | null     | "listen"
+        true   | null     | "push"
+        false  | "push"   | "push"
+        true   | "listen" | "listen"
+    }
+
     void "the originating client never sees its own human turn"() {
         given:
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
