@@ -70,9 +70,9 @@ described below.
 
    Idle waiting costs no model tokens. Never start a second listener. If
    Monitor is unavailable, fall back to a background Bash task running
-   `sideband wait --from <offset> --timeout 3600`
-   and restart it from the JSON `end` after each exit; its output file holds
-   a full batch with the same `intent` and entries as `pending`.
+   `sideband follow --once --from <offset> --timeout 3600`
+   and restart it from the JSON `end` after each exit; it prints the same
+   wake line, and `pending` holds the entries.
 
 ## On every human turn while active
 

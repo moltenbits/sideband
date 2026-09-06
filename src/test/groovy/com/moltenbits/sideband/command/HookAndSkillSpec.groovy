@@ -110,15 +110,14 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
         json().hookSpecificOutput.additionalContext.contains("Do not capture")
 
-        when:
-        stdout = new StringWriter()
-        run("wait", "--repo", repo.toString(), "--from", "0", "--timeout", "1")
+        when: "the journal holds the verbatim entry, addressed to the client it was typed into"
+        def entries = context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()
 
         then:
-        json().entries.size() == 1
-        json().entries[0].body == prompt
-        json().entries[0].metadata.via == "codex"
-        json().entries[0].metadata.from == "operator"
+        entries.size() == 1
+        entries[0].body() == prompt
+        entries[0].metadata().via() == Role.CODEX
+        entries[0].metadata().from().toString() == "operator"
 
         when:
         stdout = new StringWriter()
@@ -152,14 +151,14 @@ class HookAndSkillSpec extends CommandSpec {
 
         when:
         stdout = new StringWriter()
-        run("wait", "--repo", repo.toString(), "--from", "0", "--timeout", "1")
+        run("pending", "--repo", repo.toString(), "--role", peer)
 
         then:
-        json().entries.size() == 1
-        json().entries[0].metadata.via == owner
-        json().entries[0].metadata.from == "operator"
-        json().entries[0].metadata.to == [peer]
-        json().entries[0].body == "@${peer} hello\n"
+        json().open.size() == 1
+        json().open[0].entry.metadata.via == owner
+        json().open[0].entry.metadata.from == "operator"
+        json().open[0].entry.metadata.to == [peer]
+        json().open[0].entry.body == "@${peer} hello\n"
 
         where:
         detected    | owner    | peer     | flag

@@ -701,7 +701,7 @@ persistent Monitor attached to the streaming journal-follow command
 (`sideband follow --role claude`), started once at activation; each line the
 command emits is one wake signal for a batch of open entries and becomes one
 notification to the parent, which then reads the entries with `pending`. The listener is never re-armed per message. A one-shot background
-task blocked on `sideband wait` is the fallback where Monitor is unavailable,
+task blocked on `sideband follow --once` is the fallback where Monitor is unavailable,
 as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events must prompt a read of `pending`
 rather than be treated as exactly one message. The worker must
 not answer the message itself.

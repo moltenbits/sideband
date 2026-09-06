@@ -29,7 +29,7 @@ The version-one implementation will use:
 - Two instruction-only client skills installed alongside that executable.
 - Explicit activation (`/sideband` in Claude Code and `$sideband` in Codex).
 - One background transport worker per active client session.
-- A one-shot blocking `wait` command, so idle listening consumes no model tokens.
+- A blocking `follow` command, so idle listening consumes no model tokens.
   Only the background listener uses it; sending a request never blocks the
   parent, starts a response timer, or schedules a retry.
 - A local native build and idempotent installation of the binary and skill
@@ -347,8 +347,8 @@ sideband append-agent --from codex --to claude --type ack --reply-to <id>   # re
 sideband append-agent --from claude --to codex --type request --caused-by <id> \
   --heartbeat 10m --body-file <path>                          # reply or re-ack within each interval
 sideband join --role codex --session-id <id> [--resume]     # start the session; prints the first pending report
-sideband wait --role <role> --from <offset> [--timeout s]     # one batch, then exit
 sideband follow --role <role> --from <offset>                # one wake line per batch, forever
+sideband follow --role <role> --from <offset> --once [--timeout s]   # one wake line, then exit
 sideband pending --role codex                                # open, in progress, updates, outgoing
 sideband skill                          # the calling client's adapter instructions
 sideband hook prompt                    # prompt-submit hook, payload on stdin
@@ -405,14 +405,14 @@ as `heartbeat_seconds`. `pending` reports open and in-progress requests,
 updates past the read position, and outgoing requests, all derived from the
 journal.
 
-`wait` is one-shot and belongs only to the session's background listener.
-It blocks in a low-frequency stat loop until one or more new complete addressed
-entries exist, emits that batch, and exits. The transport
-worker handles the batch and invokes `wait` again. No standalone Sideband daemon
-survives the client session, and the model consumes no tokens while the native
-command is blocked.
+`follow` belongs only to the session's background listener. It blocks in a
+low-frequency stat loop until one or more new complete entries for the role
+exist, prints one wake line, and, without `--once`, keeps going. With `--once`
+it exits after that line so a transport worker can restart it from the line's
+`end`. No standalone Sideband daemon survives the client session, and the model
+consumes no tokens while the native command is blocked.
 
-The parent never invokes `wait` for a particular request or reply. Appending a
+The parent never invokes `follow` for a particular request or reply. Appending a
 request returns immediately after durable persistence; there are no response
 deadlines, retries, resubmissions, or periodic model turns to inspect pending
 requests. A diagnostic timeout in the existing spike is not a production
@@ -427,7 +427,7 @@ its ending byte offset as the session watermark, sets the bookmark there or,
 with `--resume`, leaves it where the previous session stopped, and releases the
 lock. It then prints the first pending report.
 
-The transport worker starts its first `wait` from the stored byte offset. An
+The transport worker starts `follow` from the stored byte offset. An
 entry appended after the watermark but before the blocking wait begins is found
 by the wait's mandatory initial scan and is classified as live. Thus every
 entry is either at/before the watermark (backlog) or after it (live); there is no
@@ -446,7 +446,7 @@ simultaneous instances of the same role.
 
 The executable hands the parent one JSON batch: the marker line, then the batch
 with the `intent` sentence first and the verbatim bodies inside
-`entries`. The same shape is the `sideband wait` output for Claude and the `codex queue`
+`entries`. The same shape is the `codex queue`
 message for Codex:
 
 ```text
@@ -592,7 +592,7 @@ The Claude skill is installed as a Claude-compatible `SKILL.md` and invoked as
 
 - use a supported native background facility to own journal following and wake
   the existing parent;
-- have the worker run only `sideband wait`, parent delivery, and state commands;
+- have the worker run only `sideband follow`, parent delivery, and `pending`;
 - rely on the shared `sideband hook prompt` hook, registered by `init` in the
   repository's `.claude/settings.json`, to journal the exact human body before
   model processing; the hook recognizes Claude Code as the caller itself;

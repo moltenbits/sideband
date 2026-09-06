@@ -10,7 +10,6 @@ import com.moltenbits.sideband.command.HookCommand;
 import com.moltenbits.sideband.command.InitCommand;
 import com.moltenbits.sideband.command.PendingCommand;
 import com.moltenbits.sideband.command.SkillCommand;
-import com.moltenbits.sideband.command.WaitCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
 import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.env.Environment;
@@ -32,7 +31,6 @@ import picocli.CommandLine.IVersionProvider;
                 JoinCommand.class,
                 CaptureHumanCommand.class,
                 AppendAgentCommand.class,
-                WaitCommand.class,
                 FollowCommand.class,
                 PendingCommand.class,
                 SkillCommand.class,
