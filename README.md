@@ -17,11 +17,11 @@ native image, and everything a client runs is a subcommand of it.
   a change, Codex asks Claude to explain a design, either reports status.
   Requests, replies, and status notes are all journal entries of one shape,
   and a reply is correlated with the request it answers.
-- **Every chain of requests starts with the human.** A human and an agent
-  write the same kind of entry, a request. Follow any chain of requests and
-  replies back to its root and that root is something the human asked; the
-  executable refuses an agent request without such a root. Within that, one
-  agent may direct the other's work for as long as the human's request stands.
+- **Every actionable chain traces to the human.** A human and an agent write
+  the same kind of entry, a request. An agent's actionable request must link,
+  through the requests and replies before it, to something the human asked;
+  the executable refuses one that does not. Within that, one agent may direct
+  the other's work for as long as the human's request stands.
 - **Delivery wakes the idle recipient** in its existing conversation, without
   any model tokens spent waiting. Each client is reached the way its host
   allows, described below.

@@ -158,8 +158,11 @@ Every entry must include:
 - `to`: a non-empty array of intended participant identifiers. Client
   recipients use `claude` or `codex`; a human recipient uses the same
   `human:<id>` form accepted by `from`.
-- `type`: `request`, `reply`, `status`, or `ack` (section 9.8). A request is
-  actionable whoever wrote it; there is no separate human-only type.
+- `type`: `request`, `reply`, `status`, or `ack` (section 9.8). There is no
+  separate human-only type: a human's prompt and an agent's delegation are
+  both requests. A request defaults to actionable regardless of author, but
+  `expects_reply` remains the authoritative switch: a request with it false
+  is context only, and a reply with it true is actionable.
 - `route`: `direct` or `broadcast`.
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.
@@ -400,15 +403,17 @@ instruction to republish that entry. A message ID may be delivered more than
 once, but it may be journaled as an original message only once.
 
 Agents must not originate actionable work between themselves. A human and an
-agent write the same kind of entry, a `request`; what differs is where a chain
-starts. Follow any chain of requests and replies back to its root, and that
-root must be a request a human wrote. Every agent-to-agent entry with
-`expects_reply: true` must therefore have a causal path to a human-authored
-entry. The path follows `caused_by` when it is present and otherwise follows
-`reply_to`; a missing ancestor or a cycle makes the entry invalid. Nothing
+agent write the same kind of entry, a `request`; what differs is where the
+authority comes from. Every agent-to-agent entry with `expects_reply: true`
+must have a causal path to a human-authored entry: the path follows
+`caused_by` when it is present and otherwise follows `reply_to`, stops at the
+nearest human-authored entry, and a missing ancestor or a cycle makes the
+entry invalid. Informational entries and entries addressed only to the human
+are not validated this way. Within that rule, and subject to the delegation
+depth confirmation below and the authority limits of section 12, nothing
 else limits what an agent may ask of another: one agent may direct the whole
 of another's work, or ask for a review after every commit, for as long as the
-human's originating request stands.
+human's request it traces to stands.
 
 Two measures of an agent-to-agent exchange are distinct and are limited
 differently:
