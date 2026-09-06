@@ -271,7 +271,7 @@ class HookAndSkillSpec extends CommandSpec {
         code == ExitCode.OK
         json().state == "ejected"
         json().name == "codex"
-        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")).endsWith(Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md")))
+        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")).endsWith(Files.readString(Path.of("skills/codex/INSTRUCTIONS.md")))
 
         when: "ejecting again is refused with a pointer to --force, and --force overwrites"
         stdout = new StringWriter()
@@ -291,7 +291,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        stdout.toString() == Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md"))
+        stdout.toString() == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
     }
 
     void "a resumed conversation refreshes its dead process before capturing without reactivation"() {

@@ -23,10 +23,10 @@ class ResourceInstallerSpec extends Specification {
 
     void "the embedded instructions are the checked-in ones and the stubs defer to the executable"() {
         expect:
-        installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE) == Files.readString(Path.of("skills/sideband-claude/INSTRUCTIONS.md"))
-        installer.instructions(com.moltenbits.sideband.protocol.Role.CODEX) == Files.readString(Path.of("skills/sideband-codex/INSTRUCTIONS.md"))
-        Files.readString(Path.of("skills/sideband-claude/SKILL.md")).contains("Run `sideband skill`")
-        Files.readString(Path.of("skills/sideband-codex/SKILL.md")).contains("Run `sideband skill`")
+        installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE) == Files.readString(Path.of("skills/claude/INSTRUCTIONS.md"))
+        installer.instructions(com.moltenbits.sideband.protocol.Role.CODEX) == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
+        Files.readString(Path.of("skills/claude/SKILL.md")).contains("Run `sideband skill`")
+        Files.readString(Path.of("skills/codex/SKILL.md")).contains("Run `sideband skill`")
     }
 
     void "ejecting writes the full instructions under the stub's front matter, and install then leaves it alone"() {
@@ -98,8 +98,8 @@ class ResourceInstallerSpec extends Specification {
         report.hook().state() == "added"
         report.codexHook().state() == "added"
         report.codexHook().name() == "codex-prompt-hook"
-        Files.readString(home.resolve(".claude/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-claude/SKILL.md"))
-        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/sideband-codex/SKILL.md"))
+        Files.readString(home.resolve(".claude/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/claude/SKILL.md"))
+        Files.readString(home.resolve(".agents/skills/sideband/SKILL.md")) == Files.readString(Path.of("skills/codex/SKILL.md"))
         Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
 
         and: "the settings file is pretty JSON with exactly the hook entry"
@@ -192,7 +192,7 @@ class ResourceInstallerSpec extends Specification {
     void "a development symlink is replaced by a real copy and an edited copy is refreshed"() {
         given:
         Files.createDirectories(home.resolve(".claude/skills"))
-        Files.createSymbolicLink(home.resolve(".claude/skills/sideband"), Path.of("skills/sideband-claude").toAbsolutePath())
+        Files.createSymbolicLink(home.resolve(".claude/skills/sideband"), Path.of("skills/claude").toAbsolutePath())
 
         expect:
         installer.inspect(home, project).skills()[0].state() == "stale"
@@ -249,7 +249,7 @@ class ResourceInstallerSpec extends Specification {
   "permissions": {"allow": ["Bash(ls:*)"]},
   "hooks": {
     "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre"}]}],
-    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/skills/sideband-claude/hooks/prompt.sh"}]}]
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "\\"$CLAUDE_PROJECT_DIR\\"/skills/claude/hooks/prompt.sh"}]}]
   }
 }''')
 

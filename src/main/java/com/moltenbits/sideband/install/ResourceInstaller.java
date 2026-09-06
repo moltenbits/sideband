@@ -26,8 +26,8 @@ class ResourceInstaller implements Installer {
 
     /** Skill source directory inside the resources, and where each client looks for it. */
     private static final Map<String, String> SKILLS = Map.of(
-            "sideband-claude", ".claude/skills/sideband",
-            "sideband-codex", ".agents/skills/sideband");
+            "claude", ".claude/skills/sideband",
+            "codex", ".agents/skills/sideband");
     static final String HOOK_EVENT = "UserPromptSubmit";
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
@@ -58,7 +58,7 @@ class ResourceInstaller implements Installer {
     @Override
     public String instructions(Role client) {
         try {
-            return new String(resource("sideband-" + client.id() + "/INSTRUCTIONS.md"), UTF_8);
+            return new String(resource(client.id() + "/INSTRUCTIONS.md"), UTF_8);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
@@ -66,7 +66,7 @@ class ResourceInstaller implements Installer {
 
     @Override
     public InstallReport.Item eject(Path homeDir, Role client, boolean force) {
-        String source = "sideband-" + client.id();
+        String source = client.id();
         Path target = homeDir.resolve(SKILLS.get(source));
         if (!force && skillState(source, target).equals("ejected")) {
             throw new IllegalArgumentException("the " + client.displayName() + " skill at " + target.resolve("SKILL.md")
@@ -95,7 +95,7 @@ class ResourceInstaller implements Installer {
     @Override
     public InstallReport install(Path homeDir, Path projectDir) {
         List<InstallReport.Item> skills = new ArrayList<>();
-        for (String source : List.of("sideband-claude", "sideband-codex")) {
+        for (String source : List.of("claude", "codex")) {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
         return new InstallReport(skills, installHook(projectDir.resolve(SETTINGS), "claude-prompt-hook"),
@@ -105,7 +105,7 @@ class ResourceInstaller implements Installer {
     @Override
     public InstallReport inspect(Path homeDir, Path projectDir) {
         List<InstallReport.Item> skills = new ArrayList<>();
-        for (String source : List.of("sideband-claude", "sideband-codex")) {
+        for (String source : List.of("claude", "codex")) {
             Path target = homeDir.resolve(SKILLS.get(source));
             skills.add(new InstallReport.Item(client(source), target.toString(), skillState(source, target)));
         }
@@ -227,7 +227,7 @@ class ResourceInstaller implements Installer {
         command = AGENT_OVERRIDE.matcher(command).replaceFirst("");
         return command.equals(hookCommand)
                 || command.matches("[\\\"']?(?:[^\\r\\n]*[/\\\\])?sideband(?:\\.exe)?[\\\"']?\\s+hook\\s+prompt")
-                || command.endsWith("/skills/sideband-claude/hooks/prompt.sh");
+                || command.endsWith("/skills/claude/hooks/prompt.sh") || command.endsWith("/skills/sideband-claude/hooks/prompt.sh");
     }
 
     private static String agentOverride(String command) {
@@ -282,6 +282,6 @@ class ResourceInstaller implements Installer {
     }
 
     private static String client(String source) {
-        return source.substring("sideband-".length());
+        return source;
     }
 }
