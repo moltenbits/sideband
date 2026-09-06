@@ -53,8 +53,8 @@ public class AppendAgentCommand implements Callable<Integer> {
     @Option(names = "--from", hidden = true, description = "Override the client detected from the environment")
     Role from;
 
-    @Option(names = "--to", required = true, arity = "1..*", converter = ParticipantIdConverter.class,
-            description = "Recipients: claude, codex, or operator")
+    @Option(names = "--to", arity = "1..*", converter = ParticipantIdConverter.class,
+            description = "Recipients: claude, codex, or operator. With --reply-to it defaults to the author of the entry being answered")
     List<ParticipantId> to;
 
     @Option(names = "--type", required = true, description = "request, reply, status, or ack")
@@ -110,23 +110,38 @@ public class AppendAgentCommand implements Callable<Integer> {
             actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
             body = Bodies.read(bodyFile);
         }
-        Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
-                replyTo, causedBy, actionable, Delivery.DEFAULT, body);
         Path stateDirectory = repository.stateDirectory(home);
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
-        checkLineage(file, draft);
+        Map<String, EntryMetadata> byId = index(file);
+        if (to == null || to.isEmpty()) {
+            if (replyTo == null) {
+                throw new IllegalArgumentException("--to is required unless --reply-to names the entry being answered");
+            }
+            EntryMetadata answered = byId.get(replyTo);
+            if (answered == null) {
+                throw new IllegalArgumentException("--reply-to names no entry in this discussion: " + replyTo);
+            }
+            to = List.of(answered.from()); // an answer goes to whoever asked
+        }
+        Draft draft = new Draft(ParticipantId.of(from), null, to, type, Route.forRecipients(to),
+                replyTo, causedBy, actionable, Delivery.DEFAULT, body);
+        checkLineage(byId, draft);
         Entry entry = journal.append(file, draft);
         Output.print(spec, json, Captured.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
 
-    /** The draft has no identifier yet, so trace from a stand-in with the same links. */
-    private void checkLineage(Path file, Draft draft) {
+    private Map<String, EntryMetadata> index(Path file) {
         Read all = journal.readCompleteFrom(file, 0);
         Map<String, EntryMetadata> byId = new HashMap<>();
         for (Entry entry : all.entries()) {
             byId.put(entry.metadata().id(), entry.metadata());
         }
+        return byId;
+    }
+
+    /** The draft has no identifier yet, so trace from a stand-in with the same links. */
+    private void checkLineage(Map<String, EntryMetadata> byId, Draft draft) {
         EntryIndex index = id -> Optional.ofNullable(byId.get(id));
         EntryMetadata candidate = new EntryMetadata(DRAFT_ID, OffsetDateTime.MIN, draft.from(), draft.via(),
                 draft.to(), draft.type(), draft.route(), draft.replyTo(), draft.causedBy(), draft.expectsReply(),

@@ -144,13 +144,13 @@ in context.
 
 ```bash
 sideband append-agent --to codex --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --to codex --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
+sideband append-agent --type reply --reply-to <id> --body-file <body.md>
 sideband append-agent --type ack --reply-to <id>
 ```
 
 `--caused-by` names the immediate communication that led to a delegation;
-`--reply-to` names the message being answered. The executable
+`--reply-to` names the message being answered, and the answer goes to whoever
+wrote it unless you pass `--to` yourself (for instance to copy the user). The executable
 refuses an actionable request with no path back to a human entry (exit 2)
 and reports in `pushes` how each recipient was reached: an entry to Codex is
 pushed straight into Codex's conversation with `codex queue` when Codex has an

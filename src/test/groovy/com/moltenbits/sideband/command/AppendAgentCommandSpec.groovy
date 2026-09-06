@@ -141,6 +141,40 @@ class AppendAgentCommandSpec extends CommandSpec {
                 "--reply-to", humanId, "--expects-reply", "true", "--body-file", body("x").toString()) == ExitCode.INVALID_INPUT
     }
 
+    void "an answer goes to whoever asked: --to defaults to the answered entry's author"() {
+        given:
+        String humanId = captureHuman("@codex review this")
+
+        when: "an ack with neither --to nor a body, exactly as the skill advertises"
+        int ack = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", humanId)
+        Map ackJson = json()
+        stdout = new StringWriter()
+        int reply = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "reply", "--reply-to", humanId,
+                "--body-file", body("Looks fine.").toString())
+
+        then:
+        ack == ExitCode.OK
+        ackJson.metadata.to == ["operator"]
+        ackJson.body == "received"
+        reply == ExitCode.OK
+        json().metadata.to == ["operator"]
+
+        and: "an explicit --to still wins, so a reply can also copy someone"
+        (stdout = new StringWriter()) != null
+        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "operator", "--type", "reply",
+                "--reply-to", humanId, "--body-file", body("both of you").toString()) == ExitCode.OK
+        json().metadata.to == ["claude", "operator"]
+    }
+
+    void "without --to, an unknown --reply-to or no --reply-to at all is invalid input"() {
+        expect:
+        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
+        stderr.toString().contains("names no entry")
+        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "status",
+                "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--to is required unless --reply-to")
+    }
+
     void "multiple recipients make a broadcast"() {
         given:
         String humanId = captureHuman("@all do the thing")

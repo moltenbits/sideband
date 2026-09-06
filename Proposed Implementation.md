@@ -341,9 +341,8 @@ sideband init
 sideband capture-human --via claude --body-file <path>
 sideband append-agent --from claude --to codex --type request \
   --caused-by <id> --body-file <path>
-sideband append-agent --from codex --to claude --type reply \
-  --reply-to <id> --expects-reply false --body-file <path>
-sideband append-agent --from codex --to claude --type ack --reply-to <id>   # receipt or still working, body optional
+sideband append-agent --from codex --type reply --reply-to <id> --body-file <path>   # to the author of <id> unless --to says otherwise
+sideband append-agent --from codex --type ack --reply-to <id>                        # receipt, body optional
 sideband join --role codex --session-id <id> [--resume]     # start the session; prints the first pending report
 sideband pending --role codex                                # open, in progress, updates, outgoing
 sideband pending --role codex --wait [--timeout s]           # block until something new, then report

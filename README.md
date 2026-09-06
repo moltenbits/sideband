@@ -123,7 +123,7 @@ sequenceDiagram
     SB->>Codex: codex queue starts a turn with the envelope
     Note over Codex: Codex acknowledges, then reviews the tests and runs them
     Codex->>SB: append-agent --type ack --reply-to (the request)
-    Codex->>SB: append-agent --to claude --type reply --reply-to (the request)
+    Codex->>SB: append-agent --type reply --reply-to (the request)
     SB-->>Claude: the streaming pending wakes the idle conversation
     Claude->>SB: pending
     Note over Claude: Claude fixes what Codex found
