@@ -31,10 +31,8 @@ described below.
    and records this conversation's session id and process id, so a later
    session can supersede this one automatically if it dies. Plain `join`
    starts at the latest point; `--resume` picks up from where Claude last
-   left off, so replies and other updates written for it since are shown,
-   and it means the user wants the requests that were waiting acted on,
-   not confirmed one by one. Use `--resume` unless the user says to start
-   fresh.
+   left off, so replies and other updates written for it since are shown.
+   Use `--resume` unless the user says to start fresh.
 
    ```bash
    sideband join --resume
@@ -45,13 +43,18 @@ described below.
 
 2. The output is the first pending report. Its `open` list holds requests
    addressed to Claude that Claude has neither acknowledged nor answered.
-   After `join --resume` they are yours to act on, as described under "When a
-   Monitor notification arrives". After a plain `join`, those with
-   `before_session` true arrived before this session: do not act on them
-   yet; show the user a short table (id prefix, author, one-line preview) and
-   ask whether to act on all, act on some, show full bodies, decline, or
-   leave them. Decline one by replying to it with a short reply saying so;
-   leaving one alone keeps it open and listed by `sideband pending`. `in_progress` holds requests already acknowledged and
+   Informational `updates` are context: show them and move on. What to do
+   with the requests depends on how many are waiting across `open` and
+   `in_progress`, and the executable has already applied the rule through
+   `before_session`: after `join --resume`, a lone request is not flagged
+   and is yours to act on as described under "When a Monitor notification
+   arrives", while several are flagged; after a plain `join`, everything
+   that arrived before this session is flagged. Flagged requests are not
+   acted on yet: show the user a short table (id prefix, author, one-line
+   preview) and ask which to take up, show full bodies, decline, or leave.
+   Never pick the newest of several on your own. Decline one by replying to
+   it with a short reply saying so; leaving one alone keeps it open and
+   listed by `sideband pending`. `in_progress` holds requests already acknowledged and
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 

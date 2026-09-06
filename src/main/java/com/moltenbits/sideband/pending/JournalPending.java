@@ -47,8 +47,8 @@ class JournalPending implements Pending {
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
         Read all = journal.readCompleteFrom(file, 0);
         Optional<Session> session = sessions.load(stateDirectory, role);
-        // A resumed session asked for what predates it, so nothing is flagged for confirmation.
-        long watermark = session.map(s -> s.resumed() ? 0L : s.watermark()).orElse(Long.MAX_VALUE);
+        long watermark = session.map(Session::watermark).orElse(Long.MAX_VALUE);
+        boolean resumed = session.map(Session::resumed).orElse(false);
         long offset = session.map(Session::offset).orElse(0L);
         ParticipantId self = ParticipantId.of(role);
         Map<String, List<EntryMetadata>> responses = responses(all.entries());
@@ -89,11 +89,15 @@ class JournalPending implements Pending {
                         silence, overdue));
             }
         }
+        // After --resume the operator wants what was waiting taken up: a lone request is acted
+        // on without asking, several are confirmed first. After a plain join, everything that
+        // predates the session is confirmed.
+        boolean confirmOld = !resumed || open.size() + inProgress.size() > 1;
         return new PendingReport(
                 Handling.forRole(role),
                 session.orElse(null),
-                items(file, open, watermark, acknowledged),
-                items(file, inProgress, watermark, acknowledged),
+                items(file, open, confirmOld ? watermark : 0L, acknowledged),
+                items(file, inProgress, confirmOld ? watermark : 0L, acknowledged),
                 handoffs.prepare(file, updates),
                 outgoing,
                 all.diagnostics(),

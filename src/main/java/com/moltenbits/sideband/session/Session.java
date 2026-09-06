@@ -15,7 +15,7 @@ import java.time.OffsetDateTime;
  * @param parentPid the host process, when known, so a dead session can be superseded
  * @param watermark the journal size at activation; entries ending at or before it predate the session
  * @param offset    the read position: entries ending at or before it have been shown to the role
- * @param resumed   joined with --resume: the operator wants what predates the session acted on, not confirmed
+ * @param resumed   joined with --resume: a lone waiting request is acted on, several are confirmed
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record Session(

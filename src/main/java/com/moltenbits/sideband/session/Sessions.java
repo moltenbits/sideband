@@ -21,7 +21,8 @@ public interface Sessions {
      * predating it. The read position starts there too, unless {@code resume} asks to pick
      * up where the role's previous session left off (or the start of the journal when it
      * never had one), so everything written for it since is shown. A resumed session also
-     * means the operator wants requests that predate it acted on, not confirmed first.
+     * means the operator wants what was waiting taken up: a lone request is acted on without
+     * asking, several are confirmed first.
      *
      * @throws SessionConflictException when another live session owns the role and {@code replace} is false
      */

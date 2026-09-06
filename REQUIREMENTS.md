@@ -501,10 +501,17 @@ The summary should distinguish actionable requests from informational replies
 and statuses. Informational entries may be summarized for awareness but must
 not be presented as pending work when `expects_reply` is false.
 
-A client that joins with `--resume` is told by that flag that the operator
-wants what was waiting acted on; it takes those requests up without asking,
-subject only to the usual `confirm` policy, lineage checks, and authority
-limits.
+A client that joins with `--resume` applies a simpler rule to what was
+waiting, counting the requests across open and in progress (an
+acknowledgement does not remove a request from the count; informational
+updates never add to it):
+
+- none: the informational updates are processed as context, without asking;
+- one: that request is acted on, with any updates as context;
+- several: the client asks which to take up before acting on any, and never
+  picks the newest on its own.
+
+The usual `confirm` policy, lineage checks, and authority limits still apply.
 
 ### 9.5 Session record
 
@@ -522,10 +529,9 @@ What a role still has to look at is derived from the journal whenever it is
 read, by `pending`:
 
 - **Open**: a request addressed to the role that it has neither acknowledged
-  nor replied to. After a plain `join`, a request predating the session is
-  flagged so the human confirms it before it is acted on (section 9.4); after
-  `join --resume` nothing is flagged, because resuming is the operator saying
-  to take up what was waiting.
+  nor replied to. A request predating the session is flagged for the human's
+  confirmation under the rule of section 9.4: always after a plain `join`,
+  and after `join --resume` only when more than one request is waiting.
 - **In progress**: a request the role has acknowledged and not yet replied
   to, so a conversation that lost its context can see what it had taken up.
 - **Updates**: informational entries addressed to the role past its read

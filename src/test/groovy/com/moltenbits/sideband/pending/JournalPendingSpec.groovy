@@ -71,11 +71,29 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, false]
         pending.report(dir, Role.CODEX).session().id() == "s1"
 
-        when: "a resumed session asked for what predates it: nothing needs confirming"
+        when: "a resumed session with several requests waiting still confirms them"
         sessions.join(dir, Role.CODEX, "s2", null, true, true)
 
         then:
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [false, false]
+        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, true]
+
+        when: "one of them is answered, leaving a lone request: acted on without asking"
+        agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: before.metadata().id(), to: [Fixtures.OPERATOR]])
+
+        then:
+        pending.report(dir, Role.CODEX).open()*.beforeSession() == [false]
+    }
+
+    void "after --resume an acknowledged request still counts toward the several-requests rule"() {
+        given:
+        Entry one = human("@codex one")
+        Entry two = human("@codex two")
+        agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: one.metadata().id(), to: [Fixtures.OPERATOR]])
+        sessions.join(dir, Role.CODEX, "s1", null, false, true)
+
+        expect:
+        pending.report(dir, Role.CODEX).inProgress()*.beforeSession() == [true]
+        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true]
     }
 
     void "informational entries are updates until the read position passes them"() {
