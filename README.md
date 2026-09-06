@@ -176,7 +176,8 @@ sessions"). Claude Code lets a repository's `.claude/settings.json` and
 `.claude/settings.local.json` only tighten that value, so `init` does not
 write it; `doctor` reports whether pushes will be delivered, held, or refused,
 names the file that decided, and says where accept must go. Managed settings
-and `--settings`, which it cannot read, override all of that.
+and `--settings`, which it cannot read, take the place of your user file as
+the base; a repository's tightening still applies over them.
 In Codex, review and trust the new hook through `/hooks`; a registered command
 is not necessarily enabled or trusted by the host. The hook is the only thing
 that records prompts: when it cannot, it tells the model to tell you, and no

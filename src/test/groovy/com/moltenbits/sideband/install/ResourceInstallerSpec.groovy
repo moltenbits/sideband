@@ -155,7 +155,7 @@ class ResourceInstallerSpec extends Specification {
         item.state() == state
         item.path() == files[decidedBy].toString()
         item.note().contains("can only tighten it")
-        item.note().contains("managed settings and --settings, which are not inspected")
+        item.note().contains("managed settings or --settings, which are not inspected")
 
         where:
         values                                              | state       | decidedBy
@@ -172,6 +172,44 @@ class ResourceInstallerSpec extends Specification {
     private static void write(Path file, String inbound) {
         Files.createDirectories(file.parent)
         Files.writeString(file, '{"crossSessionInbound": "' + inbound + '"}')
+    }
+
+    void "Codex registers the native command once, naming codex, and preserves unrelated configuration"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"description":"my hooks","hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"echo sideband audit"}]}],"Stop":[{"hooks":[{"type":"command","command":"echo done"}]}]}}''')
+
+        when:
+        installer.install(home, project)
+        String first = Files.readString(hooksFile)
+        installer.install(home, project)
+        String second = Files.readString(hooksFile)
+
+        then:
+        first == second
+        second.count("hook prompt") == 1
+        second.contains('"command": "\\\"/opt/sideband/bin/sideband\\\" hook prompt --agent codex"')
+        second.contains("echo sideband audit")
+        second.contains("echo done")
+        second.contains("my hooks")
+    }
+
+    void "the hook installer preserves an inbound choice already in the repository file"() {
+        given:
+        Files.createDirectories(project.resolve(".claude"))
+        Files.writeString(project.resolve(".claude/settings.json"), '{"crossSessionInbound": "refuse"}')
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String settings = Files.readString(project.resolve(".claude/settings.json"))
+
+        then:
+        report.hook().state() == "added"
+        settings.contains('"crossSessionInbound": "refuse"')
+        settings.contains("hook prompt --agent claude")
+        report.inbound().state() == "refused"
+        report.inbound().path() == project.resolve(".claude/settings.json").toString()
     }
 
     void "an unreadable settings file is reported as such for the inbound verdict"() {

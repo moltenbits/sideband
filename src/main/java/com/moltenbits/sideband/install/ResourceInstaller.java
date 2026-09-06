@@ -253,7 +253,7 @@ class ResourceInstaller implements Installer {
         Path user = homeDir.resolve(SETTINGS);
         String note = "Claude Code delivers a Sideband push only when crossSessionInbound is accept in " + user
                 + " (or /config, \"Messages from your other sessions\"); .claude/settings.json and .claude/settings.local.json"
-                + " can only tighten it, and managed settings and --settings, which are not inspected, override it";
+                + " can only tighten it, and managed settings or --settings, which are not inspected, would replace the user file as the base";
         int rank = -1;
         Path deciding = user;
         try {
