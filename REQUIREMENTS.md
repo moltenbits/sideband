@@ -159,8 +159,7 @@ Every entry must include:
   recipients use `claude` or `codex`; a human recipient uses the same
   `human:<id>` form accepted by `from`.
 - `type`: `request`, `reply`, `status`, or `ack` (section 9.8). A request is
-  actionable whoever wrote it; there is no separate human-only type. Entries
-  written under the former `instruction` type are read as requests.
+  actionable whoever wrote it; there is no separate human-only type.
 - `route`: `direct` or `broadcast`.
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.

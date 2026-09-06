@@ -37,12 +37,6 @@ class EntryMetadataSpec extends Specification {
         json.readValue(extended, EntryMetadata) == Fixtures.metadata()
     }
 
-    void "entries written under the former instruction type read as requests"() {
-        expect:
-        json.readValue(SAMPLE.replace('"type":"request"', '"type":"instruction"'), EntryMetadata) == Fixtures.metadata()
-        json.writeValueAsString(json.readValue(SAMPLE.replace('"type":"request"', '"type":"instruction"'), EntryMetadata)) == SAMPLE
-    }
-
     void "an unknown enum value is invalid rather than guessed"() {
         when:
         json.readValue(SAMPLE.replace('"type":"request"', '"type":"control"'), EntryMetadata)

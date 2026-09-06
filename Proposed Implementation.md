@@ -749,8 +749,7 @@ The adapter maintains a current causality context:
   human-only entry into the other client's conversation.
 - Listener lifecycle and disposition changes: keep these in local state and
   diagnostics. Version one has no `control` type; the valid message types are
-  `request`, `reply`, and `status`, with `ack` proposed. The former
-  `instruction` type is read as `request`.
+  `request`, `reply`, and `status`, with `ack` proposed.
 
 The executable validates actionable agent-to-agent ancestry at append and
 delivery: follow `caused_by` when present, otherwise `reply_to`, until reaching
