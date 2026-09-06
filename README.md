@@ -165,14 +165,18 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
 and registers the `sideband hook prompt` command in the repository's
 `.claude/settings.json` and `.codex/hooks.json`, each naming its client with
-`--agent claude` or `--agent codex`, and sets `crossSessionInbound` to
-`accept` in `.claude/settings.json` unless you have chosen a value, because a
-pushed envelope reaches Claude Code from a process that is not the session's
-own child and a session run with bypass permissions would otherwise hold it
-for approval. `doctor` reports the strictest inbound value it finds across the
-project, local, and user settings files, and says that managed settings and
-`--settings`, which it cannot read, may set a different one. Rerunning `init`
-is safe.
+`--agent claude` or `--agent codex`. Rerunning it is safe.
+
+One setting is yours to make. A pushed envelope reaches Claude Code from a
+process that is not the session's own child, and a session run with bypass
+permissions holds such a message for your approval unless
+`crossSessionInbound` is `accept` in your user settings,
+`~/.claude/settings.json` (or `/config`, "Messages from your other
+sessions"). Claude Code lets a repository's `.claude/settings.json` and
+`.claude/settings.local.json` only tighten that value, so `init` does not
+write it; `doctor` reports whether pushes will be delivered, held, or refused,
+names the file that decided, and says where accept must go. Managed settings
+and `--settings`, which it cannot read, override all of that.
 In Codex, review and trust the new hook through `/hooks`; a registered command
 is not necessarily enabled or trusted by the host. The hook is the only thing
 that records prompts: when it cannot, it tells the model to tell you, and no

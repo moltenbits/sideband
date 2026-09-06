@@ -726,15 +726,18 @@ in the journal when none accepts. A frame past Claude Code's cap of about a
 million characters is refused before any connection, and a session that
 accepts the connection but stops reading is given up on after a bounded wait.
 
-Claude Code applies its inbound controls to the frame: a message from a
-process that is not the session's own child is held for the operator's
-approval in a bypass-permissions session unless `crossSessionInbound` is
-`accept`. `init` sets that in the repository's `.claude/settings.json` unless
-the operator has chosen a value, and `doctor` reports the strictest value it
-finds across the project, local, and user files, naming the deciding file.
-Managed settings and `--settings` are not inspected and can set a different
-value, so the report states what it inspected rather than what the running
-session applies; the diagnostic carries that note.
+Claude Code applies its inbound controls to the frame: a message whose sender
+attests no permission mode is held for the operator's approval in a
+bypass-permissions session unless `crossSessionInbound` is `accept`. Claude
+Code reads that key from managed settings, `--settings`, and the user file,
+first one wins, and lets the repository's `.claude/settings.json` and
+`.claude/settings.local.json` only tighten it (verified 2026-09-06: an accept
+in the repository file left every push held, and each was delivered the
+moment the operator approved it). So `init` does not write the key; the
+operator sets accept in the user file, and `doctor` reports installed, held,
+refused, or missing following the same resolution, naming the deciding file
+and saying where accept must go. Managed settings and `--settings` are not
+inspected, and the report says so.
 The earlier design, a persistent Monitor on `sideband pending --wait --stream`
 started at activation, is retired: a fresh Claude Code session was unreachable
 until the operator re-ran the skill, and every delivery cost a wake plus a

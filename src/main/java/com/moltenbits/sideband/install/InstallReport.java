@@ -8,9 +8,9 @@ import java.util.List;
 
 /**
  * What is installed where. States: installed, updated, unchanged, missing, stale, conflict,
- * ejected; and for {@code inbound}, Claude Code's delivery setting: added, unchanged, kept
- * (an explicit choice left alone), installed, held, refused, missing. An item's {@code note},
- * when present, says what the state does and does not cover.
+ * ejected; and for {@code inbound}, whether Claude Code will deliver a push: installed, held,
+ * refused, missing, unknown, unreadable. An item's {@code note}, when present, says what the
+ * state covers and what to change.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record InstallReport(List<Item> skills, Item hook, Item codexHook, Item inbound) {

@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.install;
 
 import com.moltenbits.sideband.protocol.Role;
+import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -34,13 +35,11 @@ class ResourceInstaller implements Installer {
     /** Marks a SKILL.md the operator ejected; the installer never overwrites one. */
     static final String EJECTED_MARKER = "<!-- ejected from sideband: edit freely; `sideband init` leaves this file alone and it no longer updates with the executable. Delete it and rerun `sideband init` to go back. -->";
     private static final String SETTINGS = ".claude/settings.json";
-    /** Claude Code delivers a pushed envelope only when this says so; otherwise a bypass-permissions session holds it for approval. */
+    /** Claude Code delivers a pushed envelope only when this says accept in the user file; otherwise a bypass-permissions session holds it. */
     static final String INBOUND_KEY = "crossSessionInbound";
     static final String INBOUND_ACCEPT = "accept";
     private static final String INBOUND_ITEM = "claude-inbound";
     private static final String LOCAL_SETTINGS = ".claude/settings.local.json";
-    static final String INBOUND_NOTE = "the value found in .claude/settings.json, .claude/settings.local.json, and the user "
-            + "~/.claude/settings.json; managed settings and --settings are not inspected and can set a different value";
     /** Looser to stricter; the strictest value present anywhere is the one Claude Code applies. */
     private static final List<String> INBOUND_LADDER = List.of(INBOUND_ACCEPT, "hold", "refuse");
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
@@ -110,7 +109,7 @@ class ResourceInstaller implements Installer {
         Path settings = projectDir.resolve(SETTINGS);
         return new InstallReport(skills, installHook(settings, "claude-prompt-hook", Role.CLAUDE),
                 installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX),
-                installInbound(settings));
+                inboundItem(homeDir, projectDir));
     }
 
     @Override
@@ -241,72 +240,77 @@ class ResourceInstaller implements Installer {
     }
 
     /**
-     * Sets {@code crossSessionInbound} to {@code accept} when the operator has not chosen a value.
-     * A Sideband push comes from a process that is not the session's child, so without this a
-     * session run with bypass permissions holds every envelope for approval and drops it after
-     * the dialog expires. An explicit choice is kept and reported instead.
-     */
-    private InstallReport.Item installInbound(Path settings) {
-        try {
-            Map<String, Object> root = readSettings(settings);
-            Object current = root.get(INBOUND_KEY);
-            if (INBOUND_ACCEPT.equals(current)) {
-                return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "unchanged");
-            }
-            if (current != null) {
-                return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "kept");
-            }
-            root.put(INBOUND_KEY, INBOUND_ACCEPT);
-            Files.createDirectories(settings.getParent());
-            Files.writeString(settings, PrettyJson.render(root) + "\n", UTF_8);
-            return new InstallReport.Item(INBOUND_ITEM, settings.toString(), "added");
-        } catch (IOException e) {
-            throw new UncheckedIOException("could not update " + settings, e);
-        }
-    }
-
-    /**
-     * The inbound policy found in the files this executable can read: the project file, its
-     * local companion, and the user file. The key has a stricter-value rule for project and
-     * local settings, so the strictest value across the three wins and the item's path names
-     * the file that decided. Managed settings and {@code --settings} are not inspected, and a
-     * value there can override a user-file value in either direction, so the item says what
-     * was inspected rather than claiming what the running session applies.
+     * Whether Claude Code will deliver a Sideband push, as far as files can show it. A push
+     * comes from a process that is not the session's child and attests no permission mode, so
+     * a session run with bypass permissions holds it for approval unless
+     * {@code crossSessionInbound} is {@code accept}. Claude Code reads that key from managed
+     * settings, {@code --settings}, and the user file, first one wins, and lets the local and
+     * project files only tighten it. So {@code init} never writes it: an accept in the
+     * repository would be ignored, and the user file is the operator's to edit. The item names
+     * the file that decided and, when delivery would be held, says where accept must go.
      */
     private InstallReport.Item inboundItem(Path homeDir, Path projectDir) {
-        Path project = projectDir.resolve(SETTINGS);
-        List<Path> sources = List.of(project, projectDir.resolve(LOCAL_SETTINGS), homeDir.resolve(SETTINGS));
-        Path deciding = project;
-        int strictest = -1;
-        for (Path source : sources) {
-            if (!Files.exists(source)) {
-                continue;
+        Path user = homeDir.resolve(SETTINGS);
+        String note = "Claude Code delivers a Sideband push only when crossSessionInbound is accept in " + user
+                + " (or /config, \"Messages from your other sessions\"); .claude/settings.json and .claude/settings.local.json"
+                + " can only tighten it, and managed settings and --settings, which are not inspected, override it";
+        int rank = -1;
+        Path deciding = user;
+        try {
+            Object base = value(user);
+            if (base != null) {
+                rank = ladder(base, user);
             }
-            Object value;
-            try {
-                value = readSettings(source).get(INBOUND_KEY);
-            } catch (IOException | RuntimeException e) {
-                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unreadable", INBOUND_NOTE);
+            for (Path source : List.of(projectDir.resolve(LOCAL_SETTINGS), projectDir.resolve(SETTINGS))) {
+                Object tightening = value(source);
+                if (tightening == null) {
+                    continue;
+                }
+                int candidate = ladder(tightening, source);
+                if (candidate > 0 && candidate > rank) { // accept here loosens nothing
+                    rank = candidate;
+                    deciding = source;
+                }
             }
-            if (value == null) {
-                continue;
-            }
-            int rank = INBOUND_LADDER.indexOf(String.valueOf(value));
-            if (rank < 0) {
-                return new InstallReport.Item(INBOUND_ITEM, source.toString(), "unknown", INBOUND_NOTE);
-            }
-            if (rank > strictest) {
-                strictest = rank;
-                deciding = source;
-            }
+        } catch (InboundSettingException e) {
+            return new InstallReport.Item(INBOUND_ITEM, e.source.toString(), e.state, note);
         }
-        String state = switch (strictest) {
+        String state = switch (rank) {
             case 0 -> "installed";
             case 1 -> "held";
             case 2 -> "refused";
             default -> "missing";
         };
-        return new InstallReport.Item(INBOUND_ITEM, deciding.toString(), state, INBOUND_NOTE);
+        return new InstallReport.Item(INBOUND_ITEM, deciding.toString(), state, note);
+    }
+
+    private @Nullable Object value(Path source) throws InboundSettingException {
+        if (!Files.exists(source)) {
+            return null;
+        }
+        try {
+            return readSettings(source).get(INBOUND_KEY);
+        } catch (IOException | RuntimeException e) {
+            throw new InboundSettingException(source, "unreadable");
+        }
+    }
+
+    private static int ladder(Object value, Path source) throws InboundSettingException {
+        int rank = INBOUND_LADDER.indexOf(String.valueOf(value));
+        if (rank < 0) {
+            throw new InboundSettingException(source, "unknown");
+        }
+        return rank;
+    }
+
+    private static final class InboundSettingException extends Exception {
+        final Path source;
+        final String state;
+
+        InboundSettingException(Path source, String state) {
+            this.source = source;
+            this.state = state;
+        }
     }
 
     private boolean isSidebandHook(String command) {
