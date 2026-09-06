@@ -57,7 +57,7 @@ public class AppendCommand implements Callable<Integer> {
             description = "Author: operator for the operator's own words (routed by their first token), otherwise the calling client")
     ParticipantId from;
 
-    @Option(names = "--via", hidden = true, description = "Override the client detected from the environment")
+    @Option(names = "--via", hidden = true, description = "With --from operator: override the client detected from the environment")
     Role via;
 
     @Option(names = "--to", arity = "1..*", converter = ParticipantIdConverter.class,
@@ -101,11 +101,14 @@ public class AppendCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws IOException {
-        Role client = via != null ? via : from != null && from.role().isPresent() ? from.role().get() : host.requireRole("--from");
-        if (from != null && from.isHuman()) {
-            return appendOperator(client);
+        boolean operator = from != null && from.isHuman();
+        if (via != null && !operator) {
+            throw new IllegalArgumentException("--via only applies with --from operator; an agent entry's author is --from or the calling client");
         }
-        Role author = client;
+        if (operator) {
+            return appendOperator(via != null ? via : host.requireRole("--via"));
+        }
+        Role author = from != null ? from.role().orElseThrow() : host.requireRole("--from");
         if (type == null) {
             throw new IllegalArgumentException("--type is required: request, reply, status, or ack");
         }

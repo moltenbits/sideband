@@ -80,7 +80,11 @@ class AppendOperatorSpec extends CommandSpec {
     }
 
     void "an agent entry needs --type; an unknown --from is rejected"() {
-        expect:
+        expect: "and --via cannot quietly replace an agent author"
+        run("append", "--repo", repo.toString(), "--from", "claude", "--via", "codex", "--type", "status", "--to", "operator",
+                "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--via only applies with --from operator")
+        !Files.exists(journalFile)
         run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--type is required")
         run("append", "--repo", repo.toString(), "--from", "gemini", "--type", "status", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
