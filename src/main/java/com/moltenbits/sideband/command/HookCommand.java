@@ -108,7 +108,10 @@ public class HookCommand {
             }
             String prompt = payload.prompt() == null ? "" : payload.prompt();
             String trimmed = prompt.stripLeading();
-            if (trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER) || trimmed.startsWith("/") || trimmed.startsWith("!")) {
+            String message = skillMessage(trimmed);
+            if (message != null) {
+                prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
+            } else if (trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER) || trimmed.startsWith("/") || trimmed.startsWith("!")) {
                 return ExitCode.OK;
             }
             Path stateDirectory;
@@ -156,6 +159,25 @@ public class HookCommand {
         }
 
         /** A prompt that was never meant to be captured, or a repository where Sideband is not in use: stderr only. */
+        /** The skill's own argument words; anything else after {@code /sideband} or {@code $sideband} is a message. */
+        private static final java.util.Set<String> SKILL_WORDS = java.util.Set.of("help", "status", "pending", "off");
+
+        /**
+         * The operator's words when the prompt is the Sideband skill invoked with a message,
+         * such as {@code /sideband @codex look at this}; null for any other prompt, including
+         * the skill alone or with one of its own argument words.
+         */
+        static String skillMessage(String trimmed) {
+            for (String invocation : new String[] {"/sideband", "$sideband"}) {
+                if (trimmed.startsWith(invocation) && trimmed.length() > invocation.length()
+                        && Character.isWhitespace(trimmed.charAt(invocation.length()))) {
+                    String rest = trimmed.substring(invocation.length()).strip();
+                    return rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+                }
+            }
+            return null;
+        }
+
         private int skipped(String reason) {
             spec.commandLine().getErr().println("sideband hook: capture skipped: " + reason);
             return ExitCode.OK;

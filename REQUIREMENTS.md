@@ -258,6 +258,12 @@ both. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
+A prompt that invokes the client's Sideband skill with text after it, such
+as `/sideband @codex look at this`, is the operator's words typed as the
+skill's argument: the hook records the text after the invocation and routes
+it by its first token. The skill invoked alone or with one of its own words
+(`help`, `status`, `pending`, `off`) is a command and is not captured.
+
 The hook must never block a prompt, so it always exits successfully, and the
 hook's context field is the shared, non-blocking channel both hosts show the
 model. A prompt that should have been journaled and was not is therefore

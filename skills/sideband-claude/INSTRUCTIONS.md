@@ -23,7 +23,7 @@ described below.
 | `status` | Run `sideband doctor` and summarize it: both roles' sessions and whether they are live, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | Stop the listener (TaskStop on the Monitor) and tell the user the bookmark stays, so a later `/sideband` resumes from it. |
-| anything else | Treat it as a message: record it with `append --from operator` exactly as a human turn, so `/sideband @codex look at this` routes to Codex. |
+| anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
 
 ## Activate
 

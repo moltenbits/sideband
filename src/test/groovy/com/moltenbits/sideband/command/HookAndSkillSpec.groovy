@@ -102,6 +102,30 @@ class HookAndSkillSpec extends CommandSpec {
         "hello"                         | "s1"    | true
     }
 
+    void "a message typed as the skill's argument is the operator's words: the hook records the text after the invocation"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        when:
+        int code = hook(prompt)
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty() == (expected == null)
+        expected == null || context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.body() == [expected]
+        expected == null || json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as")
+
+        where:
+        prompt                                  | expected
+        "/sideband @codex look at this"         | "@codex look at this"
+        "  \$sideband  tell codex to wait  "     | "tell codex to wait"
+        "/sideband"                             | null
+        "/sideband pending"                     | null
+        "/sideband OFF"                         | null
+        "/sidebandish something"                | null
+    }
+
     void "the hook never fails the prompt, even on garbage input"() {
         given:
         InputStream original = System.in
