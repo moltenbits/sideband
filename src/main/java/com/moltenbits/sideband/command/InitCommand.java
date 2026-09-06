@@ -63,10 +63,17 @@ public class InitCommand implements Callable<Integer> {
      * that holds {@code sideband}.
      */
     static Path projectRoot(Path stateDirectory) {
-        if (stateDirectory.getFileName().toString().equals(SidebandHome.PLAIN_DIRECTORY_NAME)) {
-            return stateDirectory.getParent();
-        }
-        return stateDirectory.getParent().getParent();
+        return new SidebandHome() {
+            @Override
+            public Path locate(Path workingDirectory) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public Path initialize(Path workingDirectory) {
+                throw new UnsupportedOperationException();
+            }
+        }.projectRoot(stateDirectory);
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)

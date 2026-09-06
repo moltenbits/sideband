@@ -27,8 +27,17 @@ import static java.nio.charset.StandardCharsets.UTF_8
 class ClaudeSocketPusherSpec extends Specification {
 
     @Shared Path registry = Files.createTempDirectory("claude-sessions")
+    /** A fake user home whose settings accept cross-session messages, so pushes are attempted. */
+    @Shared Path fakeHome = accepting(Files.createTempDirectory("claude-home"))
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run(
-            ["sideband.claude.sessions-directory": registry.toString()])
+            ["sideband.claude.sessions-directory": registry.toString(),
+             "sideband.home-directory": fakeHome.toString()])
+
+    static Path accepting(Path home) {
+        Files.createDirectories(home.resolve(".claude"))
+        Files.writeString(home.resolve(".claude/settings.json"), '{"crossSessionInbound": "accept"}')
+        home
+    }
 
     HostPusher pusher = context.getBeansOfType(HostPusher).find { it.role() == Role.CLAUDE }
     SidebandHome home = context.getBean(SidebandHome)
@@ -162,9 +171,49 @@ class ClaudeSocketPusherSpec extends Specification {
         pusher.push(state, "hi").outcome() == PushOutcome.NO_SESSION
     }
 
+    void "nothing is posted when Claude Code would hold it: the listener delivers instead"() {
+        given: "a registration whose socket nothing is bound to, so a connection attempt would show as a failure"
+        register(31, repo, socketPath())
+        Path silentHome = Files.createTempDirectory("claude-home-silent")
+        Files.createDirectories(silentHome.resolve(".claude"))
+        if (setting != null) Files.writeString(silentHome.resolve(".claude/settings.json"), '{"crossSessionInbound": "' + setting + '"}')
+        HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+
+        when:
+        PushResult result = cautious.push(state, "hi")
+
+        then:
+        result.outcome() == PushOutcome.LISTENER_DELIVERS
+        result.detail().contains("inbound " + verdict + " per")
+        result.detail().contains("accept in " + silentHome.resolve(".claude/settings.json"))
+        !result.detail().contains("did not accept the connection")
+
+        where:
+        setting  | verdict
+        null     | "missing"
+        "hold"   | "held"
+        "refuse" | "refused"
+    }
+
+    void "a repository can tighten the user's accept, and then nothing is posted either"() {
+        given:
+        register(32, repo, socketPath())
+        Files.createDirectories(repo.resolve(".claude"))
+        Files.writeString(repo.resolve(".claude/settings.local.json"), '{"crossSessionInbound": "refuse"}')
+
+        expect:
+        with(pusher.push(state, "hi")) {
+            outcome() == PushOutcome.LISTENER_DELIVERS
+            detail().contains("inbound refused per ")
+            detail().contains("/.claude/settings.local.json); ")
+        }
+    }
+
     void "an absent registry directory means no session"() {
         given:
-        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), home, context.getBean(ObjectMapper), Duration.ofSeconds(1))
+        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
         lone.push(state, "hi").outcome() == PushOutcome.NO_SESSION
@@ -212,7 +261,8 @@ class ClaudeSocketPusherSpec extends Specification {
         server.bind(UnixDomainSocketAddress.of(socket))
         servers << server
         register(8, repo, socket)
-        HostPusher impatient = new ClaudeSocketPusher(registry.toString(), home, context.getBean(ObjectMapper), Duration.ofSeconds(1))
+        HostPusher impatient = new ClaudeSocketPusher(registry.toString(), fakeHome.toString(), home,
+                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
         long started = System.nanoTime()
 
         when:

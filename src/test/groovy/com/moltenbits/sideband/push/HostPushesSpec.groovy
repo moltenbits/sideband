@@ -21,11 +21,13 @@ class HostPushesSpec extends Specification {
     @Shared Path fakeBin = Files.createTempDirectory("fake-codex")
     @Shared Path log = fakeBin.resolve("calls.log")
     @Shared Path exitFile = fakeBin.resolve("exit-code")
-    /** An empty Claude registry, so no real session on the developer's machine is ever pushed to. */
+    /** An empty Claude registry and a home with no inbound setting, so no real session on the developer's machine is ever pushed to. */
     @Shared Path claudeRegistry = Files.createTempDirectory("claude-sessions")
+    @Shared Path claudeHome = Files.createTempDirectory("claude-home")
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run(
             ["sideband.codex.executable": fakeBin.resolve("codex").toString(),
-             "sideband.claude.sessions-directory": claudeRegistry.toString()])
+             "sideband.claude.sessions-directory": claudeRegistry.toString(),
+             "sideband.home-directory": claudeHome.toString()])
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
@@ -116,12 +118,13 @@ exit $(cat "''' + exitFile + '''")
         results[0].detail().contains("exited 3")
     }
 
-    void "Claude is pushed to over its inbox socket; with no Claude Code session in this repository the entry waits"() {
+    void "Claude is pushed to over its inbox socket only when the operator's settings accept it; otherwise its listener delivers"() {
         when:
         List<PushResult> results = pushes.deliver(state, journal.append(file, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
 
         then:
-        results == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
+        results*.outcome() == [PushOutcome.LISTENER_DELIVERS]
+        results[0].detail().contains("inbound missing")
     }
 
     void "an agent's own role and human recipients are never pushed to"() {
@@ -146,6 +149,6 @@ exit $(cat "''' + exitFile + '''")
 
         expect:
         pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]
-        pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
+        pushes.deliver(state, viaCodex)*.outcome() == [PushOutcome.LISTENER_DELIVERS]
     }
 }

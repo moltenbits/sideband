@@ -249,6 +249,11 @@ class ResourceInstaller implements Installer {
      * repository would be ignored, and the user file is the operator's to edit. The item names
      * the file that decided and, when delivery would be held, says where accept must go.
      */
+    @Override
+    public InstallReport.Item inbound(Path homeDir, Path projectDir) {
+        return inboundItem(homeDir, projectDir);
+    }
+
     private InstallReport.Item inboundItem(Path homeDir, Path projectDir) {
         Path user = homeDir.resolve(SETTINGS);
         String note = "Claude Code delivers a Sideband push only when crossSessionInbound is accept in " + user

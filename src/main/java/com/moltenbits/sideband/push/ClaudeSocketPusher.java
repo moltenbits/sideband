@@ -1,6 +1,8 @@
 package com.moltenbits.sideband.push;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.install.InstallReport;
+import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.protocol.Role;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
@@ -42,25 +44,40 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 @Singleton
 class ClaudeSocketPusher implements HostPusher {
 
+    /*
+     * Claude Code holds a frame from a process that is not the session's child unless the
+     * operator's user settings accept cross-session messages, and a held frame is an approval
+     * dialog for the operator on every entry. So nothing is posted unless the settings files
+     * say the push will be delivered; otherwise the outcome is LISTENER_DELIVERS and Claude's
+     * own listener, which the adapter starts in that case, delivers the entry.
+     */
+
     /** Claude Code refuses a message whose serialized form passes about a million characters. */
     static final int FRAME_CAP = 1_000_000;
 
     private final Path registry;
+    private final Path homeDirectory;
     private final SidebandHome home;
+    private final Installer installer;
     private final ObjectMapper json;
     private final Duration timeout;
 
     @Inject
-    ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry, SidebandHome home, ObjectMapper json,
+    ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry,
+                       @Value("${sideband.home-directory:}") String homeDirectory,
+                       SidebandHome home, Installer installer, ObjectMapper json,
                        @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
-        this(registry, home, json, Duration.ofSeconds(timeoutSeconds));
+        this(registry, homeDirectory, home, installer, json, Duration.ofSeconds(timeoutSeconds));
     }
 
-    ClaudeSocketPusher(String registry, SidebandHome home, ObjectMapper json, Duration timeout) {
+    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, ObjectMapper json, Duration timeout) {
+        this.homeDirectory = homeDirectory == null || homeDirectory.isBlank()
+                ? Path.of(System.getProperty("user.home")) : Path.of(homeDirectory);
         this.registry = registry == null || registry.isBlank()
-                ? Path.of(System.getProperty("user.home"), ".claude", "sessions")
+                ? this.homeDirectory.resolve(".claude").resolve("sessions")
                 : Path.of(registry);
         this.home = home;
+        this.installer = installer;
         this.json = json;
         this.timeout = timeout;
     }
@@ -72,6 +89,11 @@ class ClaudeSocketPusher implements HostPusher {
 
     @Override
     public PushResult push(Path stateDirectory, String text) {
+        InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
+        if (!inbound.state().equals("installed")) {
+            return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+                    "Claude Code would hold the push (inbound " + inbound.state() + " per " + inbound.path() + "); " + inbound.note());
+        }
         List<Registration> candidates = registered(stateDirectory);
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
