@@ -113,7 +113,7 @@ capture. Distinguish the complete note, including uncertainty or failure:
   offer `$sideband`, which joins with `--resume`.
 
 When this human prompt directly causes a delegation, use its hook-provided ID
-as `append-agent --caused-by`; use `--reply-to` with that ID when answering
+as `append --caused-by`; use `--reply-to` with that ID when answering
 the prompt to `operator`. When manual capture is permitted below, take the ID
 from the capture result instead. Never read the journal file, recapture a
 recorded prompt, or guess an older ancestor to obtain an ID. If an older hook
@@ -125,7 +125,7 @@ Without any hook confirmation, capture is best effort only while this session
 is known to be active, and report that limitation:
 
 ```bash
-sideband capture-human --body-file <prompt.md>
+sideband append --from operator --body-file <prompt.md>
 ```
 
 The executable resolves leading `@claude`, `@codex` or `@all`. It records
@@ -173,7 +173,7 @@ pending report, it is `item.entry`; `item.before_session` and
    the original author (inferred from `--reply-to`):
 
    ```bash
-   sideband append-agent --type ack --reply-to <id>
+   sideband append --type ack --reply-to <id>
    ```
 
    No body is needed. An ack is not acceptance, permission, or completion.
@@ -231,11 +231,17 @@ be used; acknowledgement and reply entries now record the workflow.
 ## Send
 
 ```bash
-sideband append-agent --to claude --type request --caused-by <id> --body-file <body.md>
-sideband append-agent --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --to operator --type reply --reply-to <id> --body-file <body.md>
-sideband append-agent --type ack --reply-to <id>
+sideband append --to claude --type request --caused-by <id> --body-file <body.md>
+sideband append --type reply --reply-to <id> --body-file <body.md>
+sideband append --to operator --type reply --reply-to <id> --body-file <body.md>
+sideband append --type ack --reply-to <id>
 ```
+
+For agent messages, omit `--from`: the calling client is the author. Reserve
+`--from operator` for actual human text when capture is permitted by the hook
+rules above, never for your reply to the operator or a delivered envelope.
+Operator capture takes the body without recipient, link, or actionability
+overrides; routing comes from the human's first token.
 
 Use a `request` for work, an `ack` for receipt or continued progress, a `status`
 for informational context, and a `reply` to answer or decline. Do not use a
