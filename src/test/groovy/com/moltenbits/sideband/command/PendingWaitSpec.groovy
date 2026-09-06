@@ -163,8 +163,16 @@ class PendingWaitSpec extends CommandSpec {
         cli.execute(*(["pending", "--repo", repo.toString(), "--role", "claude", "--wait"] + extra)) == ExitCode.IO_FAILURE
         stderr.toString().contains("read position was not advanced")
 
-        where:
-        extra << [["--timeout", "5"], ["--stream"]]
+        when: "the bookmark itself did not move: the update is still there for the next read"
+        stdout = new StringWriter()
+        int next = run("pending", "--repo", repo.toString(), "--role", "claude")
+
+        then:
+        next == ExitCode.OK
+        json().updates*.body == ["fragile"]
+
+        where: "the stream case is bounded so a regression fails fast instead of hanging"
+        extra << [["--timeout", "5"], ["--stream", "--max-batches", "1"]]
     }
 
     void "--timeout and --stream without --wait, --timeout with --stream, and a negative timeout are invalid input"() {
