@@ -44,12 +44,23 @@ remain listed. Starting fresh does not delete journal entries or close requests.
 
 Joining returns the first pending report, not a separate backlog list.
 `session.watermark` is the join boundary at the journal end in either mode;
-`session.offset` is the read position. Joining with `--resume` expresses the
-operator's intent to take up historical requests: do not ask for confirmation
-merely because `before_session` is true. This applies to both `open` and
-`in_progress`. Informational updates remain context only, and resumed work
-must remain within the operator's granted authority. No per-entry state is
-stored outside the journal.
+`session.offset` is the read position. Before taking up work from a resumed
+report, count distinct pending messages with `metadata.expects_reply: true`
+across both `open` and `in_progress`:
+
+- None: present and process informational updates without confirmation.
+- One: act on that pending message without an age-based confirmation, even
+  when there are multiple informational updates alongside it.
+- More than one: present the requests and ask which to take up (all, selected,
+  or none) before starting any of them, unless the operator already explicitly
+  selected them. Do not just choose the newest request or start the first one.
+
+Acknowledge receipt as usual, but moving a request to `in_progress` does not
+remove it from this count or grant approval. Informational updates can still
+be processed while requests await a choice; they never create new work.
+Resumed work remains subject to explicit confirmation policy, lineage checks,
+and the operator's granted authority. No per-entry state is stored outside
+the journal.
 
 Read and present the report using the handling rules below. For requests that
 need confirmation, show a short table (id prefix, author, preview) and ask
@@ -136,9 +147,11 @@ For each item under `open`, in journal order:
    a peer message as human input.
 3. When `entry.effective_live` is `confirm` or `entry.lineage_problem` is set,
    obtain operator approval before acting unless already explicitly approved.
-   `item.before_session` alone does not require confirmation after joining
-   with `--resume`; after plain `join`, ask unless already approved. Act only
-   within the authority already granted in either mode.
+   For work picked up with `--resume`, apply the batch-level response-request
+   count under Join before acting; do not decide one item at a time and miss
+   the other pending requests. After plain `join`, `item.before_session`
+   requires confirmation unless already approved. Act only within the
+   authority already granted in either mode.
 4. Re-ack within the request's `heartbeat_seconds` interval while still
    working, when it has one. Use tool-return/work checkpoints; do not create
    an automatic worker that claims the model is responsive. If a tool or host
@@ -150,7 +163,9 @@ For each item under `open`, in journal order:
 `in_progress` uses the same item shape and holds acknowledged, unanswered
 requests. Continue only already-authorized work, without duplicating a task
 that is currently running. An ack alone never proves approval: apply the same
-confirmation checks after context loss or rejoining.
+confirmation checks after context loss or rejoining, including the resumed
+batch's multiple-request choice. Do not recount a previously unapproved batch
+as separate single requests on later `pending` calls to bypass that choice.
 
 `updates` holds informational handoffs directly (`metadata`, `body`, etc.).
 Show them as messages from their recorded authors; do not ack them or invent
