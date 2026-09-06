@@ -60,7 +60,8 @@ described below.
 
 3. Start exactly one listener: a persistent Monitor on the streaming form of
    `pending`. Each line it prints is one report and arrives here as one
-   notification. It never needs re-arming and never advances the bookmark.
+   notification. It never needs re-arming, and a waited report never
+   advances the bookmark.
 
    ```
    Monitor(command: "sideband pending --wait --stream",
@@ -69,8 +70,10 @@ described below.
 
    Idle waiting costs no model tokens. Never start a second listener. If
    Monitor is unavailable, fall back to a background Bash task running
-   `sideband pending --wait --timeout 3600` and restart it after each exit;
-   its output file holds the report.
+   `sideband pending --wait --timeout 3600` and restart it after each exit.
+   Treat its completion exactly like a Monitor notification: a wake signal,
+   never the payload. A waited report, streamed or not, never advances the
+   bookmark; only the plain `sideband pending` you run afterwards does.
 
 ## On every human turn while active
 

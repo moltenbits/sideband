@@ -68,7 +68,7 @@ class PendingWaitSpec extends CommandSpec {
         second == []
     }
 
-    void "--wait returns at once with the report when something is already there, and advances"() {
+    void "--wait returns at once with the report when something is already there, and does not advance: a waited report is a delivery"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         Journal journal = context.getBean(Journal)
@@ -81,12 +81,17 @@ class PendingWaitSpec extends CommandSpec {
         json().updates*.body == ["already here"]
         json().end == Files.size(journalFile)
 
-        when: "shown once"
+        when: "the plain pending afterwards is the read that marks it shown, exactly once"
         stdout = new StringWriter()
         run("pending", "--repo", repo.toString(), "--role", "claude")
+        List first = json().updates*.body
+        stdout = new StringWriter()
+        run("pending", "--repo", repo.toString(), "--role", "claude")
+        List second = json().updates
 
         then:
-        json().updates == []
+        first == ["already here"]
+        second == []
     }
 
     void "--wait ignores acks and entries for the other role"() {
@@ -112,10 +117,12 @@ class PendingWaitSpec extends CommandSpec {
         json().open == []
     }
 
-    void "--timeout and --stream without --wait, and a negative timeout, are invalid input"() {
+    void "--timeout and --stream without --wait, --timeout with --stream, and a negative timeout are invalid input"() {
         expect:
         run("pending", "--repo", repo.toString(), "--role", "claude", "--timeout", "5") == ExitCode.INVALID_INPUT
         run("pending", "--repo", repo.toString(), "--role", "claude", "--stream") == ExitCode.INVALID_INPUT
+        run("pending", "--repo", repo.toString(), "--role", "claude", "--wait", "--stream", "--timeout", "5") == ExitCode.INVALID_INPUT
+        stderr.toString().contains("--timeout does not apply to --stream")
         run("pending", "--repo", repo.toString(), "--role", "claude", "--wait", "--timeout", "-1") == ExitCode.INVALID_INPUT
     }
 

@@ -34,10 +34,11 @@ import java.util.function.Predicate;
  * Printing the report advances the role's read position past the updates.
  * <p>
  * With {@code --wait} the command first blocks, at no model cost, until something new for
- * the role arrives. With {@code --stream} it keeps doing that forever, printing one report
- * per batch and never advancing the read position: it is the listener under a host facility
- * that turns each line into a notification, such as Claude Code's Monitor, and since a
- * notification may be truncated, the model's own {@code pending} is what marks updates shown.
+ * the role arrives; with {@code --stream} it keeps doing that forever, one report per batch.
+ * A waiting report is a delivery, not a read: it never advances the read position, because
+ * a host notification may be truncated, so the model's own plain {@code pending} is what
+ * marks updates shown. Both forms sit under a host facility, Claude Code's Monitor or a
+ * background task, that turns the output into a wake-up.
  */
 @Command(name = "pending", description = "List what is waiting for this client: unanswered requests, unseen updates, and your own unanswered requests. --wait blocks until something arrives; --stream keeps listening", mixinStandardHelpOptions = true)
 @Prototype
@@ -55,10 +56,10 @@ public class PendingCommand implements Callable<Integer> {
     @Option(names = "--wait", description = "Block until something new for this client arrives, then report")
     boolean wait;
 
-    @Option(names = "--timeout", paramLabel = "SECONDS", description = "With --wait: give up after this long with the timed-out exit code, still printing the report")
+    @Option(names = "--timeout", paramLabel = "SECONDS", description = "With --wait (not --stream): give up after this long with the timed-out exit code, still printing the report")
     Long timeoutSeconds;
 
-    @Option(names = "--stream", description = "With --wait: keep listening forever, one report per batch, never advancing the read position")
+    @Option(names = "--stream", description = "With --wait: keep listening forever, one report per batch. A waited report never advances the read position; a plain pending does")
     boolean stream;
 
     @Option(names = "--from", hidden = true, description = "Byte offset to watch from (default: the session's read position)")
@@ -91,6 +92,9 @@ public class PendingCommand implements Callable<Integer> {
         if (!wait && (timeoutSeconds != null || stream)) {
             throw new IllegalArgumentException((stream ? "--stream" : "--timeout") + " only applies with --wait");
         }
+        if (timeoutSeconds != null && stream) {
+            throw new IllegalArgumentException("--timeout does not apply to --stream, which listens until stopped");
+        }
         if (timeoutSeconds != null && timeoutSeconds < 0) {
             throw new IllegalArgumentException("--timeout must not be negative");
         }
@@ -116,7 +120,7 @@ public class PendingCommand implements Callable<Integer> {
                 }
                 return print(stateDirectory, who, false, ExitCode.TIMED_OUT);
             }
-            print(stateDirectory, who, !stream, ExitCode.OK);
+            print(stateDirectory, who, false, ExitCode.OK);
             reports++;
         }
         return ExitCode.OK;

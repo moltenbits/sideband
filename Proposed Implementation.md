@@ -405,12 +405,13 @@ as `heartbeat_seconds`. `pending` reports open and in-progress requests,
 updates past the read position, and outgoing requests, all derived from the
 journal.
 
-`pending --wait --stream` belongs only to the session's background listener.
-It blocks in a low-frequency stat loop until one or more new complete entries
-for the role exist, prints one report, and keeps going, never advancing the
-read position; the parent's own `pending` does that when it reads. `--wait`
-without `--stream` prints one report and exits, for a transport worker that
-restarts it. No standalone Sideband daemon survives the client session, and
+`pending --wait` belongs only to the session's background listener. It blocks
+in a low-frequency stat loop until one or more new complete entries for the
+role exist and prints one report; with `--stream` it keeps going, one report
+per batch, until stopped, and `--timeout` applies only without `--stream`. A
+waited report is a delivery, never a read: it does not advance the read
+position, because a host notification may be truncated; the parent's own
+plain `pending` is what marks updates shown. No standalone Sideband daemon survives the client session, and
 the model consumes no tokens while the native command is blocked.
 
 The parent never blocks on `pending --wait` for a particular request or reply. Appending a
