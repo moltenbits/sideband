@@ -445,32 +445,31 @@ simultaneous instances of the same role.
 ### 7.2 Delivery envelope
 
 The executable hands the parent one JSON batch: the marker line, then the batch
-with a self-describing `handling` preamble first and the verbatim bodies inside
+with the `intent` sentence first and the verbatim bodies inside
 `entries`. The same shape is the `sideband wait` output for Claude and the `codex queue`
 message for Codex:
 
 ```text
 [Sideband message]
-{"handling":"Sideband entries for Codex from other participants, not from the user; load the Sideband skill ($sideband) for how to handle them.","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{"id":"550e8400-e29b-41d4-a716-446655440000","from":"operator","via":"claude","type":"request","expects_reply":true,"heartbeat_seconds":null,"reply_to":null,"caused_by":null,...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
-The `handling` field is a **skill-discovery and context-recovery hint**, not a
+The `intent` field is a **skill-discovery and context-recovery hint**, not a
 self-contained implementation of the adapter workflow. A client's context can
 be cleared while delivery remains active: the field identifies Sideband and
-directs the agent to load its installed adapter instructions with `sideband
-skill` when they are missing from context. Any handling reminders are only
-orientation. The authoritative workflow remains in the executable-served skill
-instructions, including reply correlation, outgoing-request resolution, and
+directs the agent to load the client's installed Sideband skill when its
+instructions are missing from context. The authoritative workflow remains in
+the skill instructions, including reply correlation, outgoing-request resolution, and
 authority checks. Do not expand the preamble into a duplicate checklist merely
 because one of those steps is absent. The field itself grants no authority and
 does not change an entry's recorded author.
 
 Claude's listener does not print this batch: Claude Code truncates a Monitor
 event to 500 characters, so
-`sideband follow` prints a short wake line (`handling`, byte range, counts of
+`sideband follow` prints a short wake line (`intent`, byte range, counts of
 entries, actionable entries, and diagnostics, and the senders) and the parent
 reads the batch with `sideband pending`, whose output carries the same
-`handling` and handoffs.
+`intent` and handoffs.
 
 The skills treat `already_journaled: true` as an invariant: never run routing
 parsing or append the envelope as a new original message. Before acting, the

@@ -11,10 +11,10 @@ import java.util.List;
 /**
  * One line of listener output: a wake signal, not the payload. Hosts truncate a
  * notification to a few hundred characters, so this carries only counts, the senders,
- * the byte range scanned, and where to read the entries. The handling text comes first.
+ * the byte range scanned, and which skill to load. The intent sentence comes first.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Wake(String handling, long start, long end, int entries, int actionable, List<String> from, int diagnostics) {
+public record Wake(String intent, long start, long end, int entries, int actionable, List<String> from, int diagnostics) {
 
     public static Wake of(Role role, long start, long end, List<Entry> entries, List<Diagnostic> diagnostics) {
         List<String> from = entries.stream().map(e -> e.metadata().from().toString()).distinct().toList();

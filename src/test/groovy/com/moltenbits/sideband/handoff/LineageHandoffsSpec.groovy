@@ -46,7 +46,7 @@ class LineageHandoffsSpec extends Specification {
         String envelope = handoffs.envelope(batch)
 
         then:
-        envelope.startsWith(Handoffs.ENVELOPE_MARKER + "\n{\"handling\":\"Sideband entries for Codex")
+        envelope.startsWith(Handoffs.ENVELOPE_MARKER + "\n{\"intent\":\"Sideband delivery; use the Sideband skill (\$sideband) for handling instructions\",\"start\":")
         envelope.count("\n") == 1
         envelope.contains('"entries":[{"metadata":{"id":"' + h.metadata().id() + '"')
         envelope.endsWith('"timed_out":false}')

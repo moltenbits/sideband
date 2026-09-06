@@ -17,7 +17,7 @@ import java.util.List;
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record PendingReport(
-        String handling,
+        String intent,
         @Nullable Session session,
         List<OpenItem> open,
         List<OpenItem> inProgress,

@@ -11,12 +11,12 @@ import java.util.List;
 /**
  * A set of handoffs from one journal read: the entries, skipped regions, the byte range
  * scanned, and whether a bounded wait gave up. This is the JSON shape a listener prints
- * and the JSON shape inside a pushed envelope. {@code handling} comes first so a host
+ * and the JSON shape inside a pushed envelope. {@code intent} comes first so a host
  * reads what the batch is and how to act on it before the data; it is absent only when
  * the read was for no role at all.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Batch(@Nullable String handling, long start, long end, List<Handoff> entries, List<Diagnostic> diagnostics,
+public record Batch(@Nullable String intent, long start, long end, List<Handoff> entries, List<Diagnostic> diagnostics,
                     boolean timedOut) {
 
     public static Batch forRole(@Nullable Role role, long start, long end, List<Handoff> entries, List<Diagnostic> diagnostics,

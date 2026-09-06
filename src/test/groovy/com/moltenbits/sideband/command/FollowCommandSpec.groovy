@@ -49,9 +49,8 @@ class FollowCommandSpec extends CommandSpec {
         batches[1].entries == 1
         batches[1].start == batches[0].end
         batches[1].end == Files.size(journalFile)
-        batches.every { it.keySet().first() == "handling" }
-        batches.every { it.handling.startsWith("Sideband: new journal entries for Claude") }
-        batches.every { it.handling.contains("Run `sideband pending`") }
+        batches.every { it.keySet().first() == "intent" }
+        batches.every { it.intent == "Sideband delivery; use the Sideband skill (/sideband) for handling instructions" }
 
         and: "a wake line fits inside a host notification, which Claude Code caps at 500 characters"
         stdout.toString().readLines().findAll { it.trim() }.every { it.length() < 400 }

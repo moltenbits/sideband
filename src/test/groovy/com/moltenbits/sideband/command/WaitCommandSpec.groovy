@@ -44,7 +44,7 @@ class WaitCommandSpec extends CommandSpec {
             entries[0].lineage_problem == null
             diagnostics == []
             timed_out == false
-            handling == null
+            intent == null
         }
     }
 
@@ -68,7 +68,7 @@ class WaitCommandSpec extends CommandSpec {
 
         then:
         code == ExitCode.TIMED_OUT
-        json() == [handling: null, start: 0, end: 0, entries: [], diagnostics: [], timed_out: true]
+        json() == [intent: null, start: 0, end: 0, entries: [], diagnostics: [], timed_out: true]
     }
 
     void "with a role, only entries that concern it are returned, acks excluded, and the end offset still advances"() {
@@ -88,7 +88,7 @@ class WaitCommandSpec extends CommandSpec {
         code == ExitCode.OK
         json().entries*.metadata*.id == [toCodex.metadata().id(), later.metadata().id()]
         json().end == Files.size(journalFile)
-        json().handling.startsWith("Sideband entries for Codex")
+        json().intent.contains("\$sideband")
     }
 
     void "a human turn typed into the role is not delivered back to it, whatever the cursor says"() {
@@ -114,7 +114,7 @@ class WaitCommandSpec extends CommandSpec {
         code == ExitCode.TIMED_OUT
         json().entries == []
         json().end == Files.size(journalFile)
-        json().handling.contains("Codex")
+        json().intent.contains("\$sideband")
     }
 
     void "an actionable agent entry with unverifiable lineage is delivered under confirm with the problem stated"() {

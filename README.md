@@ -100,11 +100,11 @@ whoever appends an entry addressed to Codex pushes the envelope straight into
 that thread with `codex queue`, which starts a new turn in the idle session.
 The executable marks the entry delivered at the same time.
 
-Both the wake line and every delivered batch begin with a `handling` field
-that says what the payload is, that its entries are messages from other
-participants and not the user, and the minimal steps to act on it. This is
-what lets a conversation whose context was cleared, while its listener kept
-running, still handle what arrives.
+Both the wake line and every delivered batch begin with an `intent` field
+that says only "Sideband delivery; use the Sideband skill (/sideband) for
+handling instructions". That is what lets a conversation whose context was
+cleared, while its listener kept running, find the skill and handle what
+arrives.
 
 ### One task, two agents
 

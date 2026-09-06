@@ -72,7 +72,7 @@ described below.
    Monitor is unavailable, fall back to a background Bash task running
    `sideband wait --from <offset> --timeout 3600`
    and restart it from the JSON `end` after each exit; its output file holds
-   a full batch with the same `handling` and entries as `pending`.
+   a full batch with the same `intent` and entries as `pending`.
 
 ## On every human turn while active
 
@@ -103,7 +103,7 @@ each says what to do:
 ## When a Monitor notification arrives
 
 The notification is a wake signal, not the payload: a JSON line with a
-`handling` sentence, the byte range scanned, and counts of new entries,
+`intent` sentence, the byte range scanned, and counts of new entries,
 actionable entries, and diagnostics. Hosts truncate notifications, so never
 read entries from it. Run `sideband pending`. Everything it lists is derived
 from the journal; the only thing that changes when you run it is that
@@ -132,7 +132,7 @@ not responding (unacknowledged means it likely never arrived). Report any
 `diagnostics`. If the Monitor itself ends, show its stderr to the user and
 restart it from the last wake line's `end` only once the cause is understood.
 
-Both the wake line and the `pending` output begin with a `handling` sentence
+Both the wake line and the `pending` output begin with an `intent` sentence
 that names this skill, so a conversation whose context was cleared while the
 listener kept running can find these steps again. `/clear` does not stop the
 Monitor; never start another one because the instructions above are no longer

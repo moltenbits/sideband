@@ -82,7 +82,7 @@ exit $(cat "''' + exitFile + '''")
         message.startsWith("[Sideband message]\n{")
         message.contains('"body":"@codex please look"')
         message.contains('"effective_live":"auto"')
-        message.contains('"handling":"Sideband entries for Codex')
+        message.contains('"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions"')
         !message.contains("mark-delivered")
     }
 

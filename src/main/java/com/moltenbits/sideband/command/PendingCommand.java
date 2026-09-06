@@ -22,7 +22,7 @@ import java.util.concurrent.Callable;
  * Everything a role has to look at, derived from the journal: unanswered requests to it,
  * informational entries it has not been shown, and its own requests still awaiting a reply.
  * This is where a listener's wake line sends the client, so the output starts with the
- * handling steps. Showing the report advances the role's read position past the updates.
+ * intent sentence naming the skill. Showing the report advances the role's read position past the updates.
  */
 @Command(name = "pending", description = "List a role's unanswered requests, unseen updates, and unanswered outgoing requests", mixinStandardHelpOptions = true)
 @Prototype

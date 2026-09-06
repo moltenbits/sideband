@@ -327,21 +327,20 @@ The envelope must also be self-describing. A client can have its conversation
 context cleared while its listener keeps running (Claude Code's `/clear` leaves
 the Monitor and its `sideband follow` process alive; verified 2026-09-05), so
 the adapter instructions cannot be assumed to be in context when a batch
-arrives. Everything a host receives therefore begins with a `handling` field:
-a listener's wake line says what arrived and where to read it, and a delivered
-batch or the `pending` listing is one sentence that identifies Sideband, says
-the entries are not the user speaking, and names the client's Sideband skill
-(`/sideband` or `$sideband`) to load for the steps. It names the skill rather
-than `sideband skill` so that the host resolves it to whatever is installed,
-the stub or a copy the operator has ejected and edited.
+arrives. Everything a host receives therefore begins with an `intent` field,
+one sentence: "Sideband delivery; use the Sideband skill (`/sideband` or
+`$sideband`, whichever the receiving client invokes) for handling
+instructions". It names the skill rather than `sideband skill` so that the
+host resolves it to whatever is installed, the stub or a copy the operator has
+ejected and edited.
 Transport arrival is not a new local human prompt; an entry whose recorded
 author is `operator` nevertheless retains that human authorship.
 
-**Purpose of `handling`: skill discovery and context recovery.** The field
+**Purpose of `intent`: skill discovery and context recovery.** The field
 helps an agent recognize a Sideband delivery and find the installed skill when
 that skill's instructions are absent from its current context. The agent loads
 the skill before handling entries when it does not already have its
-instructions. `handling` is not a workflow, a substitute for the skill, or a
+instructions. `intent` is not a workflow, a substitute for the skill, or a
 separate source of authority. Detailed steps such as reply
 correlation and outgoing-request resolution belong in the adapter instructions;
 their omission from this discovery field is not a missing protocol requirement.
@@ -707,7 +706,7 @@ as proven in [docs/spike-wake-path.md](docs/spike-wake-path.md). Monitor events 
 rather than be treated as exactly one message. The worker must
 not answer the message itself.
 Clearing the conversation's context does not stop the Monitor, so no re-arming
-step exists; each batch carries its own handling preamble (section 7.4) instead.
+step exists; each batch carries its own intent sentence (section 7.4) instead.
 
 ### 10.3 Codex
 
