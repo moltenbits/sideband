@@ -98,22 +98,12 @@ class ClaudeSocketPusher implements HostPusher {
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
         }
-        String frame;
-        try {
-            frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
-        } catch (IOException e) {
-            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
-        }
-        if (frame.length() > FRAME_CAP) {
-            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
-                    + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
-        }
-        byte[] bytes = frame.getBytes(UTF_8);
         // A recorded mode belongs to the session that joined, never to a later one: the record's
         // id is the host's session id, which the registry carries too. Each candidate is judged
         // as it is tried, so a stale registration ahead of the joined session changes nothing.
         Session record = sessions.load(stateDirectory, Role.CLAUDE).orElse(null);
         InstallReport.Item inbound = null;
+        byte[] bytes = null; // the frame and its cap are socket concerns, encoded only once a push is due
         String failure = null;
         String held = null;
         for (Registration candidate : candidates) {
@@ -131,6 +121,19 @@ class ClaudeSocketPusher implements HostPusher {
                             + " per " + inbound.path() + "); the entry waits for its join. " + inbound.note();
                     continue;
                 }
+            }
+            if (bytes == null) {
+                String frame;
+                try {
+                    frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
+                } catch (IOException e) {
+                    return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
+                }
+                if (frame.length() > FRAME_CAP) {
+                    return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
+                            + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
+                }
+                bytes = frame.getBytes(UTF_8);
             }
             try {
                 post(Path.of(candidate.messagingSocketPath()), bytes);

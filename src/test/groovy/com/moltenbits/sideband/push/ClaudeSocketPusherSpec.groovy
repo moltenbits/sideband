@@ -300,6 +300,18 @@ class ClaudeSocketPusherSpec extends Specification {
         received.get(30, TimeUnit.SECONDS).contains('"content":"hi"')
     }
 
+    void "the frame cap is a socket concern: a listening session is never rejected for it"() {
+        given:
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(81, repo, socket, 1000L, "listening", "s-listen")
+        context.getBean(Sessions).join(state, Role.CLAUDE, "s-listen", false, Delivery.LISTEN)
+
+        expect:
+        pusher.push(state, "x" * 1_000_000).outcome() == PushOutcome.LISTENER_DELIVERS
+        !received.isDone()
+    }
+
     void "an absent registry directory means no session"() {
         given:
         HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,
