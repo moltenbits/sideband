@@ -83,23 +83,23 @@ and a closing marker:
 
 Entries are immutable and appended under a lock, so two clients writing at
 once never interleave. Byte offsets are the addressing scheme: a session
-records the journal size at activation as its watermark, and everything after
+records the journal size when it joins as its watermark, and everything after
 it is live.
 
 ### How each client is reached
 
-Claude Code has no way to start a turn from outside, so Claude listens. At
-activation the skill starts one persistent Monitor on `sideband pending --wait --stream`, a
-native process that blocks on the journal and prints one report per batch
-of new entries for Claude. The host turns each line into a notification in
+Claude Code has no way to start a turn from outside, so Claude listens. When
+it joins, the skill starts one persistent Monitor on
+`sideband pending --wait --stream`, a native process that blocks on the
+journal and prints one report per batch of new entries for Claude. The host turns each line into a notification in
 the existing conversation. The notification is a wake signal, not the
 payload: Claude then runs `sideband pending` to read the entries, which is
 what marks updates as shown.
 
-Codex runs no listener at all. It records its thread id at activation, and
-whoever appends an entry addressed to Codex pushes the envelope straight into
-that thread with `codex queue`, which starts a new turn in the idle session.
-The executable marks the entry delivered at the same time.
+Codex runs no listener at all. It records its thread id when it joins, and
+whoever appends an entry addressed to Codex pushes the complete entry straight
+into that thread with `codex queue`, which starts a new turn in the idle
+session. Codex reads the entry from that message and acts on it directly.
 
 Every report and every delivered batch begin with an `intent` field
 that says only "Sideband delivery; use the Sideband skill (/sideband) for
@@ -139,23 +139,13 @@ free for James until the reply arrives.
 
 ### What is waiting for a role
 
-```mermaid
-stateDiagram-v2
-    [*] --> Open: a request addressed to the role is appended
-    Open --> InProgress: the role appends an ack
-    InProgress --> InProgress: another ack while the work runs
-    Open --> Done: the role appends a reply
-    InProgress --> Done: the role appends a reply
-    Done --> [*]
-```
-
-None of this is stored as state. `pending` derives it from the journal on
-every read: a request is open until the role's ack exists and in progress
-until its reply exists, and the same entries tell the sender that its request
-was acknowledged and then answered, and how long it has been silent since.
-There is no deadline: the sender decides what to do. The only thing a role keeps
-beside the journal is its session record: identity and how far it has read,
-so informational updates are shown once.
+Nothing about it is stored. `pending` derives it from the journal on every
+read: a request is open until the role's ack exists and in progress until its
+reply exists, and the same two entries tell the sender that its request was
+received and then answered, and how long it has been silent since. There is
+no deadline; the sender decides what to do. The only thing a role keeps beside
+the journal is its session record, identity and how far it has read, so
+informational updates are shown once.
 
 ## Install
 
@@ -164,8 +154,8 @@ Requires a GraalVM JDK with `native-image` and [just](https://github.com/casey/j
 ```bash
 just install          # builds the native executable and puts it on PATH
 cd <your repository>
-sideband init         # private state directory, config, both skills, the capture hook
-sideband doctor       # paths, versions, journal health, sessions, skill links
+sideband init         # private state directory, both skills, the capture hook
+sideband doctor       # paths, versions, discussion health, sessions, skill links
 ```
 
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
@@ -179,7 +169,7 @@ override, still subject to the active session ownership check.
 
 ## Use
 
-In Claude Code, `/sideband` joins the journal; in Codex, `$sideband`. From
+In Claude Code, `/sideband` joins the discussion; in Codex, `$sideband`. From
 then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
 start of a prompt routes it. The skills also accept `help`, `status`,
 `pending`, and `off` after the command name.
@@ -192,9 +182,9 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 `--force`. Delete the file and rerun `sideband init` to go back.
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
-`! sideband pending`. All commands print one JSON object and use stable exit
-codes: 0 ok, 2 invalid input, 3 not a repository, 4 lock contention, 5 I/O
-failure, 6 timed out, 7 another live session already owns the role.
+`! sideband pending`. Commands print one JSON object and use stable exit
+codes: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out,
+7 another live session already owns the role.
 
 ## Development
 
