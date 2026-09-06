@@ -37,7 +37,7 @@ import java.util.concurrent.Callable;
  * Journals an agent-authored request, reply, or status. Actionable messages to another
  * client must trace to a human-authored entry; the command refuses to append one that does not.
  */
-@Command(name = "append-agent", description = "Journal an agent-authored request, reply, status, or ack", mixinStandardHelpOptions = true)
+@Command(name = "append-agent", description = "Add an agent-authored request, reply, status, or ack to the Sideband discussion", mixinStandardHelpOptions = true)
 @Prototype
 public class AppendAgentCommand implements Callable<Integer> {
 

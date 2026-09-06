@@ -44,7 +44,7 @@ public class HookCommand {
      * Delivered envelopes, slash commands, and shell commands are never captured. Capture
      * never blocks the prompt: any problem goes to stderr and the exit code is always 0.
      */
-    @Command(name = "prompt", description = "Claude Code/Codex UserPromptSubmit hook: journal the human's prompt", mixinStandardHelpOptions = true)
+    @Command(name = "prompt", description = "Claude Code/Codex UserPromptSubmit hook: record the human's prompt in the Sideband discussion", mixinStandardHelpOptions = true)
     @Prototype
     public static class Prompt implements Callable<Integer> {
 
@@ -167,21 +167,21 @@ public class HookCommand {
          */
         private int failed(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed: " + reason);
-            return report("Sideband could not journal this prompt: " + reason
-                    + ". It is not in the journal; tell the user, then capture it with `sideband capture-human` if Sideband is active.");
+            return report("Sideband could not record this prompt: " + reason
+                    + ". It is not in the discussion; tell the user, then capture it with `sideband capture-human` if Sideband is active.");
         }
 
         /** The append itself failed, so the journal may or may not hold the entry. */
         private int uncertain(String reason) throws IOException {
             spec.commandLine().getErr().println("sideband hook: capture failed during the append: " + reason);
-            return report("Sideband may not have journaled this prompt: " + reason
-                    + ". Tell the user. Do not capture it again unless the journal tail shows it is missing.");
+            return report("Sideband may not have recorded this prompt: " + reason
+                    + ". Tell the user. Do not capture it again unless the Sideband discussion shows it is missing.");
         }
 
         /** The entry is journaled; only what follows the append failed. */
         private int journaledButIncomplete(String id, String reason) throws IOException {
-            spec.commandLine().getErr().println("sideband hook: journaled " + id + " but could not finish: " + reason);
-            return report("Sideband journaled this prompt as " + id + " but could not finish afterwards: " + reason
+            spec.commandLine().getErr().println("sideband hook: recorded " + id + " but could not finish: " + reason);
+            return report("Sideband recorded this prompt as " + id + " but could not finish afterwards: " + reason
                     + ". Do not capture it again. Tell the user; its delivery or cursor update may be missing.");
         }
 
@@ -234,8 +234,8 @@ public class HookCommand {
                     .map(p -> p.role().id() + "=" + p.outcome().id())
                     .collect(Collectors.joining(", "));
             return delivered.isEmpty()
-                    ? "Sideband journaled this prompt. Do not capture it again."
-                    : "Sideband journaled this prompt and delivered it: " + delivered + ". Do not capture or route it again.";
+                    ? "Sideband recorded this prompt. Do not capture it again."
+                    : "Sideband recorded this prompt and delivered it: " + delivered + ". Do not capture or route it again.";
         }
 
         @Serdeable(naming = SnakeCaseStrategy.class)

@@ -21,7 +21,7 @@ import java.util.concurrent.Callable;
  * with the push outcome per recipient. The prompt entered through the calling client is
  * recorded with the operator as author.
  */
-@Command(name = "capture-human", description = "Journal a human prompt entered through a client, resolving its routing directive", mixinStandardHelpOptions = true)
+@Command(name = "capture-human", description = "Record a human prompt in the Sideband discussion, resolving its routing directive", mixinStandardHelpOptions = true)
 @Prototype
 public class CaptureHumanCommand implements Callable<Integer> {
 

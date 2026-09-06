@@ -90,7 +90,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         run("hook", "prompt") == ExitCode.OK
         stderr.toString().contains("unreadable payload")
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
 
         cleanup:
         System.in = original
@@ -255,7 +255,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("Sideband journaled this prompt")
+        json().hookSpecificOutput.additionalContext.contains("Sideband recorded this prompt")
         with(state.load(dir, Role.valueOf(owner.toUpperCase())).get()) {
             parentPid() == detectedPid
             id() == before.id()
@@ -282,7 +282,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         expect:
         hook("resume", "s1") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
         json().hookSpecificOutput.additionalContext.contains("caller")
         stderr.toString().contains("capture failed")
         !Files.exists(journalFile)
@@ -300,8 +300,8 @@ class HookAndSkillSpec extends CommandSpec {
         expect: "a directory where the journal belongs makes the append itself fail, so the outcome is uncertain"
         hook("this must not vanish") == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband may not have journaled this prompt")
-        json().hookSpecificOutput.additionalContext.endsWith("Do not capture it again unless the journal tail shows it is missing.")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband may not have recorded this prompt")
+        json().hookSpecificOutput.additionalContext.endsWith("Do not capture it again unless the Sideband discussion shows it is missing.")
         stderr.toString().contains("capture failed during the append")
     }
 
@@ -316,8 +316,8 @@ class HookAndSkillSpec extends CommandSpec {
 
         expect: "a failure before the append leaves nothing written"
         hook("lost before the journal") == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not journal this prompt")
-        json().hookSpecificOutput.additionalContext.contains("It is not in the journal")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not record this prompt")
+        json().hookSpecificOutput.additionalContext.contains("It is not in the discussion")
         json().hookSpecificOutput.additionalContext.contains("capture it with `sideband capture-human`")
         !Files.exists(journalFile)
     }
@@ -337,9 +337,9 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         journal.contains("journaled but not finished")
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband journaled this prompt as " + id + " but could not finish afterwards")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as " + id + " but could not finish afterwards")
         json().hookSpecificOutput.additionalContext.contains("Do not capture it again")
-        stderr.toString().contains("journaled " + id)
+        stderr.toString().contains("recorded " + id)
 
         cleanup:
         Files.deleteIfExists(codexSession)
@@ -401,7 +401,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband journaled this prompt")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
         Files.readString(journalFile).contains("first prompt after /clear")
         after.id() == "after-clear"
         after.parentPid() == detectedPid

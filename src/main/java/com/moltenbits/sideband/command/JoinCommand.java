@@ -26,7 +26,7 @@ import java.util.concurrent.Callable;
  * and the waiting requests are flagged only when there are several: a lone one is acted on.
  * The listener starts from {@code session.watermark}.
  */
-@Command(name = "join", description = "Join the journal as this client and list what is waiting; --resume picks up from the last bookmark", mixinStandardHelpOptions = true)
+@Command(name = "join", description = "Join the Sideband discussion as this client and list what is waiting; --resume picks up where you left off", mixinStandardHelpOptions = true)
 @Prototype
 public class JoinCommand implements Callable<Integer> {
 

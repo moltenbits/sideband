@@ -46,7 +46,7 @@ public class FollowCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--from", required = true, description = "Byte offset to start from, normally the session's watermark_end")
+    @Option(names = "--from", required = true, description = "Byte offset to start from, normally the session's watermark")
     long from;
 
     @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")

@@ -91,12 +91,12 @@ this repository's `.claude/settings.json`), it has already captured the prompt
 before you see it and says so in a hook note; do not capture again. Any other
 hook note is a problem to tell the user about before doing anything else, and
 each says what to do:
-  - "could not journal this prompt": it is not in the journal. Capture it
+  - "could not record this prompt": it is not in the discussion. Capture it
     yourself with `capture-human` once you have told the user, unless the
     reason is that another session owns Sideband.
-  - "may not have journaled this prompt": the append itself failed. Read the
+  - "may not have recorded this prompt": the append itself failed. Read the
     journal tail; capture again only if the prompt is missing.
-  - "journaled this prompt as <id> but could not finish": never capture it
+  - "recorded this prompt as <id> but could not finish": never capture it
     again; delivery to Codex may not have happened.
   - "not active in this session and N entries are waiting": offer `/sideband`.
 
