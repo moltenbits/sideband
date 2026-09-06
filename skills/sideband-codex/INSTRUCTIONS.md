@@ -29,14 +29,12 @@ The named command arguments below are case-insensitive.
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
 | anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. |
 
-For `$sideband <text>`, do not routinely run `append --from operator`: the
-hook owns capture. A leading `@claude` sends the message to Claude, `@codex`
-or `@all` includes Codex, and no directive addresses the calling client.
+For `$sideband <text>`, the hook alone owns capture. A leading `@claude`
+sends the message to Claude, `@codex` or `@all` includes Codex, and no directive
+addresses the calling client.
 Follow the hook's capture outcome, not an assumption that invoking the skill
-proves success. If the note is missing, report the missing confirmation rather
-than recapturing the skill argument. Manual recovery is allowed only when the
-hook reports nothing was written and the ownership checks below permit it;
-record the message text after the invocation, not the `$sideband` wrapper.
+proves success. If the note is missing, report the missing confirmation.
+Never record the skill argument yourself; reporting is the whole recovery.
 
 ## Join
 
@@ -95,49 +93,37 @@ load it; installation alone does not prove capture. Never edit trust records.
 Automatic caller detection is the default; `--agent codex` is an optional hook
 override and does not bypass ownership checks.
 
-Only capture text the human actually typed, never a `[Sideband message]`
-envelope, notification, or inserted skill instructions. Handle hook notes as
-follows, reporting problems to the user before substantive work. Recognize
-both the new "recorded/record" and older "journaled/journal" forms during
-the installed-binary transition; neither wording alone indicates a missing
-capture. Distinguish the complete note, including uncertainty or failure:
+The hook alone records human prompts. Never record a prompt on its behalf,
+including when capture fails or a confirmation is missing. Reporting the
+problem to the operator is the whole recovery: no manual append, retry, or
+inspection to decide whether to recapture. A `[Sideband message]` envelope,
+notification, or inserted skill instructions are never human input.
+
+Handle the complete hook note, reporting problems before substantive work:
 
 - `Sideband recorded this prompt as <id>` (including the `and delivered it`
   variant): do not capture or route it again. Take the ID from this hook note
   as the current human prompt's entry ID. Older confirmations without an ID
   (`Sideband recorded this prompt` or `Sideband journaled this prompt`) still
   mean the prompt was captured, not permission to capture it again.
-- `recorded this prompt as <id> but could not finish` (older:
-  `journaled this prompt as <id> but could not finish`): do not recapture;
-  report the ID and the incomplete delivery or other follow-up step.
-- `may not have recorded this prompt` (older: `may not have journaled this prompt`):
-  the append outcome is uncertain.
-  Do not blindly retry. Inspect only through the executable; if absence cannot
-  be established reliably, report the uncertainty and ask the user.
-- `could not record this prompt` (older: `could not journal this prompt`):
-  capture once only after establishing that
-  this session owns the role and nothing was written. An ownership conflict
-  or unidentified caller is not permission to bypass the failed check with
-  manual capture. Resolve session ownership/identity first.
+- `Sideband could not record this prompt: <reason>. Tell the user.`:
+  report the failure and its reason; take no recovery action.
+- `Sideband recorded this prompt as <id> but could not deliver it: <reason>. Tell the user.`:
+  report the recorded ID and delivery failure; take no recovery action.
 - `not active ... entries are waiting` or `not joined as`: tell the user and
   offer `$sideband`, which joins with `--resume`.
 
+Older failure notes also mean report only, even if their text suggests manual
+capture. A missing confirmation for a human prompt that should have been
+recorded is a missing confirmation to report, not permission to record it.
+
 When this human prompt directly causes a delegation, use its hook-provided ID
 as `append --caused-by`; use `--reply-to` with that ID when answering
-the prompt to `operator`. When manual capture is permitted below, take the ID
-from the capture result instead. Never read the journal file, recapture a
+the prompt to `operator`. Never read the journal file, recapture a
 recorded prompt, or guess an older ancestor to obtain an ID. If an older hook
 note lacks an ID and no supported result supplies it, report that limitation
 before attempting a linked send. A peer message remains the immediate cause
 when it, rather than the human prompt, initiates the delegation.
-
-For ordinary human prompts, not skill invocations, capture without any hook
-confirmation is best effort only while this session is known to be active;
-report that limitation:
-
-```bash
-sideband append --from operator --body-file <prompt.md>
-```
 
 The executable resolves leading `@claude`, `@codex` or `@all`. It records
 `from: operator` and `via: codex`; the `via` rule prevents the originating
@@ -248,11 +234,10 @@ sideband append --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append --type ack --reply-to <id>
 ```
 
-For agent messages, omit `--from`: the calling client is the author. Reserve
-`--from operator` for actual human text when capture is permitted by the hook
-rules above, never for your reply to the operator or a delivered envelope.
-Operator capture takes the body without recipient, link, or actionability
-overrides; routing comes from the human's first token.
+For agent messages, omit `--from`: the calling client is the author. Do not
+use `--from operator`: the hook alone records human prompts. A reply to the
+operator is still authored by Codex, and a delivered envelope is never human
+input.
 
 Use a `request` for work, an `ack` for receipt or continued progress, a `status`
 for informational context, and a `reply` to answer or decline. Do not use a
