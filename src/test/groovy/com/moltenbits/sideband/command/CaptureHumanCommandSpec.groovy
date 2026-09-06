@@ -26,7 +26,7 @@ class CaptureHumanCommandSpec extends CommandSpec {
             metadata.from == "human:james"
             metadata.via == "claude"
             metadata.to == ["claude"]
-            metadata.type == "instruction"
+            metadata.type == "request"
             metadata.route == "direct"
             metadata.expects_reply == true
             metadata.delivery == [live: "auto", backlog: "confirm"]

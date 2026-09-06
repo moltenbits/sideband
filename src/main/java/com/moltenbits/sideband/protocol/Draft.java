@@ -41,8 +41,9 @@ public record Draft(
     }
 
     /** A human's direct prompt, routed to {@code to}, entered through {@code via}. */
-    public static Draft humanInstruction(ParticipantId human, Role via, List<ParticipantId> to, String body) {
-        return new Draft(human, via, to, MessageType.INSTRUCTION, Route.forRecipients(to),
+    /** What a human typed: a request whoever it is addressed to, and the root of every chain. */
+    public static Draft humanRequest(ParticipantId human, Role via, List<ParticipantId> to, String body) {
+        return new Draft(human, via, to, MessageType.REQUEST, Route.forRecipients(to),
                 null, null, true, Delivery.DEFAULT, body);
     }
 }

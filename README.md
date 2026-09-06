@@ -17,9 +17,11 @@ native image, and everything a client runs is a subcommand of it.
   a change, Codex asks Claude to explain a design, either reports status.
   Requests, replies, and status notes are all journal entries of one shape,
   and a reply is correlated with the request it answers.
-- **Every request traces back to the human.** An agent can only ask the
-  other for work as a consequence of something the human asked. The chain is
-  recorded on each entry, and the executable refuses a request without one.
+- **Every chain of requests starts with the human.** A human and an agent
+  write the same kind of entry, a request. Follow any chain of requests and
+  replies back to its root and that root is something the human asked; the
+  executable refuses an agent request without such a root. Within that, one
+  agent may direct the other's work for as long as the human's request stands.
 - **Delivery wakes the idle recipient** in its existing conversation, without
   any model tokens spent waiting. Each client is reached the way its host
   allows, described below.
@@ -68,7 +70,7 @@ and a closing marker:
 
 ```markdown
 <!-- sideband:v1
-{"id":"…","created_at":"…","from":"human:james","via":"claude","to":["codex"],"type":"instruction","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
+{"id":"…","created_at":"…","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
 -->
 
 ## James → Codex (via Claude)
@@ -112,7 +114,7 @@ sequenceDiagram
     participant Codex
 
     James->>Claude: "Add retries to the uploader, have Codex review the tests"
-    Claude->>SB: hook prompt, which journals the prompt as an instruction from James
+    Claude->>SB: hook prompt, which journals the prompt as a request from James
     Note over Claude: Claude implements the change
     Claude->>SB: append-agent --to codex --type request --caused-by (James's entry)
     SB->>Codex: codex queue starts a turn with the envelope

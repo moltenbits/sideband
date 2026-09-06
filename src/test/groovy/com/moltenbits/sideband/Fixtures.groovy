@@ -31,7 +31,7 @@ class Fixtures {
     static EntryMetadata metadata(Map overrides = [:]) {
         Map m = [
                 id: "019a", createdAt: T0, from: JAMES, via: Role.CLAUDE, to: [CLAUDE, CODEX],
-                type: MessageType.INSTRUCTION, route: Route.BROADCAST, replyTo: null, causedBy: null,
+                type: MessageType.REQUEST, route: Route.BROADCAST, replyTo: null, causedBy: null,
                 expectsReply: true, delivery: Delivery.DEFAULT, bodyBytes: 58,
         ] + overrides
         new EntryMetadata(m.id, m.createdAt, m.from, m.via, m.to, m.type, m.route, m.replyTo, m.causedBy,
@@ -40,7 +40,7 @@ class Fixtures {
 
     static Draft humanDraft(String body = "@all independently review the proposed database migration.",
                             List<ParticipantId> to = [CLAUDE, CODEX], Role via = Role.CLAUDE) {
-        Draft.humanInstruction(JAMES, via, to, body)
+        Draft.humanRequest(JAMES, via, to, body)
     }
 
     static Draft agentDraft(Map overrides = [:]) {

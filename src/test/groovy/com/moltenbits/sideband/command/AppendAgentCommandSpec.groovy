@@ -110,14 +110,14 @@ class AppendAgentCommandSpec extends CommandSpec {
         stderr.toString().contains("reply_to")
     }
 
-    void "agents cannot author instructions"() {
+    void "the former instruction type is no longer a type an agent can name"() {
         when:
         int code = run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "instruction",
                 "--body-file", body("do this").toString())
 
         then:
         code == ExitCode.INVALID_INPUT
-        stderr.toString().contains("capture-human")
+        stderr.toString().contains("instruction")
     }
 
     void "multiple recipients make a broadcast"() {

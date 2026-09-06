@@ -312,7 +312,7 @@ accept valid entries without that extension.
 
 ```markdown
 <!-- sideband:v1
-{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"instruction","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
+{"id":"550e8400-e29b-41d4-a716-446655440000","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":35}
 -->
 
 ## James → Codex (via Claude)
@@ -749,7 +749,8 @@ The adapter maintains a current causality context:
   human-only entry into the other client's conversation.
 - Listener lifecycle and disposition changes: keep these in local state and
   diagnostics. Version one has no `control` type; the valid message types are
-  `instruction`, `request`, `reply`, and `status`.
+  `request`, `reply`, and `status`, with `ack` proposed. The former
+  `instruction` type is read as `request`.
 
 The executable validates actionable agent-to-agent ancestry at append and
 delivery: follow `caused_by` when present, otherwise `reply_to`, until reaching

@@ -42,7 +42,7 @@ class EntryCodecSpec extends Specification {
         expect:
         new String(entry(BODY), StandardCharsets.UTF_8) == '''\
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"instruction","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
 ## James → Claude + Codex (via Claude)
@@ -181,7 +181,7 @@ class EntryCodecSpec extends Specification {
 
         where:
         corrupt                                                                           | reason
-        ({ byte[] b -> replace(b, '"type":"instruction"', '"type":"control"') })           | "invalid metadata"
+        ({ byte[] b -> replace(b, '"type":"request"', '"type":"control"') })           | "invalid metadata"
         ({ byte[] b -> replace(b, '"body_bytes":3', '"body_bytes":2') })                   | "body_bytes"
         ({ byte[] b -> replace(b, '"body_bytes":3', '"body_bytes":99') })                  | "body_bytes"
         ({ byte[] b -> replace(b, 'sideband:v1\n', 'sideband:v2\n') })                     | "unsupported protocol version 'v2'"

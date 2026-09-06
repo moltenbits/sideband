@@ -33,7 +33,7 @@ import java.util.function.Predicate;
  * a signal to run {@code pending}, never the payload: hosts truncate notifications.
  * Idle waiting happens inside this process and costs no model tokens.
  */
-@Command(name = "follow", description = "Stream one JSON batch per line as open entries for a role arrive; never exits on its own", mixinStandardHelpOptions = true)
+@Command(name = "follow", description = "Stream one wake line per batch of open entries for a role; read them with pending; never exits on its own", mixinStandardHelpOptions = true)
 @Prototype
 public class FollowCommand implements Callable<Integer> {
 

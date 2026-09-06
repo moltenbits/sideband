@@ -12,7 +12,7 @@ import java.time.OffsetDateTime
 class EntryMetadataSpec extends Specification {
 
     static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude",' +
-            '"to":["claude","codex"],"type":"instruction","route":"broadcast","reply_to":null,"caused_by":null,' +
+            '"to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,' +
             '"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}'
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
@@ -37,9 +37,15 @@ class EntryMetadataSpec extends Specification {
         json.readValue(extended, EntryMetadata) == Fixtures.metadata()
     }
 
+    void "entries written under the former instruction type read as requests"() {
+        expect:
+        json.readValue(SAMPLE.replace('"type":"request"', '"type":"instruction"'), EntryMetadata) == Fixtures.metadata()
+        json.writeValueAsString(json.readValue(SAMPLE.replace('"type":"request"', '"type":"instruction"'), EntryMetadata)) == SAMPLE
+    }
+
     void "an unknown enum value is invalid rather than guessed"() {
         when:
-        json.readValue(SAMPLE.replace('"type":"instruction"', '"type":"control"'), EntryMetadata)
+        json.readValue(SAMPLE.replace('"type":"request"', '"type":"control"'), EntryMetadata)
 
         then:
         thrown(IOException)
@@ -70,7 +76,6 @@ class EntryMetadataSpec extends Specification {
         [to: [Fixtures.CODEX], route: Route.BROADCAST]                                     | "must be direct"
         [route: Route.DIRECT]                                                              | "must be broadcast"
         [from: Fixtures.CLAUDE, via: null, type: MessageType.REPLY, replyTo: null]         | "reply must set"
-        [from: Fixtures.CLAUDE, via: null]                                                 | "only a human may author an instruction"
         [id: ""]                                                                           | "'id' must not be blank"
         [id: "a b"]                                                                        | "whitespace"
         [bodyBytes: -1]                                                                    | "negative"

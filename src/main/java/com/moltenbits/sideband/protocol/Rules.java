@@ -29,9 +29,6 @@ final class Rules {
             throw new InvalidEntryException("'route' must be " + expected.name().toLowerCase()
                     + " for " + to.size() + " recipient" + (to.size() == 1 ? "" : "s"));
         }
-        if (type == MessageType.INSTRUCTION && !from.isHuman()) {
-            throw new InvalidEntryException("only a human may author an instruction");
-        }
     }
 
     static void checkId(String id, String field) {

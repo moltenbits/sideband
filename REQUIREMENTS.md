@@ -135,7 +135,7 @@ For example:
 
 ```markdown
 <!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"instruction","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"human:james","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
 -->
 
 ## James → Claude + Codex (via Claude)
@@ -158,8 +158,9 @@ Every entry must include:
 - `to`: a non-empty array of intended participant identifiers. Client
   recipients use `claude` or `codex`; a human recipient uses the same
   `human:<id>` form accepted by `from`.
-- `type`: initially `instruction`, `request`, `reply`, `status`, or `ack`
-  (section 9.8).
+- `type`: `request`, `reply`, `status`, or `ack` (section 9.8). A request is
+  actionable whoever wrote it; there is no separate human-only type. Entries
+  written under the former `instruction` type are read as requests.
 - `route`: `direct` or `broadcast`.
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.
@@ -399,11 +400,16 @@ not interpret a routing directive inside an already journaled message as a new
 instruction to republish that entry. A message ID may be delivered more than
 once, but it may be journaled as an original message only once.
 
-Agents must not originate actionable work between themselves. Every
-agent-to-agent entry with `expects_reply: true` must have a causal path to a
-human-authored entry. The path follows `caused_by` when it is present and
-otherwise follows `reply_to`; a missing ancestor or a cycle makes the entry
-invalid.
+Agents must not originate actionable work between themselves. A human and an
+agent write the same kind of entry, a `request`; what differs is where a chain
+starts. Follow any chain of requests and replies back to its root, and that
+root must be a request a human wrote. Every agent-to-agent entry with
+`expects_reply: true` must therefore have a causal path to a human-authored
+entry. The path follows `caused_by` when it is present and otherwise follows
+`reply_to`; a missing ancestor or a cycle makes the entry invalid. Nothing
+else limits what an agent may ask of another: one agent may direct the whole
+of another's work, or ask for a review after every commit, for as long as the
+human's originating request stands.
 
 Two measures of an agent-to-agent exchange are distinct and are limited
 differently:

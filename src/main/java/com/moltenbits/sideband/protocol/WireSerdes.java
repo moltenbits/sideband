@@ -20,6 +20,11 @@ final class WireSerdes {
         MessageTypeSerde() {
             super(MessageType.class);
         }
+
+        @Override
+        protected java.util.Optional<MessageType> legacy(String id) {
+            return MessageType.fromLegacyId(id);
+        }
     }
 
     @Singleton

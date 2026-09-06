@@ -96,9 +96,6 @@ public class AppendAgentCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws IOException {
-        if (type == MessageType.INSTRUCTION) {
-            throw new IllegalArgumentException("only a human may author an instruction; use capture-human");
-        }
         String body = Bodies.read(bodyFile);
         if (from == null) {
             from = host.requireRole("--from");

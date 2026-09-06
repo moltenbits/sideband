@@ -18,6 +18,11 @@ public abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
         this.type = type;
     }
 
+    /** An identifier an earlier protocol revision wrote for one of these constants; none by default. */
+    protected java.util.Optional<E> legacy(String id) {
+        return java.util.Optional.empty();
+    }
+
     @Override
     public void serialize(Encoder encoder, EncoderContext context, Argument<? extends E> argument, E value) throws IOException {
         encoder.encodeString(value.id());
@@ -30,6 +35,10 @@ public abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
             if (constant.id().equals(id)) {
                 return constant;
             }
+        }
+        java.util.Optional<E> renamed = legacy(id);
+        if (renamed.isPresent()) {
+            return renamed.get();
         }
         throw decoder.createDeserializationException("'" + id + "' is not one of "
                 + Arrays.stream(type.getEnumConstants()).map(Wire::id).collect(Collectors.joining(", ")), id);
