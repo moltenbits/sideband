@@ -106,8 +106,9 @@ Handle the complete hook note, reporting problems before substantive work:
   as the current human prompt's entry ID. Older confirmations without an ID
   (`Sideband recorded this prompt` or `Sideband journaled this prompt`) still
   mean the prompt was captured, not permission to capture it again.
-- `Sideband could not record this prompt: <reason>. Tell the user.`:
-  report the failure and its reason; take no recovery action.
+- `Sideband could not confirm recording this prompt: <reason>. Tell the user.`
+  (older: `Sideband could not record this prompt`): report the failure and its
+  reason without claiming the prompt is absent; take no recovery action.
 - `Sideband recorded this prompt as <id> but could not deliver it: <reason>. Tell the user.`:
   report the recorded ID and delivery failure; take no recovery action.
 - `not active ... entries are waiting` or `not joined as`: tell the user and
