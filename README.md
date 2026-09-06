@@ -205,6 +205,5 @@ just run doctor       # run any command on the JVM without a native build
 ```
 
 Java for main sources, Groovy and Spock for tests, Gradle for the build. The
-design and its reasoning are in [REQUIREMENTS.md](REQUIREMENTS.md) and
-[Proposed Implementation.md](Proposed%20Implementation.md); the experiments
+design and its reasoning are in [REQUIREMENTS.md](REQUIREMENTS.md); the experiments
 that proved the wake paths are in [docs/](docs/).
