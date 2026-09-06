@@ -166,10 +166,14 @@ class AppendAgentCommandSpec extends CommandSpec {
         json().metadata.to == ["claude", "operator"]
     }
 
-    void "without --to, an unknown --reply-to or no --reply-to at all is invalid input"() {
+    void "an unknown --reply-to is invalid input with or without --to, and no --reply-to needs --to"() {
         expect:
         run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
         stderr.toString().contains("names no entry")
+        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
+        run("append-agent", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
+                "--body-file", body("orphan").toString()) == ExitCode.INVALID_INPUT
+        !Files.exists(repo.resolve(".git/sideband/journal.md"))
         run("append-agent", "--repo", repo.toString(), "--from", "codex", "--type", "status",
                 "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--to is required unless --reply-to")

@@ -113,13 +113,13 @@ public class AppendAgentCommand implements Callable<Integer> {
         Path stateDirectory = repository.stateDirectory(home);
         Path file = stateDirectory.resolve(Journal.FILE_NAME);
         Map<String, EntryMetadata> byId = index(file);
+        EntryMetadata answered = replyTo == null ? null : byId.get(replyTo);
+        if (replyTo != null && answered == null) {
+            throw new IllegalArgumentException("--reply-to names no entry in this discussion: " + replyTo);
+        }
         if (to == null || to.isEmpty()) {
-            if (replyTo == null) {
-                throw new IllegalArgumentException("--to is required unless --reply-to names the entry being answered");
-            }
-            EntryMetadata answered = byId.get(replyTo);
             if (answered == null) {
-                throw new IllegalArgumentException("--reply-to names no entry in this discussion: " + replyTo);
+                throw new IllegalArgumentException("--to is required unless --reply-to names the entry being answered");
             }
             to = List.of(answered.from()); // an answer goes to whoever asked
         }
