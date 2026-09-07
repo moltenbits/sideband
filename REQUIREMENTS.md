@@ -733,6 +733,16 @@ in the journal when none accepts. A frame past Claude Code's cap of about a
 million characters is refused before any connection, and a session that
 accepts the connection but stops reading is given up on after a bounded wait.
 
+Claude Code introduces every frame on that socket to the model as a message
+from another Claude session, and no field of the frame changes that
+introduction (verified against Claude Code 2.1.263, 2026-09-07). The frame's
+content therefore takes the shape Claude Code's own cross-session messaging
+sends, a `<cross-session-message>` tag whose `from-name` the receiving side
+parses into the message's origin, with the envelope inside it; the name is the
+entry author's display name, so the message is attributed to Codex or the
+operator rather than to an anonymous session. The Claude adapter tells the
+model to trust that name and `metadata.from` over the introduction.
+
 Claude Code applies its inbound controls to the frame: a message whose sender
 attests no permission mode is held for the operator's approval in a
 bypass-permissions session unless `crossSessionInbound` is `accept`. Claude

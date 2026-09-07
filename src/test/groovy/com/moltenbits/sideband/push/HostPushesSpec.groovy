@@ -2,8 +2,10 @@ package com.moltenbits.sideband.push
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.handoff.Handoffs
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
@@ -89,6 +91,29 @@ exit $(cat "''' + exitFile + '''")
         message.contains('"effective_live":"auto"')
         message.contains('"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions"')
         !message.contains("mark-delivered")
+    }
+
+    void "a pusher is handed the entry's author, so the host can attribute the message"() {
+        given: "a Codex reply addressed to Claude, and a Claude pusher that records what it is given"
+        Entry request = toCodex("@codex please look")
+        Entry reply = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE],
+                type: com.moltenbits.sideband.protocol.MessageType.REPLY, replyTo: request.metadata().id(),
+                causedBy: null, expectsReply: false, body: "looked"))
+        List<ParticipantId> authors = []
+        HostPusher recorder = [role: { Role.CLAUDE },
+                               push: { Path directory, ParticipantId from, String text ->
+                                   authors << from
+                                   new PushResult(Role.CLAUDE, PushOutcome.PUSHED, text)
+                               }] as HostPusher
+        Pushes wired = new HostPushes(context.getBean(Handoffs), [recorder])
+
+        when:
+        List<PushResult> results = wired.deliver(state, reply)
+
+        then:
+        authors == [Fixtures.CODEX]
+        results*.outcome() == [PushOutcome.PUSHED]
+        results[0].detail().contains('"body":"looked"')
     }
 
     void "an ack is never pushed; it waits for the requester's next look at its outgoing requests"() {

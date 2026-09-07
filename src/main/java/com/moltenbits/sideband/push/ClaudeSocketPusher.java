@@ -3,6 +3,7 @@ package com.moltenbits.sideband.push;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
@@ -37,9 +38,17 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * <p>
  * Registrations are tried newest first. A socket that refuses the connection belongs to a
  * session that has ended, so the next is tried; the entry waits in the journal when none
-* accepts. On macOS and Linux the connection needs no auth line. A frame beyond Claude Code's
+ * accepts. On macOS and Linux the connection needs no auth line. A frame beyond Claude Code's
  * inbox cap is refused before any connection, and a session that accepts the connection but
  * stops reading is given up on after a bounded wait, so a writer is never left hanging.
+ * <p>
+ * Claude Code treats every frame on this socket as one of its own sessions speaking, and
+ * introduces it to the model as such; nothing in the frame changes that introduction. What
+ * the frame can carry is the shape Claude Code's own cross-session messaging gives its
+ * payload: a {@code <cross-session-message>} tag whose {@code from-name} the receiving side
+ * parses into the message's origin. The envelope travels inside that tag, named for the
+ * entry's author, so the message is attributed to Codex or the operator rather than to an
+ * anonymous session.
  */
 @Singleton
 class ClaudeSocketPusher implements HostPusher {
@@ -88,7 +97,7 @@ class ClaudeSocketPusher implements HostPusher {
     }
 
     @Override
-    public PushResult push(Path stateDirectory, String text) {
+    public PushResult push(Path stateDirectory, ParticipantId from, String text) {
         List<Registration> candidates = registered(stateDirectory);
         if (candidates.isEmpty()) {
             return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
@@ -104,7 +113,7 @@ class ClaudeSocketPusher implements HostPusher {
         }
         String frame;
         try {
-            frame = json.writeValueAsString(new Frame("user", new Message("user", text))) + "\n";
+            frame = json.writeValueAsString(new Frame("user", new Message("user", attributed(from, text)))) + "\n";
         } catch (IOException e) {
             return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
         }
@@ -125,6 +134,17 @@ class ClaudeSocketPusher implements HostPusher {
             }
         }
         return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
+    }
+
+    /**
+     * The text in the shape Claude Code's own cross-session messaging sends: the tag, the
+     * author's display name, a newline, the envelope, a newline, and the closing tag. Claude
+     * Code parses only this exact form, and a name it would rewrite (quotes, angle brackets,
+     * control characters, more than 64 characters) would make it fall back to an anonymous
+     * message; the display names here contain none of those.
+     */
+    static String attributed(ParticipantId from, String text) {
+        return "<cross-session-message from-name=\"" + from.displayName() + "\">\n" + text + "\n</cross-session-message>";
     }
 
     /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */

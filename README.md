@@ -105,6 +105,13 @@ session that has never run `/sideband` is reached too; it loads the skill from
 the envelope's first line. A socket that refuses the connection belongs to a
 session that has ended, and the entry then waits in the journal.
 
+Claude Code introduces everything on that socket to the model as a message
+from another Claude session; no frame can change that. The frame does carry
+the shape Claude Code's own cross-session messaging uses, a
+`<cross-session-message>` tag whose `from-name` Claude Code parses into the
+message's origin, so the envelope arrives named for its author: Codex, or the
+operator, rather than an anonymous session.
+
 The socket is used whenever it can be, and the executable falls back to a
 listener when it cannot. Claude Code delivers such a frame only when your
 user settings accept cross-session messages (see Install); otherwise it

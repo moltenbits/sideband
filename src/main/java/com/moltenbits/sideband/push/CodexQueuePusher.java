@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.push;
 
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
@@ -39,7 +40,7 @@ class CodexQueuePusher implements HostPusher {
     }
 
     @Override
-    public PushResult push(Path stateDirectory, String text) {
+    public PushResult push(Path stateDirectory, ParticipantId from, String text) {
         Optional<Session> session = sessions.load(stateDirectory, Role.CODEX);
         if (session.isEmpty()) {
             return new PushResult(Role.CODEX, PushOutcome.NO_SESSION, null);
