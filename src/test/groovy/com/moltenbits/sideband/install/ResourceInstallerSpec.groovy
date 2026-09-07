@@ -108,10 +108,18 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
 
+        and: "the repository file is not given crossSessionInbound: a repository can only tighten it, and the report says where accept must go"
+        report.inbound().name() == "claude-inbound"
+        report.inbound().state() == "missing"
+        report.inbound().path() == home.resolve(".claude/settings.json").toString()
+        report.inbound().note().contains("accept in " + home.resolve(".claude/settings.json"))
+        report.hook().note() == null
+        !settings.contains("crossSessionInbound")
+
         and: "the Codex registration is the same command naming codex, so a hook shell without markers still knows its client"
         String codexHooks = Files.readString(project.resolve(".codex/hooks.json"))
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
-        codexHooks.replace("--agent codex", "--agent claude") == settings
+        !codexHooks.contains("crossSessionInbound")
     }
 
     void "reinstalling is idempotent and inspect agrees"() {
@@ -129,6 +137,41 @@ class ResourceInstallerSpec extends Specification {
         inspected.hook().state() == "installed"
         again.codexHook().state() == "unchanged"
         inspected.codexHook().state() == "installed"
+        again.inbound().state() == "missing"
+        inspected.inbound().state() == "missing"
+    }
+
+    void "inspect follows Claude Code's resolution: the user file decides, the project and local files can only tighten"() {
+        given:
+        Map<String, Path> files = [project: project.resolve(".claude/settings.json"),
+                                   local  : project.resolve(".claude/settings.local.json"),
+                                   user   : home.resolve(".claude/settings.json")]
+        values.each { scope, inbound -> write(files[scope], inbound) }
+
+        when:
+        InstallReport.Item item = installer.inspect(home, project).inbound()
+
+        then:
+        item.state() == state
+        item.path() == files[decidedBy].toString()
+        item.note().contains("can only tighten it")
+        item.note().contains("managed settings or --settings, which are not inspected")
+
+        where:
+        values                                              | state       | decidedBy
+        [user: "accept"]                                    | "installed" | "user"
+        [user: "accept", project: "hold"]                   | "held"      | "project"
+        [user: "accept", local: "refuse"]                   | "refused"   | "local"
+        [user: "hold", project: "accept", local: "accept"]  | "held"      | "user"
+        [project: "accept"]                                 | "missing"   | "user"
+        [local: "hold"]                                     | "held"      | "local"
+        [:]                                                 | "missing"   | "user"
+        [user: "accept", local: "maybe"]                    | "unknown"   | "local"
+    }
+
+    private static void write(Path file, String inbound) {
+        Files.createDirectories(file.parent)
+        Files.writeString(file, '{"crossSessionInbound": "' + inbound + '"}')
     }
 
     void "Codex registers the native command once, naming codex, and preserves unrelated configuration"() {
@@ -150,6 +193,35 @@ class ResourceInstallerSpec extends Specification {
         second.contains("echo sideband audit")
         second.contains("echo done")
         second.contains("my hooks")
+    }
+
+    void "the hook installer preserves an inbound choice already in the repository file"() {
+        given:
+        Files.createDirectories(project.resolve(".claude"))
+        Files.writeString(project.resolve(".claude/settings.json"), '{"crossSessionInbound": "refuse"}')
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String settings = Files.readString(project.resolve(".claude/settings.json"))
+
+        then:
+        report.hook().state() == "added"
+        settings.contains('"crossSessionInbound": "refuse"')
+        settings.contains("hook prompt --agent claude")
+        report.inbound().state() == "refused"
+        report.inbound().path() == project.resolve(".claude/settings.json").toString()
+    }
+
+    void "an unreadable settings file is reported as such for the inbound verdict"() {
+        given:
+        Files.createDirectories(home.resolve(".claude"))
+        Files.writeString(home.resolve(".claude/settings.json"), "not json")
+
+        expect:
+        with(installer.inspect(home, project).inbound()) {
+            state() == "unreadable"
+            path() == home.resolve(".claude/settings.json").toString()
+        }
     }
 
     void "invalid Codex hook configuration is not overwritten"() {
@@ -191,6 +263,7 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).skills()*.state() == ["missing", "missing"]
         installer.inspect(home, project).hook().state() == "missing"
         installer.inspect(home, project).codexHook().state() == "missing"
+        installer.inspect(home, project).inbound().state() == "missing"
     }
 
     void "a development symlink is replaced by a real copy and an edited copy is refreshed"() {

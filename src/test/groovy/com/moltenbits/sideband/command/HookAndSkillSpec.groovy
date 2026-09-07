@@ -83,7 +83,7 @@ class HookAndSkillSpec extends CommandSpec {
         context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.metadata()*.from()*.toString() == ["operator", "claude"]
     }
 
-    void "the hook stays silent and writes nothing when the prompt is not a human message, or Sideband is not set up here"() {
+    void "the hook stays silent and writes nothing when the prompt is not a human message, is the host's own notification, or Sideband is not set up here"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
@@ -94,12 +94,15 @@ class HookAndSkillSpec extends CommandSpec {
         !Files.exists(journalFile)
 
         where:
-        prompt                          | session | plainDirectory
-        "[Sideband message]\n{...}"     | "s1"    | false
-        "/sideband status"              | "s1"    | false
-        "! sideband doctor"             | "s1"    | false
-        "   "                           | "s1"    | false
-        "hello"                         | "s1"    | true
+        prompt                                                        | session | plainDirectory
+        "[Sideband message]\n{...}"                                   | "s1"    | false
+        "/sideband status"                                            | "s1"    | false
+        "! sideband doctor"                                           | "s1"    | false
+        "   "                                                         | "s1"    | false
+        "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" | "s1" | false
+        "<system-reminder>\n[SYSTEM NOTIFICATION - NOT USER INPUT]"   | "s1"    | false
+        "[SYSTEM NOTIFICATION - NOT USER INPUT]\nThis is automated"   | "s1"    | false
+        "hello"                                                       | "s1"    | true
     }
 
     List<String> bodies() {

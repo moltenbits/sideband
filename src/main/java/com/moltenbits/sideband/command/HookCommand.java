@@ -38,8 +38,8 @@ public class HookCommand {
     /**
      * Both clients' {@code UserPromptSubmit} hook. Reads the hook payload on stdin and journals
      * the prompt verbatim, attributed to the operator via the calling client, whenever that
-     * client's role has joined in the repository. Delivered envelopes, slash commands, and
-     * shell commands are never captured. Capture never blocks the prompt: any problem goes to
+     * client's role has joined in the repository. Delivered envelopes, slash commands, shell
+     * commands, and the host's own notifications are never captured. Capture never blocks the prompt: any problem goes to
      * stderr and the exit code is always 0.
      */
     @Command(name = "prompt", description = "Claude Code/Codex UserPromptSubmit hook: record the human's prompt in the Sideband discussion", mixinStandardHelpOptions = true)
@@ -108,7 +108,7 @@ public class HookCommand {
             if (message != null) {
                 prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
             } else if (isSkillCommand(trimmed) || trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER)
-                    || trimmed.startsWith("/") || trimmed.startsWith("!")) {
+                    || trimmed.startsWith("/") || trimmed.startsWith("!") || isHostNotification(trimmed)) {
                 return ExitCode.OK;
             }
             Path stateDirectory;
@@ -149,6 +149,16 @@ public class HookCommand {
         static String skillMessage(String trimmed) {
             String rest = skillArgument(trimmed);
             return rest == null || rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+        }
+
+        /**
+         * Claude Code delivers its own notices to the model through the prompt hook too: a
+         * background task finishing, a system reminder. They are the host speaking, never the
+         * operator, so they are not recorded.
+         */
+        static boolean isHostNotification(String trimmed) {
+            return trimmed.startsWith("<task-notification>") || trimmed.startsWith("<system-reminder>")
+                    || trimmed.startsWith("[SYSTEM NOTIFICATION");
         }
 
         /** The skill invoked alone or with one of its own words: a command for the model, never the operator's words. */

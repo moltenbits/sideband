@@ -21,8 +21,13 @@ class HostPushesSpec extends Specification {
     @Shared Path fakeBin = Files.createTempDirectory("fake-codex")
     @Shared Path log = fakeBin.resolve("calls.log")
     @Shared Path exitFile = fakeBin.resolve("exit-code")
+    /** An empty Claude registry and a home with no inbound setting, so no real session on the developer's machine is ever pushed to. */
+    @Shared Path claudeRegistry = Files.createTempDirectory("claude-sessions")
+    @Shared Path claudeHome = Files.createTempDirectory("claude-home")
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run(
-            ["sideband.codex.executable": fakeBin.resolve("codex").toString()])
+            ["sideband.codex.executable": fakeBin.resolve("codex").toString(),
+             "sideband.claude.sessions-directory": claudeRegistry.toString(),
+             "sideband.home-directory": claudeHome.toString()])
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
@@ -53,7 +58,7 @@ exit $(cat "''' + exitFile + '''")
     void "the component is exposed only through its interface"() {
         expect:
         pushes instanceof HostPushes
-        context.getBeansOfType(HostPusher)*.role() == [Role.CODEX]
+        context.getBeansOfType(HostPusher)*.role() as Set == [Role.CODEX, Role.CLAUDE] as Set
     }
 
     void "without a Codex session the entry is left for backlog and codex is never run"() {
@@ -113,12 +118,12 @@ exit $(cat "''' + exitFile + '''")
         results[0].detail().contains("exited 3")
     }
 
-    void "Claude has no push command, so its own listener delivers"() {
+    void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
         when:
         List<PushResult> results = pushes.deliver(state, journal.append(file, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
 
         then:
-        results == [new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, null)]
+        results == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
     }
 
     void "an agent's own role and human recipients are never pushed to"() {
@@ -143,6 +148,6 @@ exit $(cat "''' + exitFile + '''")
 
         expect:
         pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]
-        pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS, null)]
+        pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
     }
 }

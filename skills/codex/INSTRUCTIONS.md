@@ -252,7 +252,7 @@ With `--reply-to`, omitted `--to` defaults to that entry's author. An explicit
 `--to` replaces the default recipient list; to copy the operator, include both
 the original author and `operator`. Without `--reply-to`, supply `--to`.
 Acks never trigger another wake. Inspect `pushes` for delivery failures.
-Claude's `listener-delivers` result is not proof its model has read the entry.
+A `pushed` result for Claude means its inbox accepted the envelope, not that its model has read it.
 
 When your part is complete, address the human in this terminal and journal the
 participating reply to `operator`. Human-only entries are records of that

@@ -8,27 +8,22 @@ import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.session.Session;
-import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Singleton
 class HostPushes implements Pushes {
 
-    private final Sessions sessions;
     private final Handoffs handoffs;
     private final Map<Role, HostPusher> pushers;
 
-    HostPushes(Sessions sessions, Handoffs handoffs, List<HostPusher> pushers) {
-        this.sessions = sessions;
+    HostPushes(Handoffs handoffs, List<HostPusher> pushers) {
         this.handoffs = handoffs;
         this.pushers = pushers.stream().collect(Collectors.toMap(HostPusher::role, Function.identity()));
     }
@@ -51,16 +46,8 @@ class HostPushes implements Pushes {
     }
 
     private PushResult deliver(Path stateDirectory, Entry entry, Role role) {
-        HostPusher pusher = pushers.get(role);
-        if (pusher == null) {
-            return new PushResult(role, PushOutcome.LISTENER_DELIVERS, null);
-        }
-        Optional<Session> session = sessions.load(stateDirectory, role);
-        if (session.isEmpty()) {
-            return new PushResult(role, PushOutcome.NO_SESSION, null);
-        }
         Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
         Batch batch = Batch.forRole(role, entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
-        return pusher.push(session.get(), handoffs.envelope(batch));
+        return pushers.get(role).push(stateDirectory, handoffs.envelope(batch));
     }
 }

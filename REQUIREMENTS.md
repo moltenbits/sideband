@@ -63,8 +63,15 @@ invocations such as `claude -p` or `codex exec resume`.
   or `codex`, or the one human, `operator`.
 - **Instance**: one active interactive session of a client role. Version one
   permits at most one instance of each role per repository.
-- **Live message**: a message appended after a recipient's listener became
-  ready for the current session.
+- **Live message**: a message appended after the recipient's session
+  watermark (section 9.3), so it is pushed into the running session.
+- **Listener**: where this document says a role's listener delivers an entry,
+  read the role's delivery path. Since 2026-09-06 that path is a push by the
+  writer in both directions (sections 10.2 and 10.3); Claude runs a
+  background listener only as the fallback when its host would not deliver
+  pushes. The word survives in the workflow sections because the properties
+  they state, one delivery path per role, no per-request wait, no timer, no
+  retry, are unchanged.
 - **Backlog message**: an addressed message already present when a recipient's
   session established its startup watermark.
 - **Journal**: the append-only Markdown file containing the shared history.
@@ -330,10 +337,9 @@ message. The envelope therefore carries a stable, machine-recognizable
 preamble that capture hooks check before recording anything.
 
 The envelope must also be self-describing. A client can have its conversation
-context cleared while its listener keeps running (Claude Code's `/clear` leaves
-the Monitor and its `sideband pending --wait --stream` process alive; verified 2026-09-05), so
-the adapter instructions cannot be assumed to be in context when a batch
-arrives. Everything a host receives therefore begins with an `intent` field,
+context cleared and still be pushed to, and a Claude Code session that has
+never run the skill is pushed to as well (section 10.2), so the adapter
+instructions cannot be assumed to be in context when a batch arrives. Everything a host receives therefore begins with an `intent` field,
 one sentence: "Sideband delivery; use the Sideband skill (`/sideband` or
 `$sideband`, whichever the receiving client invokes) for handling
 instructions". It names the skill rather than `sideband skill` so that the
@@ -346,8 +352,9 @@ JSON batch holding the complete entry:
 {"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
 ```
 
-Codex handles that entry directly from the message; Claude's Monitor line is
-the `pending` report, which the host truncates, so Claude reads with `pending`.
+Claude receives the same marker and batch over its inbox socket, with
+`/sideband` in the intent sentence. Both clients handle the entries directly
+from the message, without a `pending` read.
 
 Transport arrival is not a new local human prompt; an entry whose recorded
 author is `operator` nevertheless retains that human authorship.
@@ -361,10 +368,10 @@ separate source of authority. Detailed steps such as reply
 correlation and outgoing-request resolution belong in the adapter instructions;
 their omission from this discovery field is not a missing protocol requirement.
 
-A host notification is also small: Claude Code truncates a Monitor event to
-500 characters (measured 2026-09-05). That is why a streamed report is treated
-as a wake signal and never advances the bookmark; the client reads with a
-plain `sideband pending`.
+A streamed `pending --wait --stream` report is a wake signal for inspection
+only and never advances the bookmark: Claude Code truncates a Monitor event
+to 500 characters (measured 2026-09-05), which is why delivery to Claude moved
+to the inbox socket, whose frames carry the whole envelope.
 
 ### 7.5 Agent-to-human messages
 
@@ -478,7 +485,7 @@ one regardless of metadata supplied by a writer.
 
 ### 9.2 Live delivery
 
-When an addressed entry is appended after the recipient's listener is ready:
+When an addressed entry is appended after the recipient's session watermark:
 
 - The recipient should receive it promptly.
 - An actionable entry may be handled without an additional backlog approval.
@@ -497,11 +504,14 @@ and need not prove that the parent model read, understood, or acted on it.
 
 When a client activates Sideband, it must establish a watermark at the last
 complete entry already present in the journal. Addressed unresolved entries at
-or before that watermark are backlog. Entries appended after the listener is
-ready are live.
+or before that watermark are backlog. Entries appended after it are live and
+are pushed by their writers as they are appended.
 
 This boundary must be race-safe: an entry may be classified as backlog or live,
-but it must not be lost between the initial scan and listener startup.
+but it must not be lost between the join's scan and the first push. An entry
+whose push failed or found no session is not lost either: it stays addressed
+and unresolved in the journal, and `pending` lists it as open until the role's
+ack exists and as in progress until the role's reply exists.
 
 ### 9.4 Backlog handling
 
@@ -572,8 +582,8 @@ return control to the human; it must not keep its turn open solely to wait
 for an answer. The request is discoverable as outgoing from the journal for
 as long as no recipient has replied to it, across turns and sessions.
 
-The role's existing background listener delivers replies through the same
-path as other addressed messages. A reply answers the nearest actionable
+A reply is pushed to the requester by its writer through the same path as
+any other addressed message. A reply answers the nearest actionable
 entry reachable through its `reply_to` links that someone else wrote, so a
 reply to a clarification still answers the original request. A reply that
 itself expects a reply is a question, not an answer: it closes nothing, and
@@ -590,8 +600,8 @@ fail or resolve a request. On reactivation, replies already present are
 updates the role has not been shown; later ones follow the usual path.
 
 The parent conversation must remain available for human input throughout.
-Only the session's existing background listener waits for journal activity,
-without idle model polling or periodic model turns to check pending requests.
+Nothing waits for the reply: it arrives as a push when it is written, with no
+idle model polling or periodic model turns to check pending requests.
 
 ### 9.7 Revising an outstanding request
 
@@ -679,48 +689,77 @@ Each client-specific Sideband skill must, through the shared tool:
 2. Initialize it safely when absent.
 3. Read what the journal says is still waiting for that client.
 4. Apply backlog confirmation rules.
-5. Start no more than one listener for its parent session.
-6. Deliver new addressed entries to the parent conversation.
+5. Start no timer or polling loop; delivery is the writer's push, and the one
+   exception is the Claude listener of section 10.2, started only for a
+   session that joined in `listen` mode.
+6. Handle pushed entries in the parent conversation directly from the envelope.
 7. Append participant messages using the shared writer.
 8. Keep the session record current and deduplicate by message ID.
-9. Surface listener, parse, and write failures rather than silently losing
+9. Surface push, parse, and write failures rather than silently losing
    messages.
 10. Acknowledge requests on receipt and reply through the journal, so the
     journal alone says what is answered, as described in sections 9.6 to 9.8,
     while leaving the parent available to the human.
 
-Delivery is performed by whichever side can wake the recipient's host natively.
-When a host offers a command that starts a new turn in an existing session,
-the writer of an entry invokes it immediately after the append, for each
-client recipient with a live registered session. The recipient then runs no
-listener at all. When a
-host offers no such command, the recipient's own background listener delivers.
-Either way the journal remains the only coupling between clients: a push that
-fails or finds no live session leaves the entry pending, and it surfaces as
-backlog at the recipient's next activation.
+Delivery is performed by the writer, which wakes the recipient's host
+natively: the writer of an entry pushes the envelope immediately after the
+append, for each client recipient it can reach, through whatever the host
+offers for starting a new turn in an existing session (sections 10.2 and
+10.3). Codex never runs a listener; Claude runs one only as the fallback of
+section 10.2. The journal remains the only coupling between clients: a push
+that fails or finds no session leaves the entry pending, and it surfaces as
+backlog at the recipient's next activation. A push is transport; the
+recipient's ack and reply are the record of what was done with the entry.
 
-Any background listener is a transport worker. It forwards messages to the
-parent client rather than independently answering substantive project
-questions with stale or incomplete parent context.
-
-Replacing the executable does not upgrade a listener already running from the
-old file: the process keeps its inode. After an install that changes the
-executable, the running listener must be stopped and started again.
+A listener keeps running the executable it started with, because the process
+holds its inode. After an install that replaces the executable, a running
+listener is stopped and started again.
 
 ### 10.2 Claude Code
 
-Claude Code has no command that starts a turn in a running session from
-outside, so Claude is delivered to by its own listener. The listener is one
-persistent Monitor attached to the streaming journal-follow command
-(`sideband pending --wait --stream`), started once at activation; each line the
-command emits is one wake signal for a batch of open entries and becomes one
-notification to the parent, which then reads the entries with `pending`. The listener is never re-armed per message. A one-shot background
-task blocked on `sideband pending --wait` is the fallback where Monitor is unavailable,
-as the wake-path spike proved. Monitor events must prompt a read of `pending`
-rather than be treated as exactly one message. The worker must
-not answer the message itself.
-Clearing the conversation's context does not stop the Monitor, so no re-arming
-step exists; each batch carries its own intent sentence (section 7.4) instead.
+Claude Code exposes each session's inbox socket, the channel its own
+cross-session messaging uses, and registers every session in
+`~/.claude/sessions/<pid>.json` with its working directory and socket path.
+Claude therefore runs no listener. Whoever appends an entry addressed to
+Claude finds the registered session whose working directory resolves to this
+repository's state directory, worktrees included, and posts the envelope to
+its socket as one newline-terminated frame; an idle session starts a new turn
+with it and a busy one reads it between tool calls. No Sideband session record
+is needed for delivery, so a session that has never joined is reached and
+finds the skill through the envelope's intent sentence (section 7.4).
+Registrations are tried newest first; a socket that refuses the connection
+belongs to a session that has ended, so the next is tried, and the entry waits
+in the journal when none accepts. A frame past Claude Code's cap of about a
+million characters is refused before any connection, and a session that
+accepts the connection but stops reading is given up on after a bounded wait.
+
+Claude Code applies its inbound controls to the frame: a message whose sender
+attests no permission mode is held for the operator's approval in a
+bypass-permissions session unless `crossSessionInbound` is `accept`. Claude
+Code reads that key from managed settings, `--settings`, and the user file,
+first one wins, and lets the repository's `.claude/settings.json` and
+`.claude/settings.local.json` only tighten it (verified 2026-09-06: an accept
+in the repository file left every push held, and each was delivered the
+moment the operator approved it). So `init` does not write the key; the
+operator sets accept in the user file, and `doctor` reports installed, held,
+refused, or missing following the same resolution, naming the deciding file
+and saying where accept must go. Managed settings and `--settings` are not
+inspected, and the report says so.
+
+The socket is used whenever the files say it will be delivered to, and the
+listener is the automatic fallback otherwise. On every append addressed to
+Claude the executable reads that verdict: accepted means it posts the
+frame; anything else means it posts nothing, since each frame would be an
+approval dialog, and reports `listener-delivers`. The Claude adapter reads
+the same verdict from `doctor` at activation and starts the fallback only
+then: one persistent Monitor on `sideband pending --wait --stream`, whose
+lines are wake signals (host notifications truncate at about 500
+characters) after which Claude reads the entries with `pending`. Nothing is
+recorded for this; the two sides agree because they read the same files,
+and an operator who changes the setting under a running session re-runs the
+skill. The fallback costs a re-run of the skill after every restart and a
+`pending` read per delivery, which is why the push is used wherever the
+operator has accepted it.
 
 ### 10.3 Codex
 
@@ -741,15 +780,13 @@ Registration on disk alone does not establish that guarantee.
 
 ### 10.4 Lifecycle
 
-- The listener exists only while its client session is running.
-- Idle waiting should not consume model tokens.
-- One existing listener handles all addressed requests, follow-ups, and replies
-  for its role. Pending outgoing requests must not create additional listeners,
-  response timers, or per-request waits.
+- Delivery is a push by the writer into the recipient's running host; no
+  client runs a timer or polling loop, Codex runs no listener, Claude runs one
+  only in `listen` mode, and idle waiting consumes no model tokens.
+- Pending outgoing requests must not create response timers or per-request
+  waits; the reply is pushed when it is written.
 - Messages written while a client is absent remain durable in the journal.
 - A returning client drains the backlog using the confirmation workflow.
-- A stopped or failed listener must be restartable without losing or
-  duplicating journal entries.
 - One instance of each client role per repository is the operator's
   convention; the executable does not police it. A second join as the same
   role replaces the role's record and holds the role from then on. Claude and
@@ -781,6 +818,11 @@ service, or headless peer invocation. Failure in either direction is a design
 blocker. It must be surfaced for a requirements decision rather than bypassed
 with a prohibited fallback.
 
+Outcome: both directions are pushes. Codex through `codex queue`, and, since
+2026-09-06, Claude through Claude Code's inbox socket (section 10.2), with
+the Monitor listener the spike had settled on kept as the fallback for a
+session whose settings would hold pushes.
+
 ## 11. Writing and concurrency
 
 ### 11.1 Serialized appends
@@ -797,11 +839,11 @@ The shared `sideband` executable must:
 5. Flush and close the journal.
 6. Release the lock.
 
-The executable is invoked for journal and session-record operations. The
-session's background listener may use a blocking journal-follow command to
-detect new entries; the parent must not invoke a separate blocking command to
-await a particular reply. It is not a daemon, server, proxy, or independent
-agent. Both skills invoke the same installed binary.
+The executable is invoked for journal and session-record operations, and by
+the writer of an entry to push it. The parent must not invoke a blocking
+command to await a particular reply; `pending --wait` exists for inspection.
+It is not a daemon, server, proxy, or independent agent. Both skills invoke
+the same installed binary.
 
 ### 11.2 Failure behavior
 
@@ -923,9 +965,12 @@ instances.
 
 ### 14.9 Restart and replay
 
-Given a listener stops after an entry is written but before the role's read
-position is advanced, restarting Sideband shows that entry again, and the
-journal's own record of the role's ack or reply prevents duplicate work.
+Given a push fails, or the recipient's host accepts an entry and the
+conversation ends before the entry is handled, the entry is still addressed
+and unresolved in the journal: the next `join --resume` or `pending` shows it
+again, as open when no ack exists and as in progress when one does, so the
+role acknowledges once and continues unfinished work rather than restarting
+it; only its reply closes the request.
 
 ### 14.10 Duplicate role activation
 
@@ -1016,6 +1061,16 @@ entry addressed to Codex, the writer's `codex queue` push starts a turn in
 Codex without Codex running any listener, and the entry is marked delivered
 for Codex. Given Codex has not activated, the push reports no session and the
 entry waits as backlog.
+
+Given a Claude Code session is running in the repository, joined or not, when
+any process appends an entry addressed to Claude, the writer posts the
+envelope to that session's inbox socket and the entry is marked pushed for
+Claude; a session that has never joined loads the skill from the envelope.
+Given no Claude Code session is registered for the repository, or every
+registered socket refuses the connection, the push reports no session or
+failure and the entry waits as backlog. A pushed result is the host's
+acceptance of the envelope, never evidence that the model read it; the
+recipient's ack is that evidence.
 
 ### 14.16 Human capture guarantee
 

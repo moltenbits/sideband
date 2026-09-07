@@ -22,4 +22,12 @@ public interface SidebandHome {
 
     /** Resolves the state directory and creates it, private to the current user, when absent. */
     Path initialize(Path workingDirectory);
+
+    /** The directory whose client configuration ({@code .claude}, {@code .codex}) belongs to a state directory. */
+    default Path projectRoot(Path stateDirectory) {
+        if (stateDirectory.getFileName().toString().equals(PLAIN_DIRECTORY_NAME)) {
+            return stateDirectory.getParent();
+        }
+        return stateDirectory.getParent().getParent();
+    }
 }

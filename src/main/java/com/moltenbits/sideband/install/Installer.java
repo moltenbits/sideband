@@ -18,6 +18,12 @@ public interface Installer {
     /** Reports the state of the same pieces without changing anything. */
     InstallReport inspect(Path homeDir, Path projectDir);
 
+    /**
+     * Whether Claude Code will deliver a pushed envelope, judged from the settings files the
+     * executable can read; {@code installed} means yes. The same item {@link #inspect} reports.
+     */
+    InstallReport.Item inbound(Path homeDir, Path projectDir);
+
     /** The adapter instructions embedded for a client, served to the installed skill stub. */
     String instructions(Role client);
 

@@ -100,7 +100,7 @@ public class DoctorCommand implements Callable<Integer> {
                 health,
                 roles,
                 lockOwner,
-                installer.inspect(homeDirectory, InitCommand.projectRoot(stateDirectory))));
+                installer.inspect(homeDirectory, home.projectRoot(stateDirectory))));
         return ExitCode.OK;
     }
 
