@@ -300,7 +300,7 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString() == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
     }
 
-    void "the role is all that matters: a restarted, cleared, or second client captures for the joined role and the record is untouched"() {
+    void "the role is all that matters: a restarted, cleared, or second client captures for the joined role, and the record follows the human's conversation"() {
         given:
         detectedAgent = detected
         run("join", "--repo", repo.toString(), "--role", owner, "--session-id", "s1")
@@ -311,12 +311,17 @@ class HookAndSkillSpec extends CommandSpec {
 
         when:
         int code = hook("first prompt after restart", session, repo.toString(), flag ? ["--agent", flag] : [])
+        def after = state.load(dir, Role.valueOf(owner.toUpperCase())).get()
 
         then:
         code == ExitCode.OK
         json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
         Files.readString(journalFile).contains("first prompt after restart")
-        state.load(dir, Role.valueOf(owner.toUpperCase())).get() == before
+        after.id() == (session ?: "s1")
+        after.startedAt() == before.startedAt()
+        after.watermark() == before.watermark()
+        after.offset() == before.offset()
+        stderr.toString().contains("now delivers to") == (session != null && session != "s1")
 
         where:
         detected    | owner    | flag     | session
@@ -326,6 +331,155 @@ class HookAndSkillSpec extends CommandSpec {
         Role.CLAUDE | "claude" | null     | "after-clear"
         null        | "claude" | "claude" | "after-clear"
         Role.CLAUDE | "claude" | null     | null
+    }
+
+    void "a prompt the hook does not record still moves the record to the conversation it was typed in, but a delivered envelope never does"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        Sessions state = context.getBean(Sessions)
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        stdout = new StringWriter()
+
+        when:
+        int code = hook(prompt, "new-thread")
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        !Files.exists(journalFile)
+        state.load(dir, Role.CODEX).get().id() == expected
+
+        where:
+        prompt                                  | expected
+        "/sideband status"                      | "new-thread"
+        "\$sideband"                            | "new-thread"
+        "! sideband doctor"                     | "new-thread"
+        "   "                                   | "new-thread"
+        "[Sideband message]\n{...}"             | "old-thread"
+        "<cross-session-message from-name=\"Claude\">\n[Sideband message]\n{...}\n</cross-session-message>" | "old-thread"
+        "<task-notification>\n<task-id>b1</task-id>\n</task-notification>" | "old-thread"
+    }
+
+    int sessionStart(String source, String sessionId = "new-thread", String cwd = repo.toString(), List<String> args = [], String event = "SessionStart") {
+        InputStream original = System.in
+        Map payload = [cwd: cwd, source: source, hook_event_name: event]
+        if (sessionId != null) payload.session_id = sessionId
+        System.in = new ByteArrayInputStream(context.getBean(ObjectMapper).writeValueAsString(payload).bytes)
+        try {
+            HostEnvironment host = Stub() {
+                role() >> Optional.ofNullable(detectedAgent)
+            }
+            def command = new HookCommand.SessionStart(context.getBean(SidebandHome), host,
+                    context.getBean(Sessions), context.getBean(Pending), context.getBean(ObjectMapper))
+            CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
+            cli.out = new PrintWriter(stdout, true)
+            cli.err = new PrintWriter(stderr, true)
+            return cli.execute(args as String[])
+        } finally {
+            System.in = original
+        }
+    }
+
+    void "a cleared client moves the joined role to its new conversation before the first prompt and tells the model Sideband is live there"() {
+        given:
+        detectedAgent = detected
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        Sessions state = context.getBean(Sessions)
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        stdout = new StringWriter()
+
+        when:
+        int code = sessionStart("clear", "new-thread", repo.toString(), flag ? ["--agent", flag] : [])
+
+        then:
+        code == ExitCode.OK
+        state.load(dir, Role.CODEX).get().id() == "new-thread"
+        json().hookSpecificOutput.hookEventName == "SessionStart"
+        json().hookSpecificOutput.additionalContext.contains("joined as Codex")
+        json().hookSpecificOutput.additionalContext.contains("delivers to this conversation")
+        json().hookSpecificOutput.additionalContext.contains("\$sideband")
+        stderr.toString().contains("codex now delivers to new-thread")
+
+        where:
+        detected    | flag
+        Role.CODEX  | null
+        null        | "codex"
+        Role.CLAUDE | "codex"
+    }
+
+    void "after a clear the model also hears how many entries addressed to it are waiting"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        context.getBean(com.moltenbits.sideband.journal.Journal).append(journalFile,
+                com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CLAUDE,
+                        to: [com.moltenbits.sideband.Fixtures.CODEX], type: com.moltenbits.sideband.protocol.MessageType.STATUS,
+                        causedBy: null, expectsReply: false, body: "status"))
+        stdout = new StringWriter()
+
+        when:
+        int code = sessionStart("clear")
+
+        then:
+        code == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
+    }
+
+    void "a session start that is not a clear, is another event, names no session, or finds no joined role leaves the record alone and says nothing to the model"() {
+        given:
+        detectedAgent = Role.CODEX
+        if (joined) run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        Sessions state = context.getBean(Sessions)
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        stdout = new StringWriter()
+
+        when:
+        int code = sessionStart(source, session, repo.toString(), [], event)
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        state.load(dir, Role.CODEX).map { it.id() }.orElse(null) == (joined ? "old-thread" : null)
+
+        where:
+        source    | session      | event              | joined
+        "startup" | "new-thread" | "SessionStart"     | true
+        "resume"  | "new-thread" | "SessionStart"     | true
+        "compact" | "new-thread" | "SessionStart"     | true
+        "clear"   | null         | "SessionStart"     | true
+        "clear"   | "new-thread" | "UserPromptSubmit" | true
+        "clear"   | "new-thread" | "SessionStart"     | false
+    }
+
+    void "the session-start hook never fails the host, even on garbage input or a client it cannot tell"() {
+        given:
+        detectedAgent = detected
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        stdout = new StringWriter()
+        InputStream original = System.in
+        System.in = new ByteArrayInputStream(input.replace("REPO", repo.toString()).bytes)
+
+        when:
+        HostEnvironment host = Stub() { role() >> Optional.ofNullable(detectedAgent) }
+        def command = new HookCommand.SessionStart(context.getBean(SidebandHome), host,
+                context.getBean(Sessions), context.getBean(Pending), context.getBean(ObjectMapper))
+        CommandLine cli = new CommandLine(command)
+        cli.out = new PrintWriter(stdout, true)
+        cli.err = new PrintWriter(stderr, true)
+        int code = cli.execute()
+        System.in = original
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).get().id() == "old-thread"
+
+        where:
+        detected   | input
+        Role.CODEX | "not json"
+        Role.CODEX | ""
+        null       | '{"session_id":"new-thread","source":"clear","cwd":"REPO"}'
     }
 
     void "a prompt that should have been recorded and was not is reported to the model, never only to stderr"() {

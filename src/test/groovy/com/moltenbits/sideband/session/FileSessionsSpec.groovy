@@ -113,4 +113,39 @@ class FileSessionsSpec extends Specification {
         then:
         thrown(IllegalStateException)
     }
+
+    void "relocating moves the role to a new host session and keeps everything else, including the bookmark"() {
+        given:
+        journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
+        Session joined = sessions.join(dir, Role.CODEX, "old-thread", true)
+        sessions.advance(dir, Role.CODEX, 7)
+
+        when:
+        Session moved = sessions.relocate(dir, Role.CODEX, "new-thread").get()
+
+        then:
+        moved.id() == "new-thread"
+        moved.startedAt() == joined.startedAt()
+        moved.watermark() == joined.watermark()
+        moved.offset() == 7
+        moved.resumed()
+        sessions.load(dir, Role.CODEX).get() == moved
+    }
+
+    void "relocating to the session already recorded rewrites nothing"() {
+        given:
+        sessions.join(dir, Role.CODEX, "s1")
+        Path record = dir.resolve("sessions/codex.json")
+        def before = Files.getLastModifiedTime(record)
+
+        expect:
+        sessions.relocate(dir, Role.CODEX, "s1").get().id() == "s1"
+        Files.getLastModifiedTime(record) == before
+    }
+
+    void "relocating a role that has not joined records nothing"() {
+        expect:
+        sessions.relocate(dir, Role.CLAUDE, "s9").isEmpty()
+        sessions.load(dir, Role.CLAUDE).isEmpty()
+    }
 }
