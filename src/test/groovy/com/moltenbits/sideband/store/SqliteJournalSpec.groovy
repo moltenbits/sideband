@@ -175,7 +175,7 @@ class SqliteJournalSpec extends Specification {
         holder.autoCommit = false
         holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('claude','x','2026-09-02T16:42:00-05:00',0,0,0)")
         Duration patience = Duration.ofMillis(300)
-        Journal quick = new SqliteJournal(new Database(patience, context.getBean(NativeLibrary)), Fixtures.FIXED_CLOCK, ids as MessageIds)
+        Journal quick = new SqliteJournal(new Database(patience, context.getBean(NativeLibrary), context.getBean(LegacyImport)), Fixtures.FIXED_CLOCK, ids as MessageIds)
 
         when:
         long started = System.nanoTime()

@@ -32,8 +32,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * rollback journal is kept: switching a connection to write-ahead logging is a pragma that
  * fails at once, without waiting, while another connection writes.
  * <p>
- * The database is created, with its schema, by the first write. A read finds no database,
- * or one another process has created but not yet furnished, and reports absence instead.
+ * The database is created, with its schema, by the first write, which also imports a
+ * journal written before the store existed. A read finds no database, or one another
+ * process has created but not yet furnished, and reports absence instead.
  */
 @Singleton
 final class Database {
@@ -44,17 +45,25 @@ final class Database {
     /** How long a writer waits for another process's lock before giving up. */
     private final Duration busyTimeout;
     private final NativeLibrary library;
+    private final LegacyImport legacy;
 
-    Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout, NativeLibrary library) {
+    Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout, NativeLibrary library, LegacyImport legacy) {
         this.busyTimeout = busyTimeout;
         this.library = library;
+        this.legacy = legacy;
     }
 
-    /** Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is none. */
+    /**
+     * Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is
+     * none. A journal from before the store counts as an existing store: it is imported first.
+     */
     <T> T read(Path stateDirectory, T whenAbsent, Function<DSLContext, T> work) {
         Path file = file(stateDirectory);
         if (!Files.exists(file)) {
-            return whenAbsent;
+            if (!legacy.present(stateDirectory)) {
+                return whenAbsent;
+            }
+            write(stateDirectory, ctx -> null);
         }
         try (Connection connection = open(file)) {
             DSLContext ctx = context(connection);
@@ -67,7 +76,7 @@ final class Database {
         }
     }
 
-    /** Runs {@code work} in one transaction, creating the store first when it does not exist yet. */
+    /** Runs {@code work} in one transaction, creating the store first, and importing an older journal into it, when it does not exist yet. */
     <T> T write(Path stateDirectory, Function<DSLContext, T> work) {
         Path file = file(stateDirectory);
         try (Connection connection = open(file)) {
@@ -76,6 +85,7 @@ final class Database {
                 DSLContext inner = tx.dsl();
                 if (version(inner) < Schema.VERSION) {
                     install(inner);
+                    legacy.run(stateDirectory, inner);
                 }
                 return work.apply(inner);
             });
