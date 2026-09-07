@@ -426,6 +426,33 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
     }
 
+    void "a request acknowledged before the clear and still unanswered is counted too, so the new context picks it back up"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
+        def journal = context.getBean(com.moltenbits.sideband.journal.Journal)
+        def request = journal.append(journalFile, com.moltenbits.sideband.Fixtures.agentDraft(body: "please review"))
+        journal.append(journalFile, com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CODEX,
+                to: [com.moltenbits.sideband.Fixtures.CLAUDE], type: com.moltenbits.sideband.protocol.MessageType.ACK,
+                replyTo: request.metadata().id(), causedBy: null, expectsReply: false, body: "taking it up"))
+        Sessions state = context.getBean(Sessions)
+        Path dir = context.getBean(SidebandHome).locate(repo)
+        long bookmark = state.load(dir, Role.CODEX).get().offset()
+        stdout = new StringWriter()
+
+        expect:
+        context.getBean(Pending).report(dir, Role.CODEX).open().isEmpty()
+        context.getBean(Pending).report(dir, Role.CODEX).inProgress().size() == 1
+
+        when:
+        int code = sessionStart("clear")
+
+        then:
+        code == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
+        state.load(dir, Role.CODEX).get().offset() == bookmark
+    }
+
     void "a session start that is not a clear, is another event, names no session, or finds no joined role leaves the record alone and says nothing to the model"() {
         given:
         detectedAgent = Role.CODEX

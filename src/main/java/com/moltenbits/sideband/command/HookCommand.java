@@ -158,7 +158,9 @@ public class HookCommand {
                 return skipped("Sideband is not joined as " + role.id());
             }
             follow(sessions, spec.commandLine().getErr(), stateDirectory.get(), role, current.get(), payload.sessionId());
-            int waiting = pending.report(stateDirectory.get(), role).waiting();
+            // The new conversation remembers nothing, so an acknowledged request counts as
+            // much as an open one: only the memory of taking it up was lost.
+            int waiting = pending.report(stateDirectory.get(), role).unfinished();
             String invocation = role == Role.CLAUDE ? "/sideband" : "$sideband";
             String context = "Sideband is joined as " + role.displayName() + " in this repository and delivers to this conversation"
                     + (waiting == 0 ? "" : "; " + waiting + (waiting == 1 ? " entry" : " entries") + " addressed to "

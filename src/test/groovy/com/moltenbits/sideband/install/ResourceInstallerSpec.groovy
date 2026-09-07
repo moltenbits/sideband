@@ -268,6 +268,32 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
+    void "a session-start registration under any matcher but clear never fires on a clear, so it is stale, and init moves it beside the other handlers"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo started"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]},{"hooks":[{"type":"command","command":"\\"/old/sideband\\" hook session-start --agent codex"}]}]}}''')
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String text = Files.readString(hooksFile)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(text, Map)
+        List starts = parsed.hooks.SessionStart
+
+        then:
+        report.codexHook().state() == "updated"
+        text.count("hook session-start") == 1
+        text.count("hook prompt") == 1
+        starts*.matcher == ["startup", "clear"]
+        starts[0].hooks*.command == ["echo started"]
+        starts[1].hooks*.command == ['"/opt/sideband/bin/sideband" hook session-start --agent codex']
+        installer.inspect(home, project).codexHook().state() == "installed"
+        installer.install(home, project).codexHook().state() == "unchanged"
+    }
+
     void "a registration from before the session-start hook is stale until init adds it"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")

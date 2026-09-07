@@ -266,7 +266,11 @@ any prompt is typed, and the old conversation may live on inside the client,
 where a push addressed to it would run unseen. The session-start hook moves
 the joined role to the new conversation at once and tells it, through the
 context field, that Sideband is live there and how many entries addressed
-to it are waiting. Other sources (`startup`, `resume`, `compact`) leave the
+to it need attention, counting requests it acknowledged and has not yet
+answered, since the ack is the one thing the new conversation has forgotten.
+`init` places the handler under the `clear` matcher and moves one it finds
+under any other matcher, where it would never fire; `doctor` reports a
+handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
 record alone: they keep the conversation the role is in, or are a new client
 whose first prompt claims the role through the prompt hook. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation

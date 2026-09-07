@@ -14,9 +14,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -232,41 +234,68 @@ class ResourceInstaller implements Installer {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * A Sideband handler counts only inside a group whose matcher is the registration's:
+     * the host matches a session start's source against it, so a handler under any other
+     * matcher never fires on a clear. Such a handler is moved, and a group left empty by
+     * the move is dropped; handlers that are not Sideband's stay where they are.
+     */
     private String register(Map<String, Object> root, Registration registration, Role client) {
         String command = registrationCommand(registration, client);
         Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
         List<Object> event = (List<Object>) hooks.computeIfAbsent(registration.event(), k -> new ArrayList<>());
         String state = "added";
-        for (Object matcher : event) {
-            if (!(matcher instanceof Map<?, ?> m)) {
+        for (Iterator<Object> groups = event.iterator(); groups.hasNext(); ) {
+            if (!(groups.next() instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
                 continue;
             }
-            Object inner = m.get("hooks");
-            if (!(inner instanceof List<?> commands)) {
-                continue;
-            }
-            for (Object entry : commands) {
-                if (entry instanceof Map<?, ?> c && isSidebandHook(String.valueOf(c.get("command")), registration.subcommand())) {
-                    if (command.equals(c.get("command"))) {
-                        return "unchanged";
-                    }
-                    ((Map<String, Object>) c).put("command", command);
+            boolean placed = Objects.equals(registration.matcher(), group.get("matcher"));
+            for (Iterator<?> entries = handlers.iterator(); entries.hasNext(); ) {
+                if (!(entries.next() instanceof Map<?, ?> handler)
+                        || !isSidebandHook(String.valueOf(handler.get("command")), registration.subcommand())) {
+                    continue;
+                }
+                if (!placed) {
+                    entries.remove();
+                    state = "updated";
+                } else if (command.equals(handler.get("command"))) {
+                    return "unchanged";
+                } else {
+                    ((Map<String, Object>) handler).put("command", command);
                     state = "updated";
                 }
             }
-        }
-        if (state.equals("added")) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("type", "command");
-            entry.put("command", command);
-            Map<String, Object> matcher = new LinkedHashMap<>();
-            if (registration.matcher() != null) {
-                matcher.put("matcher", registration.matcher());
+            if (handlers.isEmpty()) {
+                groups.remove();
             }
-            matcher.put("hooks", List.of(entry));
-            event.add(matcher);
+        }
+        if (!placed(event, registration, command)) {
+            Map<String, Object> handler = new LinkedHashMap<>();
+            handler.put("type", "command");
+            handler.put("command", command);
+            Map<String, Object> group = new LinkedHashMap<>();
+            if (registration.matcher() != null) {
+                group.put("matcher", registration.matcher());
+            }
+            group.put("hooks", new ArrayList<>(List.of(handler)));
+            event.add(group);
         }
         return state;
+    }
+
+    /** Whether the event holds this exact command under the registration's matcher. */
+    private static boolean placed(List<?> event, Registration registration, String command) {
+        for (Object candidate : event) {
+            if (candidate instanceof Map<?, ?> group && Objects.equals(registration.matcher(), group.get("matcher"))
+                    && group.get("hooks") instanceof List<?> handlers) {
+                for (Object handler : handlers) {
+                    if (handler instanceof Map<?, ?> h && command.equals(h.get("command"))) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     private String registrationCommand(Registration registration, Role client) {
@@ -366,11 +395,13 @@ class ResourceInstaller implements Installer {
             if (!Files.exists(settings)) {
                 return "missing";
             }
-            String text = Files.readString(settings, UTF_8);
-            if (REGISTRATIONS.stream().allMatch(r -> text.contains(PrettyJson.quote(registrationCommand(r, client))))) {
+            Object hooks = readSettings(settings).get("hooks");
+            boolean installed = hooks instanceof Map<?, ?> events && REGISTRATIONS.stream().allMatch(r ->
+                    events.get(r.event()) instanceof List<?> event && placed(event, r, registrationCommand(r, client)));
+            if (installed) {
                 return "installed";
             }
-            return text.contains("sideband") ? "stale" : "missing";
+            return Files.readString(settings, UTF_8).contains("sideband") ? "stale" : "missing";
         } catch (IOException e) {
             return "unreadable";
         }
