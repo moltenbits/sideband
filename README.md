@@ -127,7 +127,14 @@ entries with `sideband pending`. Nothing is configured for this beyond your
 settings, and changing them takes effect the next time `/sideband` runs.
 
 Codex has no such registry. It records its thread id when it joins, and the
-writer pushes the envelope into that thread with `codex queue`.
+writer pushes the envelope into that thread with `codex queue`. That address
+follows you: `/clear` in Codex starts a new thread and leaves the old one
+loaded, where a queued envelope would run unseen, so a session-start hook
+moves the role to the new thread the moment you clear, and the prompt hook
+does the same whenever a prompt you type comes from a thread other than the
+recorded one. Only your own input moves it; a delivered envelope never does.
+The same hooks run in Claude Code, where the socket is found by process and
+the move is only bookkeeping.
 
 Every envelope and every `pending` report begin with an `intent` field that
 says only "Sideband delivery; use the Sideband skill (/sideband) for handling
@@ -185,9 +192,13 @@ sideband doctor       # paths, versions, discussion health, sessions, skill link
 ```
 
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers the `sideband hook prompt` command in the repository's
-`.claude/settings.json` and `.codex/hooks.json`, each naming its client with
-`--agent claude` or `--agent codex`. Rerunning it is safe.
+and registers two commands in the repository's `.claude/settings.json` and
+`.codex/hooks.json`, each naming its client with `--agent claude` or
+`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
+`sideband hook session-start` under `SessionStart` with the matcher `clear`.
+Rerunning it is safe, and `doctor` reports a registration that is missing
+either command, or has the session-start command under another matcher, as
+stale.
 
 One setting is yours to make, and without it Claude falls back to listening.
 A pushed envelope reaches Claude Code from a process that is not the
@@ -201,15 +212,24 @@ write it; `doctor` reports whether pushes will be delivered, held, or refused,
 names the file that decided, and says where accept must go. Managed settings
 and `--settings`, which it cannot read, take the place of your user file as
 the base; a repository's tightening still applies over them.
-In Codex, review and trust the new hook through `/hooks`; a registered command
-is not necessarily enabled or trusted by the host. The hook is the only thing
-that records prompts: when it cannot, it tells the model to tell you, and no
-client records a prompt on its behalf. The registration names the client
-because both hosts send the same payload and Codex gives hook shells no
-environment markers. Nothing else about the caller matters: a prompt is
-recorded for its client's role whenever that role has joined here, whichever
-conversation or process is running the hook, so restarting a client or
-clearing its context needs nothing.
+In Codex, review and trust the hooks through `/hooks`, and do it again after
+any `init` that changes `.codex/hooks.json`. Codex ties trust to each
+definition's hash, marks a changed or added definition as needing review,
+and silently skips it until you trust it: nothing is recorded, nothing
+moves, and `doctor` cannot see the difference. After trusting, type one
+prompt so the prompt hook runs and the role's address catches up. Claude Code
+needs nothing beyond the `crossSessionInbound` setting above.
+
+The hook is the only thing that records prompts: when it cannot, it tells
+the model to tell you, and no client records a prompt on its behalf. The
+registration names the client because both hosts send the same payload and
+Codex gives hook shells no environment markers. Nothing else about the
+caller matters: a prompt is recorded for its client's role whenever that
+role has joined here, whichever conversation or process is running the hook,
+so restarting a client needs nothing. Clearing a context is handled by the
+hooks described above: the role follows you into the new conversation, and
+that conversation opens with a note saying Sideband is live there and how
+many entries addressed to it need attention, acknowledged ones included.
 
 ## Use
 
