@@ -9,6 +9,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook session-start --agent codex"
+          }
+        ]
+      }
     ]
   }
 }

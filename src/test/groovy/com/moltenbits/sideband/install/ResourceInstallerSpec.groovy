@@ -108,6 +108,12 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
 
+        and: "a clear moves the role to the new conversation, so the session-start hook is registered for that source only"
+        settings.contains('"SessionStart": [')
+        settings.contains('"matcher": "clear"')
+        settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"')
+        settings.count("hook session-start") == 1
+
         and: "the repository file is not given crossSessionInbound: a repository can only tighten it, and the report says where accept must go"
         report.inbound().name() == "claude-inbound"
         report.inbound().state() == "missing"
@@ -119,6 +125,8 @@ class ResourceInstallerSpec extends Specification {
         and: "the Codex registration is the same command naming codex, so a hook shell without markers still knows its client"
         String codexHooks = Files.readString(project.resolve(".codex/hooks.json"))
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
+        codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"')
+        codexHooks.contains('"matcher": "clear"')
         !codexHooks.contains("crossSessionInbound")
     }
 
@@ -189,6 +197,7 @@ class ResourceInstallerSpec extends Specification {
         then:
         first == second
         second.count("hook prompt") == 1
+        second.count("hook session-start") == 1
         second.contains('"command": "\\\"/opt/sideband/bin/sideband\\\" hook prompt --agent codex"')
         second.contains("echo sideband audit")
         second.contains("echo done")
@@ -252,9 +261,114 @@ class ResourceInstallerSpec extends Specification {
         then:
         Files.readString(hooksFile) == first
         first.count("hook prompt") == 1
+        first.count("hook session-start") == 1
         first.contains("hook prompt --agent codex")
         !first.contains("/old/")
         again.codexHook().state() == "unchanged"
+        installer.inspect(home, project).codexHook().state() == "installed"
+    }
+
+    void "a session-start registration under any matcher but clear never fires on a clear, so it is stale, and init moves it beside the other handlers"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo started"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]},{"hooks":[{"type":"command","command":"\\"/old/sideband\\" hook session-start --agent codex"}]}]}}''')
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String text = Files.readString(hooksFile)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(text, Map)
+        List starts = parsed.hooks.SessionStart
+
+        then:
+        report.codexHook().state() == "updated"
+        text.count("hook session-start") == 1
+        text.count("hook prompt") == 1
+        starts*.matcher == ["startup", "clear"]
+        starts[0].hooks*.command == ["echo started"]
+        starts[1].hooks*.command == ['"/opt/sideband/bin/sideband" hook session-start --agent codex']
+        installer.inspect(home, project).codexHook().state() == "installed"
+        installer.install(home, project).codexHook().state() == "unchanged"
+    }
+
+    void "a correct session-start handler beside a stray copy is stale in either order, and init removes the copy for good"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        String correct = '{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}'
+        String stray = strayMatcher == null
+                ? '{"hooks":[{"type":"command","command":"echo keep"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}'
+                : '{"matcher":"' + strayMatcher + '","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}'
+        List groups = correctFirst ? [correct, stray] : [stray, correct]
+        Files.writeString(hooksFile, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[' + groups.join(",") + "]}}")
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String text = Files.readString(hooksFile)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(text, Map)
+        List starts = parsed.hooks.SessionStart
+
+        then:
+        report.codexHook().state() == "updated"
+        text.count("hook session-start") == 1
+        starts.find { it.matcher == "clear" }.hooks*.command == ['"/opt/sideband/bin/sideband" hook session-start --agent codex']
+        starts.findAll { it.matcher != "clear" }*.hooks*.command.flatten() == (strayMatcher == null ? ["echo keep"] : [])
+        installer.inspect(home, project).codexHook().state() == "installed"
+        installer.install(home, project).codexHook().state() == "unchanged"
+        Files.readString(hooksFile) == text
+
+        where:
+        correctFirst | strayMatcher
+        true         | "startup"
+        false        | "startup"
+        true         | null
+        false        | null
+    }
+
+    void "a duplicate handler inside the clear group itself is also reduced to one"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/old/sideband\\" hook session-start --agent codex"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}]}}')
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String text = Files.readString(hooksFile)
+
+        then:
+        report.codexHook().state() == "updated"
+        text.count("hook session-start") == 1
+        !text.contains("/old/")
+        installer.inspect(home, project).codexHook().state() == "installed"
+    }
+
+    void "a registration from before the session-start hook is stale until init adds it"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}]}}''')
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        String text = Files.readString(hooksFile)
+
+        then:
+        report.codexHook().state() == "added"
+        text.count("hook prompt") == 1
+        text.count("hook session-start") == 1
+        text.contains('"SessionStart": [\n      {\n        "matcher": "clear"')
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
@@ -341,6 +455,8 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         !settings.contains("CLAUDE_PROJECT_DIR")
         settings.count("hook prompt") == 1
+        settings.count("hook session-start") == 1
+        settings.contains('"command": "echo pre"')
     }
 
     void "a settings file that is not JSON is refused rather than clobbered"() {

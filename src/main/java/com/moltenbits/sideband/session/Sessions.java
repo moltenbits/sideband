@@ -33,4 +33,13 @@ public interface Sessions {
 
     /** Records that everything ending at or before {@code offset} has been shown to the role. Never moves back. */
     Session advance(Path stateDirectory, Role role, long offset);
+
+    /**
+     * Moves the role to another host session without rejoining: the address changes, the
+     * watermark, bookmark and everything else stay. This is how the record follows the
+     * operator when the client starts a new conversation in place, as a clear does, since
+     * the old conversation may live on and pushes addressed to it would run there unseen.
+     * Empty when the role has not joined; nothing is written when the address is unchanged.
+     */
+    Optional<Session> relocate(Path stateDirectory, Role role, String sessionId);
 }

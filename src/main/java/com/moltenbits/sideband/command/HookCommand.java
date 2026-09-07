@@ -9,6 +9,7 @@ import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
@@ -21,10 +22,12 @@ import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -32,8 +35,146 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /** Entry points a client host calls directly, never a person. */
 @Command(name = "hook", description = "Entry points for client hooks", mixinStandardHelpOptions = true,
-        subcommands = HookCommand.Prompt.class)
+        subcommands = {HookCommand.Prompt.class, HookCommand.SessionStart.class})
 public class HookCommand {
+
+    /**
+     * The repository's state directory for the working directory a hook payload names, or
+     * empty when that path is not even a path. A repository without Sideband is a directory
+     * that does not exist, which callers treat as nothing to do.
+     */
+    static Optional<Path> stateDirectory(SidebandHome home, @Nullable String cwd) {
+        try {
+            return Optional.of(home.locate(cwd == null ? Path.of(System.getProperty("user.dir")) : Path.of(cwd)));
+        } catch (InvalidPathException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Moves the joined role to the conversation the operator is looking at. A client that
+     * starts a new conversation in place, as a clear does, may keep the old one alive, and
+     * a push addressed to it would run there unseen; so whenever the operator's own input
+     * arrives from a conversation other than the recorded one, the record follows. Only the
+     * operator's input counts: a delivered envelope or a host notice says nothing about
+     * where the operator is, and the callers never pass those here.
+     */
+    static void follow(Sessions sessions, PrintWriter err, Path stateDirectory, Role role, Session current, @Nullable String sessionId) {
+        if (sessionId == null || sessionId.isBlank() || sessionId.equals(current.id())) {
+            return;
+        }
+        sessions.relocate(stateDirectory, role, sessionId);
+        err.println("sideband hook: " + role.id() + " now delivers to " + sessionId);
+    }
+
+    @Serdeable(naming = SnakeCaseStrategy.class)
+    record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String hookEventName,
+                   @Nullable String sessionId, @Nullable String source) {
+    }
+
+    @Serdeable
+    record Response(HookOutput hookSpecificOutput) {
+    }
+
+    @Serdeable
+    record HookOutput(String hookEventName, String additionalContext) {
+    }
+
+    /**
+     * Both clients' {@code SessionStart} hook, registered for the {@code clear} source only.
+     * A clear replaces the conversation on screen with a new one before any prompt is
+     * typed, so the prompt hook cannot move the role until the operator speaks; this hook
+     * moves it at once and tells the new conversation that Sideband is live in it. Every
+     * other source keeps the conversation the role is in, or is a new client whose first
+     * prompt will claim the role through the prompt hook. Never blocks the host: any problem
+     * goes to stderr and the exit code is always 0.
+     */
+    @Command(name = "session-start", description = "Claude Code/Codex SessionStart hook: after a clear, move the joined role to the new conversation", mixinStandardHelpOptions = true)
+    @Prototype
+    public static class SessionStart implements Callable<Integer> {
+
+        static final String EVENT = "SessionStart";
+        static final String SOURCE = "clear";
+
+        @Spec
+        CommandSpec spec;
+
+        @Option(names = "--agent", description = "The client whose hook this is, claude or codex; init registers it, and it wins over the shell markers")
+        Role agent;
+
+        private final SidebandHome home;
+        private final HostEnvironment host;
+        private final Sessions sessions;
+        private final Pending pending;
+        private final ObjectMapper json;
+
+        SessionStart(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
+            this.home = home;
+            this.host = host;
+            this.sessions = sessions;
+            this.pending = pending;
+            this.json = json;
+        }
+
+        @Override
+        public Integer call() {
+            try {
+                return followClear();
+            } catch (IOException | RuntimeException e) {
+                spec.commandLine().getErr().println("sideband hook: session start ignored: " + e.getMessage());
+                return ExitCode.OK;
+            }
+        }
+
+        private int followClear() throws IOException {
+            Payload payload;
+            try {
+                payload = json.readValue(new String(System.in.readAllBytes(), UTF_8), Payload.class);
+            } catch (IOException e) {
+                return skipped("unreadable payload: " + e.getMessage());
+            }
+            if (payload == null || (payload.hookEventName() != null && !payload.hookEventName().equals(EVENT))) {
+                return ExitCode.OK;
+            }
+            if (!SOURCE.equals(payload.source())) {
+                return skipped("source " + payload.source() + " keeps the conversation the role is in");
+            }
+            if (payload.sessionId() == null || payload.sessionId().isBlank()) {
+                return skipped("no session id in the hook payload");
+            }
+            Optional<Path> stateDirectory = stateDirectory(home, payload.cwd());
+            if (stateDirectory.isEmpty()) {
+                return skipped("invalid working directory in the hook payload");
+            }
+            if (!Files.isDirectory(stateDirectory.get())) {
+                return ExitCode.OK;
+            }
+            Role role = agent != null ? agent : host.role().orElse(null);
+            if (role == null) {
+                return skipped("cannot tell which client this is; register the hook with --agent claude or --agent codex");
+            }
+            Optional<Session> current = sessions.load(stateDirectory.get(), role);
+            if (current.isEmpty()) {
+                return skipped("Sideband is not joined as " + role.id());
+            }
+            follow(sessions, spec.commandLine().getErr(), stateDirectory.get(), role, current.get(), payload.sessionId());
+            // The new conversation remembers nothing, so an acknowledged request counts as
+            // much as an open one: only the memory of taking it up was lost.
+            int waiting = pending.report(stateDirectory.get(), role).unfinished();
+            String invocation = role == Role.CLAUDE ? "/sideband" : "$sideband";
+            String context = "Sideband is joined as " + role.displayName() + " in this repository and delivers to this conversation"
+                    + (waiting == 0 ? "" : "; " + waiting + (waiting == 1 ? " entry" : " entries") + " addressed to "
+                    + role.displayName() + " " + (waiting == 1 ? "is" : "are") + " waiting")
+                    + ". " + invocation + " has the handling instructions.";
+            Output.print(spec, json, new Response(new HookOutput(EVENT, context)));
+            return ExitCode.OK;
+        }
+
+        private int skipped(String reason) {
+            spec.commandLine().getErr().println("sideband hook: session start ignored: " + reason);
+            return ExitCode.OK;
+        }
+    }
 
     /**
      * Both clients' {@code UserPromptSubmit} hook. Reads the hook payload on stdin and journals
@@ -104,20 +245,20 @@ public class HookCommand {
             }
             String prompt = payload.prompt() == null ? "" : payload.prompt();
             String trimmed = prompt.stripLeading();
+            if (trimmed.startsWith(Handoffs.ENVELOPE_MARKER) || isPushedEnvelope(trimmed) || isHostNotification(trimmed)) {
+                return ExitCode.OK; // the executable or the host speaking: never the operator, and not where the operator is
+            }
             String message = skillMessage(trimmed);
+            boolean capturable = message != null
+                    || !(isSkillCommand(trimmed) || trimmed.isBlank() || trimmed.startsWith("/") || trimmed.startsWith("!"));
             if (message != null) {
                 prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
-            } else if (isSkillCommand(trimmed) || trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER)
-                    || isPushedEnvelope(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("!") || isHostNotification(trimmed)) {
-                return ExitCode.OK;
             }
-            Path stateDirectory;
-            try {
-                Path cwd = payload.cwd() == null ? Path.of(System.getProperty("user.dir")) : Path.of(payload.cwd());
-                stateDirectory = home.locate(cwd);
-            } catch (InvalidPathException e) {
+            Optional<Path> located = stateDirectory(home, payload.cwd());
+            if (located.isEmpty()) {
                 return skipped("invalid working directory in the hook payload");
             }
+            Path stateDirectory = located.get();
             if (!Files.isDirectory(stateDirectory)) {
                 return ExitCode.OK;
             }
@@ -126,11 +267,21 @@ public class HookCommand {
             // is calling does not matter: the prompt belongs to whoever holds the role here.
             Role role = agent != null ? agent : host.role().orElse(null);
             if (role == null) {
+                if (!capturable) {
+                    return ExitCode.OK;
+                }
                 String reason = "cannot tell which client this is; register the hook with --agent claude or --agent codex";
                 return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
             }
-            if (!isActive(stateDirectory, role)) {
-                return inactive(stateDirectory, role);
+            Optional<Session> current = sessions.load(stateDirectory, role);
+            if (current.isEmpty()) {
+                return capturable ? inactive(stateDirectory, role) : ExitCode.OK;
+            }
+            // The operator typed this, so this is the conversation the operator is looking at:
+            // even a prompt that is not recorded moves the role there.
+            follow(sessions, spec.commandLine().getErr(), stateDirectory, role, current.get(), payload.sessionId());
+            if (!capturable) {
+                return ExitCode.OK;
             }
             Captured captured = capture.capture(stateDirectory, role, prompt);
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
@@ -230,12 +381,8 @@ public class HookCommand {
                     + " waiting. Tell the user; " + invocation + " joins and reviews them.");
         }
 
-        private boolean isActive(Path stateDirectory, Role role) {
-            return sessions.load(stateDirectory, role).isPresent();
-        }
-
         private boolean anyActive(Path stateDirectory) {
-            return Arrays.stream(Role.values()).anyMatch(role -> isActive(stateDirectory, role));
+            return Arrays.stream(Role.values()).anyMatch(role -> sessions.load(stateDirectory, role).isPresent());
         }
 
         private static String note(Captured captured) {
@@ -248,18 +395,6 @@ public class HookCommand {
                     ? "Sideband recorded this prompt as " + id + ". Do not capture it again; cite it as --caused-by when delegating."
                     : "Sideband recorded this prompt as " + id + " and delivered it: " + delivered
                     + ". Do not capture or route it again; cite it as --caused-by when delegating.";
-        }
-
-        @Serdeable(naming = SnakeCaseStrategy.class)
-        record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String hookEventName) {
-        }
-
-        @Serdeable
-        record Response(HookOutput hookSpecificOutput) {
-        }
-
-        @Serdeable
-        record HookOutput(String hookEventName, String additionalContext) {
         }
     }
 }

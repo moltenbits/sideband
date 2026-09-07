@@ -29,4 +29,13 @@ public record PendingReport(
     public int waiting() {
         return open.size() + updates.size();
     }
+
+    /**
+     * Everything the role still has to act on, counting the requests it acknowledged and
+     * has not yet answered as well: what a conversation that lost its context, as after a
+     * clear, must be told about, since only its memory of the ack was lost.
+     */
+    public int unfinished() {
+        return waiting() + inProgress.size();
+    }
 }

@@ -249,12 +249,47 @@ shells none of the environment markers other commands rely on
 Claude Code), so the registration names the client; the markers remain the
 fallback when the flag is absent. Nothing else about the caller is examined:
 the prompt belongs to whichever conversation holds the role, so a restarted
-or cleared client captures without rejoining and no record is touched. A
+or cleared client captures without rejoining. The record does follow the
+operator, though: a prompt the operator typed comes from the conversation
+the operator is looking at, so when its session identifier differs from the
+one recorded, the hook moves the role's address there and keeps everything
+else (9.5). A delivered envelope or a host notice says nothing about where
+the operator is and never moves anything. A
 hook that cannot tell its client skips capture with a diagnostic. It then
 reads the payload, journals the prompt as a request from the human through
 that client, and answers in that client's response format. `sideband init` writes each registration, so
 the installed hooks differ only in the client they name and updating the
-executable updates both. Registration for a client is added only once that client's hook
+executable updates both. A second entry point, `sideband hook session-start`,
+is registered under each client's `SessionStart` event with the matcher
+`clear`: a clear replaces the conversation on screen with a new one before
+any prompt is typed, and the old conversation may live on inside the client,
+where a push addressed to it would run unseen. The session-start hook moves
+the joined role to the new conversation when the host runs it and tells it,
+through the context field, that Sideband is live there and how many entries addressed
+to it need attention, counting requests it acknowledged and has not yet
+answered, since the ack is the one thing the new conversation has forgotten.
+`init` places the handler under the `clear` matcher and moves one it finds
+under any other matcher, where it would never fire; `doctor` reports a
+handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
+record alone: they keep the conversation the role is in, or are a new client
+whose first prompt claims the role through the prompt hook.
+
+The hooks cannot close the window between a clear and the first prompt in
+Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new
+thread at the clear but runs the session-start hook, with source `clear`,
+only when the first prompt is submitted there, in the same instant as the
+prompt hook; nothing runs in between, and in the tested Codex 0.153.4 TUI
+setup Sideband has no supported way to identify the displayed thread during
+that window. An entry pushed in that window is queued into the old thread,
+which handles it and records its reply in the discussion without it
+appearing in the new conversation. The accepted behavior is therefore:
+after `/clear` in Codex, the operator types one prompt before expecting
+delivery, and the README says so. Resolving the on-screen thread from
+Codex's thread-writer lock files was rejected on Codex's 0.153.4 probes:
+resuming an already-loaded thread preserved its lock time, a durable fork
+acquired another lock, an ephemeral thread start acquired none, and a
+SIGKILL left a stale lock file; side-conversation and subagent lock
+behavior was not tested. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
@@ -547,7 +582,10 @@ host's session identifier (for Codex the thread id, which pushes address),
 when it joined, the journal size at that moment (its watermark), and its read
 position, the bookmark. Whoever joins as a role last holds it: `join` replaces
 any earlier record, and no command compares the calling conversation or
-process against the record. One client per role per repository is the
+process against the record. The address alone also follows the operator
+without a join: when the operator's own input reaches a hook from a
+conversation other than the recorded one, as after a clear, the record's
+identifier changes and its watermark and bookmark stay (7.1). One client per role per repository is the
 operator's convention, not something the executable polices. `join`
 starts the bookmark at the latest point; `join --resume` keeps the previous
 one (or the start of the journal for a role that never had one), so
@@ -1500,6 +1538,39 @@ hook verification record was retired with the spike documents
 (`git show '1e46b91:docs/codex-prompt-hook.md'`). Registration on disk
 alone still does not establish live capture.
 
+Update (2026-09-07): a live status exchange after James cleared his Codex
+conversation showed the gap the address fix in 7.1 closes. Codex's `/clear`
+started a new thread inside the same process (its logs recorded the
+thread-start request) while the old thread stayed loaded; Sideband's record
+still named the old thread, so `codex queue` woke it, and it acknowledged
+and answered off screen, in a conversation James could no longer see. The
+session-start registration rests on the official
+[Codex SessionStart contract](https://learn.chatgpt.com/docs/hooks#sessionstart)
+(`session_id`, `cwd`, `source` of `startup`, `resume`, `clear` or `compact`;
+matcher on `source`; `hookSpecificOutput.additionalContext` on stdout) and on
+the installed Claude Code 2.1.263, whose binary declares the same event with
+sources `startup`, `resume`, `clear`, `compact` and `fork`, matches the
+matcher against `source`, and reads `additionalContext` from the same output
+shape. Codex must trust the new registration through `/hooks` before it runs.
+
+Live clear in Codex (2026-09-07, with a logging shim in front of the
+executable): `/clear` created the new thread and its writer lock at once
+and ran no hook; the first prompt in the new thread ran the session-start
+hook (source `clear`, new thread id, transcript path) and the prompt hook
+in the same instant, and the record moved. Two entries pushed between the
+clear and that prompt were queued into the old thread and answered there.
+Three separate findings support the accepted window. From the installed
+binary's generated app-server protocol, Codex found no request or
+notification that names a client's displayed thread, though `thread/started`
+does fire before any prompt and `thread/loaded/list` works on an accessible
+app server. From the CLI help, `codex queue` accepts only a thread id or
+exact session name. From Claude's runtime observation of this session, the
+running TUI's in-process server exposed no attachable socket; that is an
+observation of this setup, not a claim about every TUI. Codex also measured
+the lock-file behavior recorded in section 7.1. Codex trusts hooks per
+definition hash; after `init` rewrote `.codex/hooks.json`, no Sideband hook
+ran in Codex until James re-trusted them through `/hooks`.
+
 Neither is a release blocker for the Claude Code path.
 
 The choices retained in section 15 are open design decisions, but none is a
@@ -1536,6 +1607,7 @@ sideband pending --wait [--timeout <s>]            # block until something new, 
 sideband pending --wait --stream                   # the listener: one report per batch, forever; never advances
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
+sideband hook session-start                        # both clients' SessionStart hook for a clear: move the role to the new conversation
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```
 
@@ -1550,8 +1622,10 @@ pushed, never wake a listener, and are never listed (9.8); a waited `pending`
 report never advances the bookmark and a plain one advances only after the
 report was written (9.5); `hook prompt` reports every capture outcome in the
 host's context field and names the recorded entry so a delegation can cite it
-(7.1); `skill --eject` refuses to overwrite an ejected skill unless forced
-(10.1).
+(7.1); `hook prompt` and `hook session-start` move a joined role's address to
+the conversation the operator's own input came from, never on a delivered
+envelope or a host notice (7.1, 9.5); `skill --eject` refuses to overwrite an
+ejected skill unless forced (10.1).
 
 ## 19. Definition of done
 

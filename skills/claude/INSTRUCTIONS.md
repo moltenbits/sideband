@@ -113,8 +113,12 @@ asks of you: "could not confirm recording this prompt" means recording did
 not complete, and the prompt may or may not be in the discussion; "recorded
 this prompt as <id> but could not deliver it" means it is, but the push to
 its recipient failed; "not active in this session and N entries
-are waiting" means offer `/sideband`. Never record a prompt yourself; the
-hook records prompts, and reporting a failure is the whole recovery.
+are waiting" means offer `/sideband`; "joined as Claude in this repository
+and delivers to this conversation" is the session-start hook after a clear,
+saying the role followed you here, and needs nothing unless it counts
+waiting entries, in which case run `sideband pending`. Never record a prompt
+yourself; the hook records prompts, and reporting a failure is the whole
+recovery.
 
 ## When a listener notification arrives
 

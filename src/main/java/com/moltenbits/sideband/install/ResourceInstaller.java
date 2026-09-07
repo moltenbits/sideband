@@ -14,9 +14,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -30,6 +32,17 @@ class ResourceInstaller implements Installer {
             "claude", ".claude/skills/sideband",
             "codex", ".agents/skills/sideband");
     static final String HOOK_EVENT = "UserPromptSubmit";
+    /**
+     * Each registration a client needs: the host event, the {@code hook} subcommand, and the
+     * matcher, which for a session start names the source. Only a clear is matched: it is
+     * the one event that replaces the operator's conversation while the old one may live on.
+     */
+    private record Registration(String event, String subcommand, @Nullable String matcher) {
+    }
+
+    private static final List<Registration> REGISTRATIONS = List.of(
+            new Registration(HOOK_EVENT, "prompt", null),
+            new Registration("SessionStart", "session-start", "clear"));
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
     /** Marks a SKILL.md the operator ejected; the installer never overwrites one. */
@@ -46,6 +59,7 @@ class ResourceInstaller implements Installer {
     private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
 
     private final ObjectMapper json;
+    /** {@code "<executable>" hook}: every registration is this plus a subcommand and the client. */
     private final String hookCommand;
 
     @Inject
@@ -55,7 +69,7 @@ class ResourceInstaller implements Installer {
 
     ResourceInstaller(ObjectMapper json, String executable) {
         this.json = json;
-        this.hookCommand = "\"" + executable + "\" hook prompt";
+        this.hookCommand = "\"" + executable + "\" hook";
     }
 
     /** The absolute path of the running executable, so the hook works whatever PATH the hook shell has. */
@@ -192,44 +206,24 @@ class ResourceInstaller implements Installer {
         }
     }
 
-    @SuppressWarnings("unchecked")
     /**
-     * Registers {@code hook prompt --agent <client>}: both clients send the same payload and
-     * Codex gives hook shells no environment markers, so the registration itself names the
-     * caller. An older registration, bare or naming the other client, is rewritten.
+     * Registers every {@code hook <subcommand> --agent <client>} the client needs: both
+     * clients send the same payloads and Codex gives hook shells no environment markers, so
+     * the registration itself names the caller. An older registration, bare or naming the
+     * other client, is rewritten; a missing event is added beside whatever the file holds.
      */
     private InstallReport.Item installHook(Path settings, String name, Role client) {
-        String registration = hookCommand + " --agent " + client.id();
         try {
             Map<String, Object> root = readSettings(settings);
-            Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
-            List<Object> event = (List<Object>) hooks.computeIfAbsent(HOOK_EVENT, k -> new ArrayList<>());
-            String state = "added";
-            for (Object matcher : event) {
-                if (!(matcher instanceof Map<?, ?> m)) {
-                    continue;
-                }
-                Object inner = m.get("hooks");
-                if (!(inner instanceof List<?> commands)) {
-                    continue;
-                }
-                for (Object command : commands) {
-                    if (command instanceof Map<?, ?> c && isSidebandHook(String.valueOf(c.get("command")))) {
-                        if (registration.equals(c.get("command"))) {
-                            return new InstallReport.Item(name, settings.toString(), "unchanged");
-                        }
-                        ((Map<String, Object>) c).put("command", registration);
-                        state = "updated";
-                    }
+            String state = "unchanged";
+            for (Registration registration : REGISTRATIONS) {
+                String outcome = register(root, registration, client);
+                if (!outcome.equals("unchanged")) {
+                    state = state.equals("unchanged") || outcome.equals("updated") ? outcome : state;
                 }
             }
-            if (state.equals("added")) {
-                Map<String, Object> command = new LinkedHashMap<>();
-                command.put("type", "command");
-                command.put("command", registration);
-                Map<String, Object> matcher = new LinkedHashMap<>();
-                matcher.put("hooks", List.of(command));
-                event.add(matcher);
+            if (state.equals("unchanged")) {
+                return new InstallReport.Item(name, settings.toString(), state);
             }
             Files.createDirectories(settings.getParent());
             Files.writeString(settings, PrettyJson.render(root) + "\n", UTF_8);
@@ -237,6 +231,91 @@ class ResourceInstaller implements Installer {
         } catch (IOException e) {
             throw new UncheckedIOException("could not update " + settings, e);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    /**
+     * A Sideband handler counts only inside a group whose matcher is the registration's:
+     * the host matches a session start's source against it, so a handler under any other
+     * matcher never fires on a clear. The whole event is scanned: exactly one handler is
+     * kept, under the right matcher, with the current command; any other copy, misplaced
+     * or duplicated, is removed, and a group left empty by that is dropped. Handlers that
+     * are not Sideband's stay where they are.
+     */
+    private String register(Map<String, Object> root, Registration registration, Role client) {
+        String command = registrationCommand(registration, client);
+        Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
+        List<Object> event = (List<Object>) hooks.computeIfAbsent(registration.event(), k -> new ArrayList<>());
+        boolean changed = false;
+        boolean kept = false;
+        for (Iterator<Object> groups = event.iterator(); groups.hasNext(); ) {
+            if (!(groups.next() instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
+                continue;
+            }
+            boolean placed = Objects.equals(registration.matcher(), group.get("matcher"));
+            for (Iterator<?> entries = handlers.iterator(); entries.hasNext(); ) {
+                if (!(entries.next() instanceof Map<?, ?> handler)
+                        || !isSidebandHook(String.valueOf(handler.get("command")), registration.subcommand())) {
+                    continue;
+                }
+                if (!placed || kept) {
+                    entries.remove();
+                    changed = true;
+                } else {
+                    kept = true;
+                    if (!command.equals(handler.get("command"))) {
+                        ((Map<String, Object>) handler).put("command", command);
+                        changed = true;
+                    }
+                }
+            }
+            if (handlers.isEmpty()) {
+                groups.remove();
+            }
+        }
+        if (kept) {
+            return changed ? "updated" : "unchanged";
+        }
+        Map<String, Object> handler = new LinkedHashMap<>();
+        handler.put("type", "command");
+        handler.put("command", command);
+        Map<String, Object> group = new LinkedHashMap<>();
+        if (registration.matcher() != null) {
+            group.put("matcher", registration.matcher());
+        }
+        group.put("hooks", new ArrayList<>(List.of(handler)));
+        event.add(group);
+        return changed ? "updated" : "added";
+    }
+
+    /**
+     * Whether the event holds this registration exactly as {@code register} would leave it:
+     * one Sideband handler for the subcommand, under the registration's matcher, with the
+     * current command. A stray copy anywhere else would run beside it or never run at all.
+     */
+    private boolean placed(List<?> event, Registration registration, String command) {
+        int current = 0;
+        int others = 0;
+        for (Object candidate : event) {
+            if (!(candidate instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
+                continue;
+            }
+            boolean matcher = Objects.equals(registration.matcher(), group.get("matcher"));
+            for (Object handler : handlers) {
+                if (handler instanceof Map<?, ?> h && isSidebandHook(String.valueOf(h.get("command")), registration.subcommand())) {
+                    if (matcher && command.equals(h.get("command"))) {
+                        current++;
+                    } else {
+                        others++;
+                    }
+                }
+            }
+        }
+        return current == 1 && others == 0;
+    }
+
+    private String registrationCommand(Registration registration, Role client) {
+        return hookCommand + " " + registration.subcommand() + " --agent " + client.id();
     }
 
     /**
@@ -318,11 +397,13 @@ class ResourceInstaller implements Installer {
         }
     }
 
-    private boolean isSidebandHook(String command) {
+    /** A registration of this subcommand by any Sideband executable, past or present, whichever client it names. */
+    private boolean isSidebandHook(String command, String subcommand) {
         command = AGENT_OVERRIDE.matcher(command).replaceFirst("");
-        return command.equals(hookCommand)
-                || command.matches("[\\\"']?(?:[^\\r\\n]*[/\\\\])?sideband(?:\\.exe)?[\\\"']?\\s+hook\\s+prompt")
-                || command.endsWith("/skills/claude/hooks/prompt.sh") || command.endsWith("/skills/sideband-claude/hooks/prompt.sh");
+        return command.equals(hookCommand + " " + subcommand)
+                || command.matches("[\\\"']?(?:[^\\r\\n]*[/\\\\])?sideband(?:\\.exe)?[\\\"']?\\s+hook\\s+" + Pattern.quote(subcommand))
+                || subcommand.equals("prompt") && (command.endsWith("/skills/claude/hooks/prompt.sh")
+                || command.endsWith("/skills/sideband-claude/hooks/prompt.sh"));
     }
 
     private String hookState(Path settings, Role client) {
@@ -330,11 +411,13 @@ class ResourceInstaller implements Installer {
             if (!Files.exists(settings)) {
                 return "missing";
             }
-            String text = Files.readString(settings, UTF_8);
-            if (text.contains(PrettyJson.quote(hookCommand + " --agent " + client.id()))) {
+            Object hooks = readSettings(settings).get("hooks");
+            boolean installed = hooks instanceof Map<?, ?> events && REGISTRATIONS.stream().allMatch(r ->
+                    events.get(r.event()) instanceof List<?> event && placed(event, r, registrationCommand(r, client)));
+            if (installed) {
                 return "installed";
             }
-            return text.contains("sideband") ? "stale" : "missing";
+            return Files.readString(settings, UTF_8).contains("sideband") ? "stale" : "missing";
         } catch (IOException e) {
             return "unreadable";
         }

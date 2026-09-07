@@ -84,6 +84,21 @@ class FileSessions implements Sessions {
         }
     }
 
+    @Override
+    public Optional<Session> relocate(Path stateDirectory, Role role, String sessionId) {
+        try (Lock ignored = locks.acquire(stateDirectory)) {
+            Optional<Session> existing = load(stateDirectory, role);
+            if (existing.isEmpty() || existing.get().id().equals(sessionId)) {
+                return existing;
+            }
+            Session moved = existing.get().withId(sessionId);
+            save(stateDirectory, role, moved);
+            return Optional.of(moved);
+        } catch (IOException e) {
+            throw new UncheckedIOException("could not move the " + role.id() + " session in " + stateDirectory, e);
+        }
+    }
+
     /** Write to a temporary sibling, fsync, then rename so readers never see a torn file. */
     private void save(Path stateDirectory, Role role, Session session) throws IOException {
         Path file = file(stateDirectory, role);
