@@ -108,7 +108,7 @@ public class HookCommand {
             if (message != null) {
                 prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
             } else if (isSkillCommand(trimmed) || trimmed.isBlank() || trimmed.startsWith(Handoffs.ENVELOPE_MARKER)
-                    || trimmed.startsWith("/") || trimmed.startsWith("!") || isHostNotification(trimmed)) {
+                    || isPushedEnvelope(trimmed) || trimmed.startsWith("/") || trimmed.startsWith("!") || isHostNotification(trimmed)) {
                 return ExitCode.OK;
             }
             Path stateDirectory;
@@ -149,6 +149,11 @@ public class HookCommand {
         static String skillMessage(String trimmed) {
             String rest = skillArgument(trimmed);
             return rest == null || rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+        }
+
+        /** A pushed envelope inside the tag Claude Code gives its own cross-session messages: transport, never the operator typing. */
+        static boolean isPushedEnvelope(String trimmed) {
+            return trimmed.startsWith("<cross-session-message");
         }
 
         /**

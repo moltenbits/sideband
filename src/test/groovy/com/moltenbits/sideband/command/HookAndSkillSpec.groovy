@@ -96,6 +96,7 @@ class HookAndSkillSpec extends CommandSpec {
         where:
         prompt                                                        | session | plainDirectory
         "[Sideband message]\n{...}"                                   | "s1"    | false
+        "<cross-session-message from-name=\"Codex\">\n[Sideband message]\n{...}\n</cross-session-message>" | "s1" | false
         "/sideband status"                                            | "s1"    | false
         "! sideband doctor"                                           | "s1"    | false
         "   "                                                         | "s1"    | false
