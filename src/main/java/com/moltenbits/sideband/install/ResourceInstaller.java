@@ -237,14 +237,17 @@ class ResourceInstaller implements Installer {
     /**
      * A Sideband handler counts only inside a group whose matcher is the registration's:
      * the host matches a session start's source against it, so a handler under any other
-     * matcher never fires on a clear. Such a handler is moved, and a group left empty by
-     * the move is dropped; handlers that are not Sideband's stay where they are.
+     * matcher never fires on a clear. The whole event is scanned: exactly one handler is
+     * kept, under the right matcher, with the current command; any other copy, misplaced
+     * or duplicated, is removed, and a group left empty by that is dropped. Handlers that
+     * are not Sideband's stay where they are.
      */
     private String register(Map<String, Object> root, Registration registration, Role client) {
         String command = registrationCommand(registration, client);
         Map<String, Object> hooks = (Map<String, Object>) root.computeIfAbsent("hooks", k -> new LinkedHashMap<>());
         List<Object> event = (List<Object>) hooks.computeIfAbsent(registration.event(), k -> new ArrayList<>());
-        String state = "added";
+        boolean changed = false;
+        boolean kept = false;
         for (Iterator<Object> groups = event.iterator(); groups.hasNext(); ) {
             if (!(groups.next() instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
                 continue;
@@ -255,47 +258,60 @@ class ResourceInstaller implements Installer {
                         || !isSidebandHook(String.valueOf(handler.get("command")), registration.subcommand())) {
                     continue;
                 }
-                if (!placed) {
+                if (!placed || kept) {
                     entries.remove();
-                    state = "updated";
-                } else if (command.equals(handler.get("command"))) {
-                    return "unchanged";
+                    changed = true;
                 } else {
-                    ((Map<String, Object>) handler).put("command", command);
-                    state = "updated";
+                    kept = true;
+                    if (!command.equals(handler.get("command"))) {
+                        ((Map<String, Object>) handler).put("command", command);
+                        changed = true;
+                    }
                 }
             }
             if (handlers.isEmpty()) {
                 groups.remove();
             }
         }
-        if (!placed(event, registration, command)) {
-            Map<String, Object> handler = new LinkedHashMap<>();
-            handler.put("type", "command");
-            handler.put("command", command);
-            Map<String, Object> group = new LinkedHashMap<>();
-            if (registration.matcher() != null) {
-                group.put("matcher", registration.matcher());
-            }
-            group.put("hooks", new ArrayList<>(List.of(handler)));
-            event.add(group);
+        if (kept) {
+            return changed ? "updated" : "unchanged";
         }
-        return state;
+        Map<String, Object> handler = new LinkedHashMap<>();
+        handler.put("type", "command");
+        handler.put("command", command);
+        Map<String, Object> group = new LinkedHashMap<>();
+        if (registration.matcher() != null) {
+            group.put("matcher", registration.matcher());
+        }
+        group.put("hooks", new ArrayList<>(List.of(handler)));
+        event.add(group);
+        return changed ? "updated" : "added";
     }
 
-    /** Whether the event holds this exact command under the registration's matcher. */
-    private static boolean placed(List<?> event, Registration registration, String command) {
+    /**
+     * Whether the event holds this registration exactly as {@code register} would leave it:
+     * one Sideband handler for the subcommand, under the registration's matcher, with the
+     * current command. A stray copy anywhere else would run beside it or never run at all.
+     */
+    private boolean placed(List<?> event, Registration registration, String command) {
+        int current = 0;
+        int others = 0;
         for (Object candidate : event) {
-            if (candidate instanceof Map<?, ?> group && Objects.equals(registration.matcher(), group.get("matcher"))
-                    && group.get("hooks") instanceof List<?> handlers) {
-                for (Object handler : handlers) {
-                    if (handler instanceof Map<?, ?> h && command.equals(h.get("command"))) {
-                        return true;
+            if (!(candidate instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
+                continue;
+            }
+            boolean matcher = Objects.equals(registration.matcher(), group.get("matcher"));
+            for (Object handler : handlers) {
+                if (handler instanceof Map<?, ?> h && isSidebandHook(String.valueOf(h.get("command")), registration.subcommand())) {
+                    if (matcher && command.equals(h.get("command"))) {
+                        current++;
+                    } else {
+                        others++;
                     }
                 }
             }
         }
-        return false;
+        return current == 1 && others == 0;
     }
 
     private String registrationCommand(Registration registration, Role client) {
