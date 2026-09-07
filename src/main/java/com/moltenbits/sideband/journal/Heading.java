@@ -5,15 +5,15 @@ import com.moltenbits.sideband.protocol.ParticipantId;
 
 import java.util.stream.Collectors;
 
-/** The generated Markdown heading: presentation only, never authoritative. */
-final class Heading {
+/** The Markdown heading {@code sideband log} prints for an entry: presentation only, never authoritative. */
+public final class Heading {
 
     static final String PREFIX = "## ";
 
     private Heading() {
     }
 
-    static String of(EntryMetadata metadata) {
+    public static String of(EntryMetadata metadata) {
         String recipients = metadata.to().stream()
                 .map(ParticipantId::displayName)
                 .collect(Collectors.joining(" + "));
@@ -21,7 +21,7 @@ final class Heading {
         return PREFIX + sanitize(metadata.from().displayName()) + " → " + sanitize(recipients) + via;
     }
 
-    /** Headings are single lines; control characters would break the framing. */
+    /** Headings are single lines; control characters would break them. */
     private static String sanitize(String text) {
         return text.codePoints()
                 .filter(cp -> !Character.isISOControl(cp))
