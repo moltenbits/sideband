@@ -9,12 +9,10 @@ in this repository together, and what the host clients were measured to do.
 
 - **Two agents, one working tree.** Claude Code and Codex commit to the same
   checkout and coordinate through Sideband's journal under `.git/sideband/`.
-  Ownership: Claude owns `src/**`, the build files, `skills/claude/**`, the
-  README and REQUIREMENTS.md; Codex owns `skills/codex/**` and Codex-specific
-  documentation. Never edit the other side's paths; send a request through
-  Sideband instead. Commit only your own paths with explicit `git add <paths>`,
-  never `git add -A`, because the other agent may have uncommitted work in the
-  tree.
+  Who works on what is decided by the operator for the task at hand; there is
+  no fixed division of the tree between the agents. Stage exactly the files
+  you changed with `git add <paths>`, never `git add -A`, because the other
+  agent may have uncommitted work in the tree.
 - **Codex reviews every commit.** After each commit, request a review through
   Sideband (`sideband append --to codex --type request --caused-by <id>`)
   naming the hash, what changed, and the test count. Address findings on the
