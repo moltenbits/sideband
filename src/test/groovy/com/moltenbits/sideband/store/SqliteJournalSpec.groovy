@@ -24,7 +24,7 @@ class SqliteJournalSpec extends Specification {
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
     Closure<String> ids = Fixtures.sequentialIds()
-    Journal journal = new SqliteJournal(context.getBean(Database), Fixtures.FIXED_CLOCK, ids as MessageIds)
+    Journal journal = new SqliteJournal(context.getBean(Database), context.getBean(EntryRows), Fixtures.FIXED_CLOCK, ids as MessageIds)
     Path directory = Files.createTempDirectory("journal")
     Path database = directory.resolve(Store.FILE_NAME)
 
@@ -175,7 +175,8 @@ class SqliteJournalSpec extends Specification {
         holder.autoCommit = false
         holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('claude','x','2026-09-02T16:42:00-05:00',0,0,0)")
         Duration patience = Duration.ofMillis(300)
-        Journal quick = new SqliteJournal(new Database(patience, context.getBean(NativeLibrary), context.getBean(LegacyImport)), Fixtures.FIXED_CLOCK, ids as MessageIds)
+        ApplicationContext impatient = ApplicationContext.run(["sideband.store.busy-timeout": "300ms"])
+        Journal quick = impatient.getBean(Journal)
 
         when:
         long started = System.nanoTime()
@@ -191,5 +192,6 @@ class SqliteJournalSpec extends Specification {
         cleanup:
         holder.rollback()
         holder.close()
+        impatient.close()
     }
 }

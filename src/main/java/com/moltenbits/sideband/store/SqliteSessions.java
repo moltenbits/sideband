@@ -4,8 +4,6 @@ import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
-import org.jooq.DSLContext;
-import org.jooq.Record;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -14,14 +12,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
-import static com.moltenbits.sideband.store.Schema.BOOKMARK;
-import static com.moltenbits.sideband.store.Schema.RESUMED;
-import static com.moltenbits.sideband.store.Schema.ROLE;
-import static com.moltenbits.sideband.store.Schema.SESSIONS;
-import static com.moltenbits.sideband.store.Schema.SESSION_ID;
-import static com.moltenbits.sideband.store.Schema.STARTED_AT;
-import static com.moltenbits.sideband.store.Schema.WATERMARK;
-
 /** One row per role in the {@code sessions} table, replaced in the same transaction that reads the journal's end. */
 @Singleton
 class SqliteSessions implements Sessions {
@@ -29,37 +19,41 @@ class SqliteSessions implements Sessions {
     private static final DateTimeFormatter TIMESTAMP = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
     private final Database database;
+    private final SessionRows rows;
+    private final SqliteJournal journal;
     private final Clock clock;
 
-    SqliteSessions(Database database, Clock clock) {
+    SqliteSessions(Database database, SessionRows rows, SqliteJournal journal, Clock clock) {
         this.database = database;
+        this.rows = rows;
+        this.journal = journal;
         this.clock = clock;
     }
 
     @Override
     public Optional<Session> load(Path stateDirectory, Role role) {
-        return database.read(stateDirectory, Optional.empty(), ctx -> load(ctx, role));
+        return database.read(stateDirectory, Optional.empty(), () -> load(role));
     }
 
     @Override
     public Session join(Path stateDirectory, Role role, String sessionId, boolean resume) {
-        return database.write(stateDirectory, ctx -> {
-            long end = SqliteJournal.end(ctx);
-            long offset = resume ? Math.min(load(ctx, role).map(Session::offset).orElse(0L), end) : end;
+        return database.write(stateDirectory, () -> {
+            long end = journal.end();
+            long offset = resume ? Math.min(load(role).map(Session::offset).orElse(0L), end) : end;
             Session session = new Session(sessionId, now(), end, offset, resume);
-            save(ctx, role, session);
+            save(rows, role, session);
             return session;
         });
     }
 
     @Override
     public Session advance(Path stateDirectory, Role role, long offset) {
-        return database.write(stateDirectory, ctx -> {
-            Session session = load(ctx, role).orElseThrow(
+        return database.write(stateDirectory, () -> {
+            Session session = load(role).orElseThrow(
                     () -> new IllegalStateException(role.id() + " has no session in " + stateDirectory));
             Session advanced = session.withOffset(offset);
             if (advanced.offset() != session.offset()) {
-                save(ctx, role, advanced);
+                save(rows, role, advanced);
             }
             return advanced;
         });
@@ -67,42 +61,36 @@ class SqliteSessions implements Sessions {
 
     @Override
     public Optional<Session> relocate(Path stateDirectory, Role role, String sessionId) {
-        return database.write(stateDirectory, ctx -> {
-            Optional<Session> existing = load(ctx, role);
+        return database.write(stateDirectory, () -> {
+            Optional<Session> existing = load(role);
             if (existing.isEmpty() || existing.get().id().equals(sessionId)) {
                 return existing;
             }
             Session moved = existing.get().withId(sessionId);
-            save(ctx, role, moved);
+            save(rows, role, moved);
             return Optional.of(moved);
         });
     }
 
-    static Optional<Session> load(DSLContext ctx, Role role) {
-        return ctx.select(SESSION_ID, STARTED_AT, WATERMARK, BOOKMARK, RESUMED).from(SESSIONS)
-                .where(ROLE.eq(role.id())).fetchOptional(SqliteSessions::session);
+    /** The role's record on the current connection. */
+    Optional<Session> load(Role role) {
+        return rows.findById(role.id()).map(SqliteSessions::session);
     }
 
-    static void save(DSLContext ctx, Role role, Session session) {
-        ctx.insertInto(SESSIONS)
-                .set(ROLE, role.id())
-                .set(SESSION_ID, session.id())
-                .set(STARTED_AT, TIMESTAMP.format(session.startedAt()))
-                .set(WATERMARK, session.watermark())
-                .set(BOOKMARK, session.offset())
-                .set(RESUMED, session.resumed())
-                .onConflict(ROLE).doUpdate()
-                .set(SESSION_ID, session.id())
-                .set(STARTED_AT, TIMESTAMP.format(session.startedAt()))
-                .set(WATERMARK, session.watermark())
-                .set(BOOKMARK, session.offset())
-                .set(RESUMED, session.resumed())
-                .execute();
+    /** Writes the role's record on the current connection, replacing any earlier one. */
+    static void save(SessionRows rows, Role role, Session session) {
+        SessionRow row = new SessionRow(role.id(), session.id(), TIMESTAMP.format(session.startedAt()),
+                session.watermark(), session.offset(), session.resumed());
+        if (rows.existsById(role.id())) {
+            rows.update(row);
+        } else {
+            rows.save(row);
+        }
     }
 
-    private static Session session(Record row) {
-        return new Session(row.get(SESSION_ID), OffsetDateTime.parse(row.get(STARTED_AT), TIMESTAMP),
-                row.get(WATERMARK), row.get(BOOKMARK), row.get(RESUMED));
+    private static Session session(SessionRow row) {
+        return new Session(row.sessionId(), OffsetDateTime.parse(row.startedAt(), TIMESTAMP),
+                row.watermark(), row.bookmark(), row.resumed());
     }
 
     private OffsetDateTime now() {

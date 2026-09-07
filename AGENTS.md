@@ -68,16 +68,6 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
 
 ## Build
 
-- **jOOQ's shared reachability metadata never applies here.** The GraalVM
-  metadata repository's entries for `org.jooq:jooq` are conditioned on
-  `org_jooq.jooq.JooqTest`, a class that exists only in the repository's own
-  test image, so a native build with jOOQ on the classpath fails at run time in
-  `SQLDataType.<clinit>` with a `NullPointerException` from
-  `DefaultDataType` (measured with jOOQ 3.21.6, GraalVM 25.0.4, metadata
-  repository 1.1.2). Workaround: `src/main/resources/META-INF/native-image/`
-  ships a `reflect-config.json` registering the array class of every type
-  `SQLDataType` declares; regenerate it from `javap` on `SQLDataType` when
-  jOOQ is upgraded.
 - **Changing the SQLite journal mode per connection fails under contention.**
   sqlite-jdbc applies `PRAGMA journal_mode` while opening a connection, and
   SQLite answers `SQLITE_BUSY` at once, without the busy handler, when another

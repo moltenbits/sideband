@@ -1,32 +1,36 @@
 package com.moltenbits.sideband.store;
 
+import io.micronaut.data.connection.ConnectionOperations;
+import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.util.Optional;
-
-import static com.moltenbits.sideband.store.Schema.ENTRIES;
 
 @Singleton
 class SqliteStore implements Store {
 
     private final Database database;
+    private final EntryRows entries;
+    private final ConnectionOperations<Connection> connections;
 
-    SqliteStore(Database database) {
+    SqliteStore(Database database, EntryRows entries, @Named("default") ConnectionOperations<Connection> connections) {
         this.database = database;
+        this.entries = entries;
+        this.connections = connections;
     }
 
     @Override
     public Optional<StoreHealth> inspect(Path stateDirectory) {
-        Path file = Database.file(stateDirectory);
-        return database.read(stateDirectory, Optional.empty(), ctx -> {
-            long entries = ctx.fetchCount(ENTRIES);
-            // SQLite's own check; a pragma has no typed form.
-            String integrity = String.valueOf(ctx.fetchValue("PRAGMA integrity_check"));
-            return Optional.of(new StoreHealth(file.toString(), size(file), entries, integrity));
+        Path file = SidebandDataSource.file(stateDirectory);
+        return database.read(stateDirectory, Optional.empty(), () -> {
+            long count = entries.count();
+            String integrity = connections.executeRead(status -> Database.integrity(status.getConnection()));
+            return Optional.of(new StoreHealth(file.toString(), size(file), count, integrity));
         });
     }
 

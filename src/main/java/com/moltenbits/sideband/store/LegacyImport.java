@@ -4,7 +4,6 @@ import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import io.micronaut.serde.ObjectMapper;
 import jakarta.inject.Singleton;
-import org.jooq.DSLContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,10 +32,14 @@ class LegacyImport {
 
     private final ObjectMapper json;
     private final LegacyJournal journal;
+    private final EntryRows entries;
+    private final SessionRows sessions;
 
-    LegacyImport(ObjectMapper json) {
+    LegacyImport(ObjectMapper json, EntryRows entries, SessionRows sessions) {
         this.json = json;
         this.journal = new LegacyJournal(json);
+        this.entries = entries;
+        this.sessions = sessions;
     }
 
     /** True when the state directory holds a journal the store has not absorbed yet. */
@@ -44,8 +47,8 @@ class LegacyImport {
         return Files.isRegularFile(stateDirectory.resolve(LegacyJournal.FILE_NAME));
     }
 
-    /** Imports what is there; a state directory with no journal imports nothing. */
-    void run(Path stateDirectory, DSLContext ctx) {
+    /** Imports what is there, on the calling thread's open transaction; a state directory with no journal imports nothing. */
+    void run(Path stateDirectory) {
         Path file = stateDirectory.resolve(LegacyJournal.FILE_NAME);
         if (!Files.isRegularFile(file)) {
             return;
@@ -60,10 +63,10 @@ class LegacyImport {
             LOG.warn("skipped part of {}: {}", file, problem);
         }
         for (LegacyJournal.LegacyEntry entry : parsed.entries()) {
-            SqliteJournal.insert(ctx, entry.metadata(), entry.body());
+            SqliteJournal.insert(entries, entry.metadata(), entry.body());
         }
         for (Role role : Role.values()) {
-            session(stateDirectory, role).ifPresent(session -> SqliteSessions.save(ctx, role,
+            session(stateDirectory, role).ifPresent(session -> SqliteSessions.save(sessions, role,
                     new Session(session.id(), session.startedAt(),
                             position(parsed.entries(), session.watermark()),
                             position(parsed.entries(), session.offset()),

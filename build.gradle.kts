@@ -16,7 +16,9 @@ dependencies {
     implementation("info.picocli:picocli")
     implementation("io.micronaut.picocli:micronaut-picocli")
     implementation("io.micronaut.serde:micronaut-serde-jackson")
-    implementation("org.jooq:jooq")
+    annotationProcessor("io.micronaut.data:micronaut-data-processor")
+    implementation("io.micronaut.data:micronaut-data-jdbc")
+    implementation("io.micronaut.sql:micronaut-jdbc-sqlite")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     runtimeOnly("ch.qos.logback:logback-classic")
 }

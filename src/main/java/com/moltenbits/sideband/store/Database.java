@@ -1,13 +1,10 @@
 package com.moltenbits.sideband.store;
 
 import io.micronaut.context.annotation.Value;
+import io.micronaut.data.connection.ConnectionOperations;
+import io.micronaut.transaction.TransactionOperations;
+import jakarta.inject.Named;
 import jakarta.inject.Singleton;
-import org.jooq.DSLContext;
-import org.jooq.SQLDialect;
-import org.jooq.conf.Settings;
-import org.jooq.exception.DataAccessException;
-import org.jooq.impl.DSL;
-import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteErrorCode;
 import org.sqlite.SQLiteException;
 
@@ -17,20 +14,22 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.time.Duration;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
- * Opens the store for one unit of work. A command is a short-lived process, so each unit
- * opens its own connection and closes it; SQLite's own file locking serializes readers
- * and writers across processes, each waiting its turn up to the busy timeout. The default
- * rollback journal is kept: switching a connection to write-ahead logging is a pragma that
- * fails at once, without waiting, while another connection writes.
+ * Enters a state directory's database for one unit of work. Reads run the repositories on
+ * their own connections; a write runs them inside one transaction, which SQLite serializes
+ * against every other writer across processes, each waiting its turn up to the busy
+ * timeout. The default rollback journal is kept: switching a connection to write-ahead
+ * logging is a pragma that fails at once, without waiting, while another connection writes.
  * <p>
  * The database is created, with its schema, by the first write, which also imports a
  * journal written before the store existed. A read finds no database, or one another
@@ -39,17 +38,24 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 @Singleton
 final class Database {
 
+    /** {@code PRAGMA user_version} once the schema in {@code schema.sql} is installed. */
+    static final int SCHEMA_VERSION = 1;
+
     private static final String SCHEMA_RESOURCE = "schema.sql";
 
-    private final Settings settings = new Settings().withRenderSchema(false).withExecuteLogging(false);
-    /** How long a writer waits for another process's lock before giving up. */
+    /** The data source's busy timeout, repeated here for the contention message; the data source itself is reached through the repositories. */
     private final Duration busyTimeout;
-    private final NativeLibrary library;
+    private final ConnectionOperations<Connection> connections;
+    private final TransactionOperations<Connection> transactions;
     private final LegacyImport legacy;
 
-    Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout, NativeLibrary library, LegacyImport legacy) {
+    Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout,
+             @Named("default") ConnectionOperations<Connection> connections,
+             @Named("default") TransactionOperations<Connection> transactions,
+             LegacyImport legacy) {
         this.busyTimeout = busyTimeout;
-        this.library = library;
+        this.connections = connections;
+        this.transactions = transactions;
         this.legacy = legacy;
     }
 
@@ -57,70 +63,59 @@ final class Database {
      * Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is
      * none. A journal from before the store counts as an existing store: it is imported first.
      */
-    <T> T read(Path stateDirectory, T whenAbsent, Function<DSLContext, T> work) {
-        Path file = file(stateDirectory);
+    <T> T read(Path stateDirectory, T whenAbsent, Supplier<T> work) {
+        Path file = SidebandDataSource.file(stateDirectory);
         if (!Files.exists(file)) {
             if (!legacy.present(stateDirectory)) {
                 return whenAbsent;
             }
-            write(stateDirectory, ctx -> null);
+            write(stateDirectory, () -> null);
         }
-        try (Connection connection = open(file)) {
-            DSLContext ctx = context(connection);
-            if (version(ctx) < Schema.VERSION) {
-                return whenAbsent;
-            }
-            return work.apply(ctx);
-        } catch (SQLException | DataAccessException e) {
-            throw translate(file, e);
-        }
+        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> {
+            int version = connections.executeRead(status -> version(status.getConnection()));
+            return version < SCHEMA_VERSION ? whenAbsent : work.get();
+        }));
     }
 
     /** Runs {@code work} in one transaction, creating the store first, and importing an older journal into it, when it does not exist yet. */
-    <T> T write(Path stateDirectory, Function<DSLContext, T> work) {
-        Path file = file(stateDirectory);
-        try (Connection connection = open(file)) {
-            DSLContext ctx = context(connection);
-            return ctx.transactionResult(tx -> {
-                DSLContext inner = tx.dsl();
-                if (version(inner) < Schema.VERSION) {
-                    install(inner);
-                    legacy.run(stateDirectory, inner);
-                }
-                return work.apply(inner);
-            });
-        } catch (SQLException | DataAccessException e) {
-            throw translate(file, e);
+    <T> T write(Path stateDirectory, Supplier<T> work) {
+        Path file = SidebandDataSource.file(stateDirectory);
+        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> transactions.executeWrite(status -> {
+            Connection connection = status.getConnection();
+            if (version(connection) < SCHEMA_VERSION) {
+                install(connection);
+                legacy.run(stateDirectory);
+            }
+            return work.get();
+        })));
+    }
+
+    /** Pragmas have no repository form, so these are the store's only statements outside the DDL. */
+    static int version(Connection connection) {
+        return Integer.parseInt(pragma(connection, "PRAGMA user_version"));
+    }
+
+    static String integrity(Connection connection) {
+        return pragma(connection, "PRAGMA integrity_check");
+    }
+
+    private static String pragma(Connection connection, String sql) {
+        try (Statement statement = connection.createStatement(); ResultSet result = statement.executeQuery(sql)) {
+            return result.next() ? result.getString(1) : "";
+        } catch (SQLException e) {
+            throw new UncheckedIOException(new IOException(e));
         }
     }
 
-    static Path file(Path stateDirectory) {
-        return stateDirectory.resolve(Store.FILE_NAME);
-    }
-
-    private Connection open(Path file) throws SQLException {
-        library.prepare();
-        SQLiteConfig config = new SQLiteConfig();
-        config.setBusyTimeout((int) busyTimeout.toMillis());
-        // A transaction takes the write lock as it begins, so a read inside it never has to upgrade.
-        config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE);
-        return config.createConnection("jdbc:sqlite:" + file);
-    }
-
-    private DSLContext context(Connection connection) {
-        return DSL.using(connection, SQLDialect.SQLITE, settings);
-    }
-
-    /** Pragmas have no typed form, so these two statements are the store's only literal SQL besides the DDL. */
-    private static int version(DSLContext ctx) {
-        return ((Number) ctx.fetchValue("PRAGMA user_version")).intValue();
-    }
-
-    private static void install(DSLContext ctx) {
-        for (String statement : schema()) {
-            ctx.execute(statement);
+    private static void install(Connection connection) {
+        try (Statement statement = connection.createStatement()) {
+            for (String ddl : schema()) {
+                statement.execute(ddl);
+            }
+            statement.execute("PRAGMA user_version = " + SCHEMA_VERSION);
+        } catch (SQLException e) {
+            throw new UncheckedIOException(new IOException(e));
         }
-        ctx.execute("PRAGMA user_version = " + Schema.VERSION);
     }
 
     /** The DDL, one statement per blank-line-separated block, comments removed. */
@@ -139,13 +134,21 @@ final class Database {
         }
     }
 
-    private RuntimeException translate(Path file, Exception e) {
-        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof SQLiteException sqlite && isBusy(sqlite.getResultCode())) {
-                return new BusyException(file, busyTimeout, e);
+    /** Turns SQLite's lock timeout into the contention failure and any other database failure into an I/O failure. */
+    private <T> T guarded(Path file, Supplier<T> work) {
+        try {
+            return work.get();
+        } catch (RuntimeException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+                if (cause instanceof SQLiteException sqlite && isBusy(sqlite.getResultCode())) {
+                    throw new BusyException(file, busyTimeout, e);
+                }
+                if (cause instanceof SQLException) {
+                    throw new UncheckedIOException("could not use " + file + ": " + cause.getMessage(), new IOException(e));
+                }
             }
+            throw e;
         }
-        return new UncheckedIOException("could not use " + file + ": " + e.getMessage(), new IOException(e));
     }
 
     private static boolean isBusy(SQLiteErrorCode code) {
