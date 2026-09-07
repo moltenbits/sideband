@@ -196,9 +196,10 @@ and registers two commands in the repository's `.claude/settings.json` and
 `.codex/hooks.json`, each naming its client with `--agent claude` or
 `--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
 `sideband hook session-start` under `SessionStart` with the matcher `clear`.
-Rerunning it is safe, and `doctor` reports a registration that is missing
-either command, or has the session-start command under another matcher, as
-stale.
+Rerunning it is safe. `doctor` reports each client's registration as
+missing when the file is absent or holds no Sideband command, stale when it
+is incomplete or has the session-start command under another matcher, and
+installed otherwise.
 
 One setting is yours to make, and without it Claude falls back to listening.
 A pushed envelope reaches Claude Code from a process that is not the
@@ -212,13 +213,15 @@ write it; `doctor` reports whether pushes will be delivered, held, or refused,
 names the file that decided, and says where accept must go. Managed settings
 and `--settings`, which it cannot read, take the place of your user file as
 the base; a repository's tightening still applies over them.
-In Codex, review and trust the hooks through `/hooks`, and do it again after
-any `init` that changes `.codex/hooks.json`. Codex ties trust to each
-definition's hash, marks a changed or added definition as needing review,
-and silently skips it until you trust it: nothing is recorded, nothing
-moves, and `doctor` cannot see the difference. After trusting, type one
-prompt so the prompt hook runs and the role's address catches up. Claude Code
-needs nothing beyond the `crossSessionInbound` setting above.
+In Codex, review and trust the hooks through `/hooks`, and again whenever
+`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
+trust to each definition's hash and skips an untrusted definition; an
+unchanged, already trusted one keeps running. Codex warns at startup when
+hooks need review, but `doctor` checks registration, not host trust, so a
+skipped hook looks installed to it. After trusting, type one prompt to
+refresh the current delivery address. The trust entries land in your Codex
+`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
+setting above.
 
 The hook is the only thing that records prompts: when it cannot, it tells
 the model to tell you, and no client records a prompt on its behalf. The
