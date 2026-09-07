@@ -19,6 +19,7 @@ dependencies {
     annotationProcessor("io.micronaut.data:micronaut-data-processor")
     implementation("io.micronaut.data:micronaut-data-jdbc")
     implementation("io.micronaut.sql:micronaut-jdbc-sqlite")
+    implementation("io.micronaut.flyway:micronaut-flyway")
     implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     runtimeOnly("ch.qos.logback:logback-classic")
 }
@@ -40,7 +41,6 @@ graalvmNative {
             // sqlite-jdbc loads its bundled library with System.load, which the JDK warns about unless native access is granted.
             buildArgs.add("--enable-native-access=ALL-UNNAMED")
             resources.includedPatterns.add("skills/.*")
-            resources.includedPatterns.add("com/moltenbits/sideband/store/schema\\.sql")
         }
     }
 }

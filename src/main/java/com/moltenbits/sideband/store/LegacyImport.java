@@ -20,7 +20,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * Carries a discussion recorded before the store existed into a new database: every
  * complete entry of {@code journal.md}, in order, and each role's session record from
  * {@code sessions/<role>.json}, with its byte offsets turned into positions. It runs once,
- * inside the transaction that installs the schema, so a database is never half imported.
+ * inside the first write's transaction, so a database is never half imported.
  * The old files are left where they are; nothing reads them again while the database
  * exists.
  */
@@ -47,10 +47,15 @@ class LegacyImport {
         return Files.isRegularFile(stateDirectory.resolve(LegacyJournal.FILE_NAME));
     }
 
-    /** Imports what is there, on the calling thread's open transaction; a state directory with no journal imports nothing. */
+    /**
+     * Imports what is there, on the calling thread's open transaction, into a database that
+     * holds no entries yet. Once anything is in the table, or when there is no journal,
+     * nothing happens; a second process that waited on the first one's lock finds the table
+     * full and does the same.
+     */
     void run(Path stateDirectory) {
         Path file = stateDirectory.resolve(LegacyJournal.FILE_NAME);
-        if (!Files.isRegularFile(file)) {
+        if (!Files.isRegularFile(file) || entries.count() > 0) {
             return;
         }
         LegacyJournal.Parsed parsed;

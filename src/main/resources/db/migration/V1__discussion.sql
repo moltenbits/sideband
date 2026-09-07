@@ -1,7 +1,7 @@
--- Sideband store, schema version 1. Statements are separated by a blank line.
--- Column types are SQLite's: seq must be exactly INTEGER PRIMARY KEY to alias the rowid.
+-- The discussion: every entry ever written, and each role's session record.
+-- seq must be exactly INTEGER PRIMARY KEY so it aliases SQLite's rowid.
 
-CREATE TABLE IF NOT EXISTS entries (
+CREATE TABLE entries (
     seq           INTEGER PRIMARY KEY,
     id            TEXT    NOT NULL UNIQUE,
     created_at    TEXT    NOT NULL,
@@ -18,9 +18,9 @@ CREATE TABLE IF NOT EXISTS entries (
     body          TEXT    NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS entries_reply_to ON entries (reply_to);
+CREATE INDEX entries_reply_to ON entries (reply_to);
 
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE sessions (
     role       TEXT    PRIMARY KEY,
     session_id TEXT    NOT NULL,
     started_at TEXT    NOT NULL,
@@ -28,3 +28,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     bookmark   INTEGER NOT NULL,
     resumed    INTEGER NOT NULL
 );
+
+-- The version the executable checks before every unit of work, so an up-to-date
+-- database costs one pragma and never a Flyway run. Each migration sets it to its own number.
+PRAGMA user_version = 1;

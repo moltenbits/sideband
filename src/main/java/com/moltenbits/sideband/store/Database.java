@@ -2,27 +2,26 @@ package com.moltenbits.sideband.store;
 
 import io.micronaut.context.annotation.Value;
 import io.micronaut.data.connection.ConnectionOperations;
+import io.micronaut.flyway.FlywayConfigurationProperties;
+import io.micronaut.flyway.FlywayMigrator;
+import io.micronaut.jdbc.DataSourceResolver;
 import io.micronaut.transaction.TransactionOperations;
 import jakarta.inject.Named;
 import jakarta.inject.Singleton;
 import org.sqlite.SQLiteErrorCode;
 import org.sqlite.SQLiteException;
 
+import javax.sql.DataSource;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.time.Duration;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Arrays;
-import java.util.List;
+import java.time.Duration;
 import java.util.function.Supplier;
-
-import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * Enters a state directory's database for one unit of work. Reads run the repositories on
@@ -31,29 +30,40 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * timeout. The default rollback journal is kept: switching a connection to write-ahead
  * logging is a pragma that fails at once, without waiting, while another connection writes.
  * <p>
- * The database is created, with its schema, by the first write, which also imports a
- * journal written before the store existed. A read finds no database, or one another
- * process has created but not yet furnished, and reports absence instead.
+ * The schema is Flyway's: the migrations under {@code db/migration} run when a write finds
+ * the database absent or below the current version, which each migration stamps into
+ * {@code PRAGMA user_version}, so an up-to-date database costs one pragma to check. The
+ * first write also imports a journal written before the store existed. A read finds no
+ * database, or one another process has created but not yet migrated, and reports absence.
  */
 @Singleton
 final class Database {
 
-    /** {@code PRAGMA user_version} once the schema in {@code schema.sql} is installed. */
+    /** {@code PRAGMA user_version} once the latest migration has run. */
     static final int SCHEMA_VERSION = 1;
 
-    private static final String SCHEMA_RESOURCE = "schema.sql";
-
-    /** The data source's busy timeout, repeated here for the contention message; the data source itself is reached through the repositories. */
+    /** The data source's busy timeout, repeated here for the contention message. */
     private final Duration busyTimeout;
+    private final DataSource dataSource;
+    private final FlywayMigrator migrator;
+    private final FlywayConfigurationProperties migrations;
     private final ConnectionOperations<Connection> connections;
     private final TransactionOperations<Connection> transactions;
     private final LegacyImport legacy;
 
     Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout,
+             @Named("default") DataSource dataSource,
+             DataSourceResolver resolver,
+             FlywayMigrator migrator,
+             @Named("default") FlywayConfigurationProperties migrations,
              @Named("default") ConnectionOperations<Connection> connections,
              @Named("default") TransactionOperations<Connection> transactions,
              LegacyImport legacy) {
         this.busyTimeout = busyTimeout;
+        // The injected bean is Micronaut Data's contextual proxy, usable only inside a connection scope; Flyway needs the real one.
+        this.dataSource = resolver.resolve(dataSource);
+        this.migrator = migrator;
+        this.migrations = migrations;
         this.connections = connections;
         this.transactions = transactions;
         this.legacy = legacy;
@@ -71,30 +81,33 @@ final class Database {
             }
             write(stateDirectory, () -> null);
         }
+        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () ->
+                version() < SCHEMA_VERSION ? whenAbsent : work.get()));
+    }
+
+    /**
+     * Runs {@code work} in one transaction. A database that is absent or behind is migrated
+     * first, on Flyway's own connections, and a journal from before the store is imported in
+     * the transaction that follows.
+     */
+    <T> T write(Path stateDirectory, Supplier<T> work) {
+        Path file = SidebandDataSource.file(stateDirectory);
         return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> {
-            int version = connections.executeRead(status -> version(status.getConnection()));
-            return version < SCHEMA_VERSION ? whenAbsent : work.get();
+            if (!Files.exists(file) || version() < SCHEMA_VERSION) {
+                migrator.run(migrations, dataSource);
+            }
+            return transactions.executeWrite(status -> {
+                legacy.run(stateDirectory);
+                return work.get();
+            });
         }));
     }
 
-    /** Runs {@code work} in one transaction, creating the store first, and importing an older journal into it, when it does not exist yet. */
-    <T> T write(Path stateDirectory, Supplier<T> work) {
-        Path file = SidebandDataSource.file(stateDirectory);
-        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> transactions.executeWrite(status -> {
-            Connection connection = status.getConnection();
-            if (version(connection) < SCHEMA_VERSION) {
-                install(connection);
-                legacy.run(stateDirectory);
-            }
-            return work.get();
-        })));
+    private int version() {
+        return connections.executeRead(status -> Integer.parseInt(pragma(status.getConnection(), "PRAGMA user_version")));
     }
 
-    /** Pragmas have no repository form, so these are the store's only statements outside the DDL. */
-    static int version(Connection connection) {
-        return Integer.parseInt(pragma(connection, "PRAGMA user_version"));
-    }
-
+    /** SQLite's own check of the file; a pragma has no repository form. */
     static String integrity(Connection connection) {
         return pragma(connection, "PRAGMA integrity_check");
     }
@@ -104,33 +117,6 @@ final class Database {
             return result.next() ? result.getString(1) : "";
         } catch (SQLException e) {
             throw new UncheckedIOException(new IOException(e));
-        }
-    }
-
-    private static void install(Connection connection) {
-        try (Statement statement = connection.createStatement()) {
-            for (String ddl : schema()) {
-                statement.execute(ddl);
-            }
-            statement.execute("PRAGMA user_version = " + SCHEMA_VERSION);
-        } catch (SQLException e) {
-            throw new UncheckedIOException(new IOException(e));
-        }
-    }
-
-    /** The DDL, one statement per blank-line-separated block, comments removed. */
-    static List<String> schema() {
-        try (InputStream in = Database.class.getResourceAsStream(SCHEMA_RESOURCE)) {
-            if (in == null) {
-                throw new IllegalStateException("missing " + SCHEMA_RESOURCE);
-            }
-            String text = new String(in.readAllBytes(), UTF_8).lines()
-                    .filter(line -> !line.startsWith("--"))
-                    .reduce(new StringBuilder(), (sb, line) -> sb.append(line).append('\n'), StringBuilder::append)
-                    .toString();
-            return Arrays.stream(text.split("\n\\s*\n")).map(String::strip).filter(s -> !s.isEmpty()).toList();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
         }
     }
 

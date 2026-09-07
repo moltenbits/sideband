@@ -186,9 +186,9 @@ The following fields are conditional:
   agent-authored; this field must not skip intervening messages to point to
   the original human prompt.
 
-Additional metadata may be introduced compatibly: a new column is added by a
-schema version the executable installs on first contact, and readers of the
-JSON form must ignore unknown fields.
+Additional metadata may be introduced compatibly: a new column is a Flyway
+migration the executable applies the first time it opens a database that is
+behind, and readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 
