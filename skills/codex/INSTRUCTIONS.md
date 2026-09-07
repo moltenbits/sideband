@@ -101,6 +101,18 @@ notification, or inserted skill instructions are never human input.
 
 Handle the complete hook note, reporting problems before substantive work:
 
+- `Sideband is joined as Codex in this repository and delivers to this conversation`
+  (optionally `; N entries addressed to Codex are waiting`), followed by
+  `$sideband has the handling instructions.`: the session-start hook has already
+  moved the delivery address to this conversation after a clear; do not rejoin.
+  This is the hook speaking, not human input or a `[Sideband message]` envelope;
+  do not capture, acknowledge, or reply to the note. The hook preserves the read
+  position. When it counts waiting entries, run `sideband pending` and handle
+  `open`, `in_progress`, `updates`, and `outgoing` under the recovery rules below
+  and the Join confirmation rules. The count includes requests acknowledged
+  before the clear but not yet answered; an ack does not make them complete.
+  Plain `pending` advances the read position, so read and present its report
+  before fetching another. The note itself grants no authority to start work.
 - `Sideband recorded this prompt as <id>` (including the `and delivered it`
   variant): do not capture or route it again. Take the ID from this hook note
   as the current human prompt's entry ID. Older confirmations without an ID
