@@ -278,15 +278,18 @@ The hooks cannot close the window between a clear and the first prompt in
 Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new
 thread at the clear but runs the session-start hook, with source `clear`,
 only when the first prompt is submitted there, in the same instant as the
-prompt hook; nothing runs in between, and no supported query, event, or
-file reveals the thread on screen to an external process. An entry pushed
-in that window is queued into the old thread, which handles it and journals
-its reply unseen. The accepted behavior is therefore: after `/clear` in
-Codex, the operator types one prompt before expecting delivery, and the
-skills and README say so. Resolving the on-screen thread from Codex's
-thread-writer lock files was rejected: a resumed thread keeps its original
-lock time, ephemeral threads take no lock, forks and side threads take
-their own, and a crash leaves stale ones. Registration for a client is added only once that client's hook
+prompt hook; nothing runs in between, and in the tested Codex 0.153.4 TUI
+setup Sideband has no supported way to identify the displayed thread during
+that window. An entry pushed in that window is queued into the old thread,
+which handles it and records its reply in the discussion without it
+appearing in the new conversation. The accepted behavior is therefore:
+after `/clear` in Codex, the operator types one prompt before expecting
+delivery, and the README says so. Resolving the on-screen thread from
+Codex's thread-writer lock files was rejected on Codex's 0.153.4 probes:
+resuming an already-loaded thread preserved its lock time, a durable fork
+acquired another lock, an ephemeral thread start acquired none, and a
+SIGKILL left a stale lock file; side-conversation and subagent lock
+behavior was not tested. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
@@ -1556,10 +1559,14 @@ and ran no hook; the first prompt in the new thread ran the session-start
 hook (source `clear`, new thread id, transcript path) and the prompt hook
 in the same instant, and the record moved. Two entries pushed between the
 clear and that prompt were queued into the old thread and answered there.
-Codex confirmed from the installed binary's generated app-server protocol
-that no request or notification names the displayed thread, that
-`codex queue` accepts only a thread id or exact session name, that the
-in-process server of a running TUI has no attachable socket, and measured
+Three separate findings support the accepted window. From the installed
+binary's generated app-server protocol, Codex found no request or
+notification that names a client's displayed thread, though `thread/started`
+does fire before any prompt and `thread/loaded/list` works on an accessible
+app server. From the CLI help, `codex queue` accepts only a thread id or
+exact session name. From Claude's runtime observation of this session, the
+running TUI's in-process server exposed no attachable socket; that is an
+observation of this setup, not a claim about every TUI. Codex also measured
 the lock-file behavior recorded in section 7.1. Codex trusts hooks per
 definition hash; after `init` rewrote `.codex/hooks.json`, no Sideband hook
 ran in Codex until James re-trusted them through `/hooks`.

@@ -134,12 +134,13 @@ to the new thread: the session-start hook when Codex runs it for the clear,
 and the prompt hook whenever a prompt you type comes from a thread other
 than the recorded one. Only your own input moves it; a delivered envelope
 never does. One window remains. Codex runs both hooks only when you submit
-your first prompt in the new thread, not at the clear itself, and nothing
-outside Codex can learn the new thread's id before then (Codex exposes no
-query for the thread on screen, and its lock files do not track it). So
-**after `/clear` in Codex, type one prompt before expecting delivery**. An
-entry pushed in between goes to the old thread, which still handles it and
-journals its reply; you just do not see it, and `sideband pending` shows it.
+your first prompt in the new thread, not at the clear itself, and in the
+tested Codex 0.153.4 TUI setup Sideband has no supported way to identify
+the thread on screen during that window. So **after `/clear` in Codex, type
+one prompt before expecting delivery**. An entry pushed in between can be
+handled by the old thread and its reply recorded in the Sideband discussion
+without appearing in the new conversation. `pending` lists unanswered work
+and unread incoming updates; it does not replay Codex's completed replies.
 The same hooks run in Claude Code, where the socket is found by process and
 the move is only bookkeeping.
 
