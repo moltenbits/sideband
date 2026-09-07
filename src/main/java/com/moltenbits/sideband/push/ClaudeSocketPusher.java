@@ -161,9 +161,15 @@ class ClaudeSocketPusher implements HostPusher {
                     + spaced("cross-session-message") + "(?:[^A-Za-z0-9_\\-]|$))",
             Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
-    /** The tag name as a pattern: each letter, with invisible characters allowed between them and any dash for its hyphens. */
+    /**
+     * The tag name as a pattern: each letter, with invisible characters allowed between them and
+     * any dash for its hyphens. The invisible set is Claude Code's own list (2.1.263): the format
+     * characters, Hangul fillers, and combining marks it names, and the controls; no Unicode
+     * category covers it, so the list is spelled out, with the format and nonspacing-mark
+     * categories added as a margin.
+     */
     private static String spaced(String name) {
-        String invisible = "[\\p{Cf}\\p{Cc}\\p{Mn}\\p{Me}\\u2028\\u2029]*";
+        String invisible = "[\\u00AD\\u034F\\u0600-\\u0605\\u061C\\u06DD\\u070F\\u0890\\u0891\\u08E2\\u115F\\u1160\\u17B4\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u3164\\uFE00-\\uFE0F\\uFEFF\\uFFA0\\uFFF0-\\uFFFB\\x{110BD}\\x{110CD}\\x{13430}-\\x{1343F}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}\\u0300-\\u0344\\u0346-\\u036F\\u0483-\\u0489\\u0591-\\u05BD\\u05BF\\u05C1\\u05C2\\u05C4\\u05C5\\u05C7\\u0610-\\u061A\\u064B-\\u065F\\u0670\\u06D6-\\u06DC\\u06DF-\\u06E4\\u06E7\\u06E8\\u06EA-\\u06ED\\u1AB0-\\u1AFF\\u1DC0-\\u1DFF\\u20D0-\\u20FF\\u3099\\u309A\\uFE20-\\uFE2F\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u2028\\u2029\\p{Cf}\\p{Mn}]*";
         String dash = "[\\-\\p{Pd}\\u2212\\u207B\\u208B\\u02D7\\u2796\\u2043\\u30FC\\uFF70]";
         StringBuilder out = new StringBuilder();
         for (int i = 0; i < name.length(); i++) {
