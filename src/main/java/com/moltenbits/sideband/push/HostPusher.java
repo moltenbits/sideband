@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.push;
 
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 
 import java.nio.file.Path;
@@ -14,8 +15,9 @@ public interface HostPusher {
 
     /**
      * @param stateDirectory the repository's Sideband state, from which the recipient is found
+     * @param from the entry's author, for a host that can attribute a message to its sender
      * @return the outcome, {@link PushOutcome#PUSHED} when the host accepted the text,
      *         {@link PushOutcome#NO_SESSION} when no session of the role could be found
      */
-    PushResult push(Path stateDirectory, String text);
+    PushResult push(Path stateDirectory, ParticipantId from, String text);
 }
