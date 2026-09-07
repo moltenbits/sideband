@@ -1,0 +1,38 @@
+name: Set up GraalVM from .sdkmanrc
+description: >-
+  Reads the java entry of the repository's .sdkmanrc, so the toolchain is
+  declared once for SDKMAN and CI alike, and installs that GraalVM release
+  line with graalvm/setup-graalvm. An identifier such as
+  25.3.4+1.r25-graal selects Oracle GraalVM 25.3 for Java 25.
+
+runs:
+  using: composite
+  steps:
+    - name: Read .sdkmanrc
+      id: sdkmanrc
+      shell: bash
+      run: |
+        set -euo pipefail
+        entry=$(sed -n 's/^java[[:space:]]*=[[:space:]]*//p' .sdkmanrc | head -n 1)
+        if [ -z "$entry" ]; then
+          echo "::error file=.sdkmanrc::no java= entry"; exit 1
+        fi
+        version=${entry%%-*}          # 25.3.4+1.r25
+        suffix=${entry##*-}           # graal
+        release=$(printf '%s' "$version" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')   # 25.3
+        java=$(printf '%s' "$version" | sed -E 's/^([0-9]+).*/\1/')               # 25
+        case "$suffix" in
+          graal)   distribution=graalvm ;;
+          graalce) distribution=graalvm-community ;;
+          *) echo "::error file=.sdkmanrc::unsupported distribution suffix '$suffix'"; exit 1 ;;
+        esac
+        echo "entry=$entry" >> "$GITHUB_OUTPUT"
+        echo "release=$release" >> "$GITHUB_OUTPUT"
+        echo "java=$java" >> "$GITHUB_OUTPUT"
+        echo "distribution=$distribution" >> "$GITHUB_OUTPUT"
+        echo "Using $distribution $release for Java $java from .sdkmanrc ($entry)"
+    - uses: graalvm/setup-graalvm@v1
+      with:
+        version: ${{ steps.sdkmanrc.outputs.release }}
+        java-version: ${{ steps.sdkmanrc.outputs.java }}
+        distribution: ${{ steps.sdkmanrc.outputs.distribution }}
