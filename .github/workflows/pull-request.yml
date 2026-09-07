@@ -19,13 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          # The 25.3 line, matching .sdkmanrc (25.3.4+1.r25-graal); java-version
-          # alone would take the action's plain Java 25 path.
-          version: '25.3'
-          java-version: '25'
-          distribution: 'graalvm'
+      - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
       - uses: gradle/actions/setup-gradle@v6
       - name: Run the Spock suite
         run: ./gradlew test
@@ -42,13 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: graalvm/setup-graalvm@v1
-        with:
-          # The 25.3 line, matching .sdkmanrc (25.3.4+1.r25-graal); java-version
-          # alone would take the action's plain Java 25 path.
-          version: '25.3'
-          java-version: '25'
-          distribution: 'graalvm'
+      - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
       - uses: gradle/actions/setup-gradle@v6
       - name: Build the native image
         run: ./gradlew nativeCompile
