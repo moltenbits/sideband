@@ -25,11 +25,11 @@ public record Session(
         long offset,
         boolean resumed) {
 
-    Session withOffset(long newOffset) {
+    public Session withOffset(long newOffset) {
         return new Session(id, startedAt, watermark, Math.max(offset, newOffset), resumed);
     }
 
-    Session withId(String newId) {
+    public Session withId(String newId) {
         return new Session(newId, startedAt, watermark, offset, resumed);
     }
 }

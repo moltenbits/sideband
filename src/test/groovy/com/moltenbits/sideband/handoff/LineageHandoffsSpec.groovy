@@ -19,16 +19,16 @@ class LineageHandoffsSpec extends Specification {
 
     Journal journal = context.getBean(Journal)
     Handoffs handoffs = context.getBean(Handoffs)
-    Path file = Files.createTempDirectory("handoff").resolve(Journal.FILE_NAME)
+    Path dir = Files.createTempDirectory("handoff")
 
     void "a rooted request keeps its live policy and an orphan is downgraded to confirm with the reason"() {
         given:
-        Entry h = journal.append(file, Fixtures.humanDraft("@claude go", [Fixtures.CLAUDE]))
-        Entry rooted = journal.append(file, Fixtures.agentDraft(causedBy: h.metadata().id()))
-        Entry orphan = journal.append(file, Fixtures.agentDraft(causedBy: "ghost"))
+        Entry h = journal.append(dir, Fixtures.humanDraft("@claude go", [Fixtures.CLAUDE]))
+        Entry rooted = journal.append(dir, Fixtures.agentDraft(causedBy: h.metadata().id()))
+        Entry orphan = journal.append(dir, Fixtures.agentDraft(causedBy: "ghost"))
 
         when:
-        List<Handoff> prepared = handoffs.prepare(file, [rooted, orphan])
+        List<Handoff> prepared = handoffs.prepare(dir, [rooted, orphan])
 
         then:
         prepared[0].effectiveLive() == DeliveryPolicy.AUTO
@@ -39,8 +39,8 @@ class LineageHandoffsSpec extends Specification {
 
     void "the envelope is the marker, a newline, and the batch as one JSON line"() {
         given:
-        Entry h = journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
-        Batch batch = Batch.forRole(Role.CODEX, h.start(), h.end(), handoffs.prepare(file, [h]), [], false)
+        Entry h = journal.append(dir, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
+        Batch batch = Batch.forRole(Role.CODEX, h.seq(), h.seq(), handoffs.prepare(dir, [h]), false)
 
         when:
         String envelope = handoffs.envelope(batch)
@@ -54,6 +54,6 @@ class LineageHandoffsSpec extends Specification {
 
     void "preparing nothing reads nothing"() {
         expect:
-        handoffs.prepare(file, []) == []
+        handoffs.prepare(dir, []) == []
     }
 }

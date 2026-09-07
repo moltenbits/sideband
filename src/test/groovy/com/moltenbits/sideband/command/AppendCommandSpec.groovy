@@ -77,7 +77,7 @@ class AppendCommandSpec extends CommandSpec {
         then:
         code == ExitCode.INVALID_INPUT
         stderr.toString().contains("human-authored")
-        !Files.exists(repo.resolve(".git/sideband/journal.md"))
+        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
     }
 
     void "an actionable agent message pointing at a missing ancestor is refused"() {
@@ -173,7 +173,7 @@ class AppendCommandSpec extends CommandSpec {
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
                 "--body-file", body("orphan").toString()) == ExitCode.INVALID_INPUT
-        !Files.exists(repo.resolve(".git/sideband/journal.md"))
+        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
         run("append", "--repo", repo.toString(), "--from", "codex", "--type", "status",
                 "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--to is required unless --reply-to")

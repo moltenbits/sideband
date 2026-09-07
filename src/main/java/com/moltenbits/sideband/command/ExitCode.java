@@ -1,7 +1,7 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.ancestry.InvalidLineageException;
-import com.moltenbits.sideband.locking.LockTimeoutException;
+import com.moltenbits.sideband.store.BusyException;
 import com.moltenbits.sideband.protocol.InvalidEntryException;
 import picocli.CommandLine;
 import picocli.CommandLine.IExecutionExceptionHandler;
@@ -29,7 +29,7 @@ public final class ExitCode {
     private static int handle(Exception failure, CommandLine command, ParseResult parseResult) {
         command.getErr().println(command.getColorScheme().errorText("sideband: " + failure.getMessage()));
         return switch (failure) {
-            case LockTimeoutException e -> LOCK_CONTENTION;
+            case BusyException e -> LOCK_CONTENTION;
             case InvalidEntryException e -> INVALID_INPUT;
             case InvalidLineageException e -> INVALID_INPUT;
             case IllegalArgumentException e -> INVALID_INPUT;

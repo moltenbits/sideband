@@ -4,13 +4,13 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.journal.Journal;
-import com.moltenbits.sideband.journal.Read;
-import com.moltenbits.sideband.locking.Locks;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
+import com.moltenbits.sideband.store.Store;
+import com.moltenbits.sideband.store.StoreHealth;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -27,16 +27,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
 /**
  * Reports the state of a repository's Sideband installation without printing any message
- * body: paths, permissions, protocol and build versions, journal health,
- * each role's session and pending counts, lock ownership, and skill links.
+ * body: paths, permissions, protocol and build versions, database health, each role's
+ * session and pending counts, and skill links.
  */
 @Command(name = "doctor", description = "Report paths, versions, discussion health, sessions, and skill links", mixinStandardHelpOptions = true)
 @Prototype
@@ -52,15 +49,15 @@ public class DoctorCommand implements Callable<Integer> {
     Path homeDirectory = Path.of(System.getProperty("user.home"));
 
     private final SidebandHome home;
-    private final Journal journal;
+    private final Store store;
     private final Sessions sessions;
     private final Pending pending;
     private final Installer installer;
     private final ObjectMapper json;
 
-    DoctorCommand(SidebandHome home, Journal journal, Sessions sessions, Pending pending, Installer installer, ObjectMapper json) {
+    DoctorCommand(SidebandHome home, Store store, Sessions sessions, Pending pending, Installer installer, ObjectMapper json) {
         this.home = home;
-        this.journal = journal;
+        this.store = store;
         this.sessions = sessions;
         this.pending = pending;
         this.installer = installer;
@@ -71,13 +68,7 @@ public class DoctorCommand implements Callable<Integer> {
     public Integer call() throws IOException {
         Path stateDirectory = home.locate(repository.directory);
         boolean exists = Files.isDirectory(stateDirectory);
-        Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
-        JournalHealth health = null;
-        if (Files.exists(journalFile)) {
-            Read all = journal.readCompleteFrom(journalFile, 0);
-            health = new JournalHealth(Files.size(journalFile), all.entries().size(), all.diagnostics().size(),
-                    all.end() < Files.size(journalFile));
-        }
+        StoreHealth database = exists ? store.inspect(stateDirectory).orElse(null) : null;
         Map<String, RoleReport> roles = new LinkedHashMap<>();
         if (exists) {
             for (Role role : Role.values()) {
@@ -89,17 +80,14 @@ public class DoctorCommand implements Callable<Integer> {
                         report.open().size(), report.inProgress().size(), report.updates().size(), report.outgoing().size()));
             }
         }
-        Path lockFile = stateDirectory.resolve(Locks.FILE_NAME);
-        String lockOwner = Files.exists(lockFile) ? Files.readString(lockFile, UTF_8).strip() : null;
         Output.print(spec, json, new Report(
                 String.join(" ", spec.root().version()),
                 Journal.PROTOCOL_VERSION,
                 stateDirectory.toString(),
                 exists,
                 exists ? permissions(stateDirectory) : null,
-                health,
+                database,
                 roles,
-                lockOwner,
                 installer.inspect(homeDirectory, home.projectRoot(stateDirectory))));
         return ExitCode.OK;
     }
@@ -114,12 +102,8 @@ public class DoctorCommand implements Callable<Integer> {
 
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Report(String version, String protocol, String stateDirectory, boolean initialized,
-                  @Nullable String permissions, @Nullable JournalHealth journal,
-                  Map<String, RoleReport> roles, @Nullable String lockOwnerPid, InstallReport clients) {
-    }
-
-    @Serdeable(naming = SnakeCaseStrategy.class)
-    record JournalHealth(long bytes, int entries, int diagnostics, boolean incompleteTail) {
+                  @Nullable String permissions, @Nullable StoreHealth database,
+                  Map<String, RoleReport> roles, InstallReport clients) {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)

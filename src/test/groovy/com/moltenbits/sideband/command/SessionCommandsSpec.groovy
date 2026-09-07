@@ -37,14 +37,13 @@ class SessionCommandsSpec extends CommandSpec {
 
         then:
         activation.session.id == "s1"
-        activation.session.watermark == Files.size(repo.resolve(".git/sideband/journal.md"))
+        activation.session.watermark == 2
         activation.session.offset == activation.session.watermark
         activation.open*.entry*.metadata*.id == [toCodex]
         activation.open*.before_session == [true]
         activation.in_progress == []
         activation.updates == []
         activation.outgoing == []
-        activation.diagnostics == []
         activation.intent == "Sideband delivery; use the Sideband skill (\$sideband) for handling instructions"
 
         expect: "whoever joins last holds the role; there is no conflict and no --replace"

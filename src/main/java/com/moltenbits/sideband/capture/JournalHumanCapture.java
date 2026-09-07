@@ -36,8 +36,7 @@ class JournalHumanCapture implements HumanCapture {
         }
         Entry entry;
         try {
-            entry = journal.append(stateDirectory.resolve(Journal.FILE_NAME),
-                    Draft.humanRequest(via, destination.to(), body));
+            entry = journal.append(stateDirectory, Draft.humanRequest(via, destination.to(), body));
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }

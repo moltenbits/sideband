@@ -9,9 +9,8 @@ import io.micronaut.serde.config.naming.SnakeCaseStrategy;
  *
  * @param metadata the stored metadata
  * @param body     the exact body text
- * @param start    the byte offset where the entry begins
- * @param end      the byte offset just past its closing marker
+ * @param seq      the entry's position: the sequence number the store assigned on append
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Entry(EntryMetadata metadata, String body, long start, long end) {
+public record Entry(EntryMetadata metadata, String body, long seq) {
 }

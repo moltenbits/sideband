@@ -16,7 +16,8 @@ import java.nio.file.Path
 class HookAndSkillSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path journalFile = repo.resolve(".git/sideband/journal.md")
+    Path stateDir = repo.resolve(".git/sideband")
+    Path journalFile = stateDir.resolve("sideband.db")
     Role detectedAgent
     Map extraPayload = [:]
     HumanCapture captureOverride
@@ -59,7 +60,7 @@ class HookAndSkillSpec extends CommandSpec {
         code == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
         json().hookSpecificOutput.additionalContext.contains("delivered it: codex=no-session")
-        Files.readString(journalFile).contains("@codex please look at this")
+        bodies().contains("@codex please look at this")
     }
 
     void "the hook's note names the entry so a delegation can cite it without reading the journal"() {
@@ -80,7 +81,7 @@ class HookAndSkillSpec extends CommandSpec {
         note.contains("cite it as --caused-by")
         code == ExitCode.OK
         json().metadata.caused_by == id
-        context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.metadata()*.from()*.toString() == ["operator", "claude"]
+        context.getBean(com.moltenbits.sideband.journal.Journal).readAfter(stateDir, 0).entries()*.metadata()*.from()*.toString() == ["operator", "claude"]
     }
 
     void "the hook stays silent and writes nothing when the prompt is not a human message, is the host's own notification, or Sideband is not set up here"() {
@@ -91,7 +92,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook(prompt, session, plainDirectory ? TempRepo.plainDirectory().toString() : repo.toString()) == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(journalFile)
+        bodies().isEmpty()
 
         where:
         prompt                                                        | session | plainDirectory
@@ -107,7 +108,7 @@ class HookAndSkillSpec extends CommandSpec {
     }
 
     List<String> bodies() {
-        Files.exists(journalFile) ? context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()*.body() : []
+        Files.exists(journalFile) ? context.getBean(com.moltenbits.sideband.journal.Journal).readAfter(stateDir, 0).entries()*.body() : []
     }
 
     void "a message typed as the skill's argument is the operator's words: the hook records the text after the invocation"() {
@@ -172,7 +173,7 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.additionalContext.contains("Do not capture")
 
         when: "the journal holds the verbatim entry, addressed to the client it was typed into"
-        def entries = context.getBean(com.moltenbits.sideband.journal.Journal).readCompleteFrom(journalFile, 0).entries()
+        def entries = context.getBean(com.moltenbits.sideband.journal.Journal).readAfter(stateDir, 0).entries()
 
         then:
         entries.size() == 1
@@ -196,7 +197,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("  [Sideband message]\n{\"entries\":[]}", "codex-session") == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(journalFile)
+        bodies().isEmpty()
     }
 
     void "shell markers and the registered agent both preserve the correct author and route, and the agent wins"() {
@@ -241,7 +242,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("hello", session, repo.toString(), flag ? ["--agent", flag] : []) == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(journalFile)
+        bodies().isEmpty()
 
         where:
         detected    | flag     | session | ambiguous
@@ -258,7 +259,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("hello", "s1", invalidPath ? "bad\u0000path" : repo.toString()) == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(journalFile)
+        bodies().isEmpty()
 
         where:
         event              | invalidPath
@@ -316,7 +317,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
-        Files.readString(journalFile).contains("first prompt after restart")
+        bodies().contains("first prompt after restart")
         after.id() == (session ?: "s1")
         after.startedAt() == before.startedAt()
         after.watermark() == before.watermark()
@@ -347,7 +348,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(journalFile)
+        bodies().isEmpty()
         state.load(dir, Role.CODEX).get().id() == expected
 
         where:
@@ -412,7 +413,7 @@ class HookAndSkillSpec extends CommandSpec {
         given:
         detectedAgent = Role.CODEX
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
-        context.getBean(com.moltenbits.sideband.journal.Journal).append(journalFile,
+        context.getBean(com.moltenbits.sideband.journal.Journal).append(stateDir,
                 com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CLAUDE,
                         to: [com.moltenbits.sideband.Fixtures.CODEX], type: com.moltenbits.sideband.protocol.MessageType.STATUS,
                         causedBy: null, expectsReply: false, body: "status"))
@@ -431,8 +432,8 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = Role.CODEX
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
         def journal = context.getBean(com.moltenbits.sideband.journal.Journal)
-        def request = journal.append(journalFile, com.moltenbits.sideband.Fixtures.agentDraft(body: "please review"))
-        journal.append(journalFile, com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CODEX,
+        def request = journal.append(stateDir, com.moltenbits.sideband.Fixtures.agentDraft(body: "please review"))
+        journal.append(stateDir, com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CODEX,
                 to: [com.moltenbits.sideband.Fixtures.CLAUDE], type: com.moltenbits.sideband.protocol.MessageType.ACK,
                 replyTo: request.metadata().id(), causedBy: null, expectsReply: false, body: "taking it up"))
         Sessions state = context.getBean(Sessions)
@@ -513,9 +514,9 @@ class HookAndSkillSpec extends CommandSpec {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         stdout = new StringWriter()
-        Files.createDirectories(journalFile)
+        Files.setPosixFilePermissions(journalFile, EnumSet.of(java.nio.file.attribute.PosixFilePermission.OWNER_READ))
 
-        expect: "a directory where the journal belongs makes the append itself fail, so the outcome is uncertain"
+        expect: "a database that cannot be written makes the append itself fail, so the outcome is uncertain"
         hook("this must not vanish") == ExitCode.OK
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
         json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
@@ -537,30 +538,31 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
         json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
         !json().hookSpecificOutput.additionalContext.contains("append")
-        !Files.exists(journalFile)
+        bodies().isEmpty()
     }
 
     void "a failure after the append reports the recorded id and the failed delivery"() {
         given:
         detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        Path codexSession = Files.createDirectories(repo.resolve(".git/sideband/sessions/codex.json"))
+        def journal = context.getBean(com.moltenbits.sideband.journal.Journal)
+        captureOverride = { Path dir, Role via, String body ->
+            def entry = journal.append(dir, com.moltenbits.sideband.protocol.Draft.humanRequest(via, [com.moltenbits.sideband.Fixtures.CODEX], body))
+            throw new com.moltenbits.sideband.capture.CaptureFailedException(
+                    com.moltenbits.sideband.capture.CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), new IOException("codex session unreadable"))
+        } as HumanCapture
         stdout = new StringWriter()
 
-        when: "delivery to Codex cannot read its session record after the entry is in the journal"
+        when: "delivery to Codex fails after the entry is in the journal"
         int code = hook("@codex journaled but not finished")
-        String journal = Files.readString(journalFile)
-        String id = (journal =~ /"id":"([0-9a-f-]{36})"/)[-1][1]
+        String id = journal.readAfter(stateDir, 0).entries().last().metadata().id()
 
         then:
         code == ExitCode.OK
-        journal.contains("journaled but not finished")
+        bodies().contains("@codex journaled but not finished")
         json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as " + id + " but could not deliver it")
         json().hookSpecificOutput.additionalContext.endsWith("Tell the user.")
         stderr.toString().contains("recorded " + id + " but could not deliver it")
-
-        cleanup:
-        Files.deleteIfExists(codexSession)
     }
 
     void "a caller whose client cannot be told is reported when any role is active, and silent otherwise"() {
@@ -575,7 +577,7 @@ class HookAndSkillSpec extends CommandSpec {
         stderr.toString().contains("--agent")
         stdout.toString().isEmpty() == !active
         !active || json().hookSpecificOutput.additionalContext.contains("cannot tell which client")
-        !Files.exists(journalFile)
+        bodies().isEmpty()
 
         where:
         active | both
@@ -590,13 +592,13 @@ class HookAndSkillSpec extends CommandSpec {
         if (waiting > 0) {
             run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "c1")
             (1..waiting).each { n ->
-                context.getBean(com.moltenbits.sideband.journal.Journal).append(journalFile,
+                context.getBean(com.moltenbits.sideband.journal.Journal).append(stateDir,
                         com.moltenbits.sideband.Fixtures.agentDraft(from: com.moltenbits.sideband.Fixtures.CODEX,
                                 to: [com.moltenbits.sideband.Fixtures.CLAUDE], type: com.moltenbits.sideband.protocol.MessageType.STATUS,
                                 causedBy: null, expectsReply: false, body: "status " + n))
             }
         }
-        long before = Files.exists(journalFile) ? Files.size(journalFile) : 0
+        long before = context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir)
         stdout = new StringWriter()
 
         expect:
@@ -604,7 +606,7 @@ class HookAndSkillSpec extends CommandSpec {
         stderr.toString().contains("not joined as claude")
         (waiting == 0) == stdout.toString().isEmpty()
         waiting == 0 || json().hookSpecificOutput.additionalContext == expected
-        (Files.exists(journalFile) ? Files.size(journalFile) : 0) == before
+        context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == before
 
         where:
         waiting | expected
@@ -627,6 +629,6 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString().isEmpty()
         stderr.toString().isEmpty()
         state.load(dir, Role.CODEX) == before
-        !Files.exists(journalFile)
+        bodies().isEmpty()
     }
 }

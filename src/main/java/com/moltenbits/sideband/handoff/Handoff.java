@@ -13,10 +13,10 @@ import io.micronaut.serde.config.naming.SnakeCaseStrategy;
  * {@code confirm} with the problem stated.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Handoff(EntryMetadata metadata, String body, long start, long end,
+public record Handoff(EntryMetadata metadata, String body, long seq,
                       DeliveryPolicy effectiveLive, @Nullable String lineageProblem) {
 
     public static Handoff of(Entry entry, DeliveryPolicy effectiveLive, @Nullable String lineageProblem) {
-        return new Handoff(entry.metadata(), entry.body(), entry.start(), entry.end(), effectiveLive, lineageProblem);
+        return new Handoff(entry.metadata(), entry.body(), entry.seq(), effectiveLive, lineageProblem);
     }
 }

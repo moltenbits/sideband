@@ -1,8 +1,10 @@
-package com.moltenbits.sideband.session
+package com.moltenbits.sideband.store
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Session
+import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
 import spock.lang.Shared
@@ -11,24 +13,22 @@ import spock.lang.Specification
 import java.nio.file.Files
 import java.nio.file.Path
 
-class FileSessionsSpec extends Specification {
+class SqliteSessionsSpec extends Specification {
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
     Path dir = Files.createTempDirectory("sessions")
-    Path file = dir.resolve(Journal.FILE_NAME)
 
     void "the component is exposed only through its interface"() {
         expect:
-        sessions instanceof FileSessions
+        sessions instanceof SqliteSessions
     }
 
     void "no session until activation, and activation sets watermark and offset at the journal end"() {
         given:
-        journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
-        long end = Files.size(file)
+        long end = journal.append(dir, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX])).seq()
 
         expect:
         sessions.load(dir, Role.CODEX).isEmpty()
@@ -40,8 +40,26 @@ class FileSessionsSpec extends Specification {
         session.id() == "s1"
         session.watermark() == end
         session.offset() == end
+        !session.resumed()
         sessions.load(dir, Role.CODEX).get() == session
-        Files.readString(dir.resolve("sessions/codex.json")).contains('"watermark":' + end)
+        sessions.load(dir, Role.CLAUDE).isEmpty()
+    }
+
+    void "a role can join before anything is written, and the store is created for it"() {
+        when:
+        Session session = sessions.join(dir, Role.CLAUDE, "s1")
+
+        then:
+        session.watermark() == 0
+        session.offset() == 0
+        Files.exists(dir.resolve(Store.FILE_NAME))
+        journal.end(dir) == 0
+    }
+
+    void "loading from a directory with no store is empty without creating one"() {
+        expect:
+        sessions.load(dir, Role.CODEX).isEmpty()
+        !Files.exists(dir.resolve(Store.FILE_NAME))
     }
 
     void "whoever joins last holds the role: a second join replaces the record, never refuses"() {
@@ -54,33 +72,16 @@ class FileSessionsSpec extends Specification {
         sessions.join(dir, Role.CODEX, "s2").id() == "s2"
     }
 
-    void "a record written when sessions still carried a process id loads without it"() {
-        given:
-        Files.createDirectories(dir.resolve("sessions"))
-        Files.writeString(dir.resolve("sessions/claude.json"),
-                '{"id":"old","started_at":"2026-09-06T09:38:08-05:00","parent_pid":66503,"watermark":8898,"offset":203657,"resumed":true}')
-
-        expect:
-        with(sessions.load(dir, Role.CLAUDE).get()) {
-            id() == "old"
-            watermark() == 8898
-            offset() == 203657
-            resumed()
-        }
-    }
-
     void "join starts at the latest point unless resuming, which keeps the previous bookmark"() {
         given:
-        journal.append(file, Fixtures.humanDraft("@codex one", [Fixtures.CODEX]))
-        long first = Files.size(file)
+        long first = journal.append(dir, Fixtures.humanDraft("@codex one", [Fixtures.CODEX])).seq()
 
         expect: "a first join with --resume starts at the beginning of the journal"
         sessions.join(dir, Role.CODEX, "s1", true).offset() == 0
 
         when:
         sessions.advance(dir, Role.CODEX, first)
-        journal.append(file, Fixtures.humanDraft("@codex two", [Fixtures.CODEX]))
-        long second = Files.size(file)
+        long second = journal.append(dir, Fixtures.humanDraft("@codex two", [Fixtures.CODEX])).seq()
         Session plain = sessions.join(dir, Role.CODEX, "s2", false)
 
         then: "a plain join starts at the latest point"
@@ -94,6 +95,7 @@ class FileSessionsSpec extends Specification {
         then: "a resumed join keeps the bookmark and still marks the session start"
         resumed.watermark() == second
         resumed.offset() == second
+        resumed.resumed()
     }
 
     void "advance moves the read position forward only"() {
@@ -116,7 +118,7 @@ class FileSessionsSpec extends Specification {
 
     void "relocating moves the role to a new host session and keeps everything else, including the bookmark"() {
         given:
-        journal.append(file, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
+        journal.append(dir, Fixtures.humanDraft("@codex hi", [Fixtures.CODEX]))
         Session joined = sessions.join(dir, Role.CODEX, "old-thread", true)
         sessions.advance(dir, Role.CODEX, 7)
 
@@ -132,20 +134,30 @@ class FileSessionsSpec extends Specification {
         sessions.load(dir, Role.CODEX).get() == moved
     }
 
-    void "relocating to the session already recorded rewrites nothing"() {
+    void "relocating to the session already recorded changes nothing"() {
         given:
-        sessions.join(dir, Role.CODEX, "s1")
-        Path record = dir.resolve("sessions/codex.json")
-        def before = Files.getLastModifiedTime(record)
+        Session joined = sessions.join(dir, Role.CODEX, "s1")
 
         expect:
-        sessions.relocate(dir, Role.CODEX, "s1").get().id() == "s1"
-        Files.getLastModifiedTime(record) == before
+        sessions.relocate(dir, Role.CODEX, "s1").get() == joined
+        sessions.load(dir, Role.CODEX).get() == joined
     }
 
     void "relocating a role that has not joined records nothing"() {
         expect:
         sessions.relocate(dir, Role.CLAUDE, "s9").isEmpty()
         sessions.load(dir, Role.CLAUDE).isEmpty()
+    }
+
+    void "each role's record is independent"() {
+        given:
+        sessions.join(dir, Role.CODEX, "c1")
+        sessions.join(dir, Role.CLAUDE, "k1", true)
+
+        expect:
+        sessions.load(dir, Role.CODEX).get().id() == "c1"
+        sessions.load(dir, Role.CLAUDE).get().id() == "k1"
+        sessions.load(dir, Role.CLAUDE).get().resumed()
+        !sessions.load(dir, Role.CODEX).get().resumed()
     }
 }

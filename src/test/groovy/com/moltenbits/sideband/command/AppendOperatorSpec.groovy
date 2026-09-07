@@ -1,7 +1,9 @@
 package com.moltenbits.sideband.command
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Role
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -9,7 +11,8 @@ import java.nio.file.Path
 class AppendOperatorSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path journalFile = repo.resolve(".git/sideband/journal.md")
+    Path stateDir = repo.resolve(".git/sideband")
+    Path journalFile = stateDir.resolve("sideband.db")
 
     Path body(String text) {
         Files.writeString(repo.resolve("body.md"), text)
@@ -30,12 +33,17 @@ class AppendOperatorSpec extends CommandSpec {
             metadata.route == "direct"
             metadata.expects_reply == true
             metadata.delivery == [live: "auto", backlog: "confirm"]
-            metadata.body_bytes == 12
             body == "fix the typo"
-            start == 0
+            seq == 1
             pushes == []
         }
-        Files.readString(journalFile).contains("\n## Operator → Claude (via Claude)\n\nfix the typo\n<!-- /sideband -->\n")
+        with(context.getBean(Journal).readAfter(stateDir, 0).entries()) {
+            size() == 1
+            it[0].body() == "fix the typo"
+            it[0].metadata().from() == Fixtures.OPERATOR
+            it[0].metadata().via() == Role.CLAUDE
+            it[0].metadata().to() == [Fixtures.CLAUDE]
+        }
     }
 
     void "a directive routes to the named client and the body keeps the directive"() {
@@ -58,7 +66,7 @@ class AppendOperatorSpec extends CommandSpec {
         json().metadata.to == ["claude", "codex"]
         json().metadata.route == "broadcast"
         json().metadata.via == "codex"
-        context.getBean(Journal).readCompleteFrom(journalFile, 0).entries().size() == 1
+        context.getBean(Journal).readAfter(stateDir, 0).entries().size() == 1
     }
 
     void "the originating client's own turn is never pushed to it"() {
@@ -128,6 +136,6 @@ class AppendOperatorSpec extends CommandSpec {
 
         expect:
         run("append", "--from", "operator", "--repo", plain.toString(), "--via", "claude", "--body-file", text.toString()) == ExitCode.OK
-        Files.exists(plain.resolve(".sideband/journal.md"))
+        Files.exists(plain.resolve(".sideband/sideband.db"))
     }
 }

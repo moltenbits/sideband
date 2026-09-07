@@ -6,23 +6,21 @@ import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 import java.util.List;
 
 /**
- * The result of reading complete entries.
+ * The result of reading entries after a position.
  *
- * @param start       the offset the read began at
- * @param end         the offset just past the last consumed byte; the next read should start here
- * @param entries     well-formed entries in physical order
- * @param diagnostics malformed regions that were skipped
+ * @param start   the position the read began after
+ * @param end     the position of the last entry read, or {@code start} when there was none; the next read starts after it
+ * @param entries the entries in order
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Read(long start, long end, List<Entry> entries, List<Diagnostic> diagnostics) {
+public record Read(long start, long end, List<Entry> entries) {
 
     public Read {
         entries = List.copyOf(entries);
-        diagnostics = List.copyOf(diagnostics);
     }
 
-    public static Read empty(long offset) {
-        return new Read(offset, offset, List.of(), List.of());
+    public static Read empty(long position) {
+        return new Read(position, position, List.of());
     }
 
     public boolean isEmpty() {

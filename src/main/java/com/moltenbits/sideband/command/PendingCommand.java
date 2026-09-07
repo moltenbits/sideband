@@ -3,7 +3,6 @@ package com.moltenbits.sideband.command;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
-import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
@@ -62,7 +61,7 @@ public class PendingCommand implements Callable<Integer> {
     @Option(names = "--stream", description = "With --wait: keep listening forever, one report per batch. A waited report never advances the read position; a plain pending does")
     boolean stream;
 
-    @Option(names = "--from", hidden = true, description = "Byte offset to watch from (default: the session's read position)")
+    @Option(names = "--from", hidden = true, description = "Position to watch from (default: the session's read position)")
     Long from;
 
     @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
@@ -106,13 +105,12 @@ public class PendingCommand implements Callable<Integer> {
         if (!wait) {
             return print(stateDirectory, who, true, ExitCode.OK);
         }
-        Path file = stateDirectory.resolve(Journal.FILE_NAME);
         Predicate<Entry> wanted = entry -> Addressing.concerns(entry.metadata(), who) && entry.metadata().type() != MessageType.ACK;
         long offset = from != null ? from : sessions.load(stateDirectory, who).map(Session::offset).orElse(0L);
         Duration timeout = stream ? IDLE_RECHECK : timeoutSeconds == null ? null : Duration.ofSeconds(timeoutSeconds);
         int limit = stream ? maxBatches == null ? Integer.MAX_VALUE : maxBatches : 1;
         for (int reports = 0; reports < limit;) {
-            Waited waited = watcher.await(file, offset, timeout, wanted);
+            Waited waited = watcher.await(stateDirectory, offset, timeout, wanted);
             offset = waited.read().end();
             if (waited.timedOut()) {
                 if (stream) {

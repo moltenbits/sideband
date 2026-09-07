@@ -6,7 +6,6 @@ import com.moltenbits.sideband.ancestry.InvalidLineageException;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.DeliveryPolicy;
-import com.moltenbits.sideband.protocol.EntryMetadata;
 import io.micronaut.serde.ObjectMapper;
 import jakarta.inject.Singleton;
 
@@ -14,10 +13,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 
 @Singleton
 class LineageHandoffs implements Handoffs {
@@ -33,15 +29,11 @@ class LineageHandoffs implements Handoffs {
     }
 
     @Override
-    public List<Handoff> prepare(Path journalFile, List<Entry> entries) {
+    public List<Handoff> prepare(Path stateDirectory, List<Entry> entries) {
         if (entries.isEmpty()) {
             return List.of();
         }
-        Map<String, EntryMetadata> byId = new HashMap<>();
-        for (Entry entry : journal.readCompleteFrom(journalFile, 0).entries()) {
-            byId.put(entry.metadata().id(), entry.metadata());
-        }
-        EntryIndex index = id -> Optional.ofNullable(byId.get(id));
+        EntryIndex index = id -> journal.find(stateDirectory, id).map(Entry::metadata);
         List<Handoff> handoffs = new ArrayList<>();
         for (Entry entry : entries) {
             try {

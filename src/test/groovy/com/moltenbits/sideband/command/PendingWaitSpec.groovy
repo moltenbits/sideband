@@ -16,10 +16,11 @@ import java.util.concurrent.TimeUnit
 class PendingWaitSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path journalFile = repo.resolve(".git/sideband/journal.md")
+    Path stateDir = repo.resolve(".git/sideband")
+    Path journalFile = stateDir.resolve("sideband.db")
 
     def setup() {
-        Files.createDirectories(journalFile.parent)
+        Files.createDirectories(stateDir)
     }
 
     List<Map> lines() {
@@ -37,10 +38,10 @@ class PendingWaitSpec extends CommandSpec {
 
         when:
         Thread.sleep(300)
-        journal.append(journalFile, Fixtures.humanDraft("@codex not for claude", [Fixtures.CODEX]))
-        journal.append(journalFile, Fixtures.humanDraft("@claude first", [Fixtures.CLAUDE], Role.CODEX))
+        journal.append(stateDir, Fixtures.humanDraft("@codex not for claude", [Fixtures.CODEX]))
+        journal.append(stateDir, Fixtures.humanDraft("@claude first", [Fixtures.CLAUDE], Role.CODEX))
         Thread.sleep(400)
-        journal.append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+        journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "second"))
         int code = streaming.get(15, TimeUnit.SECONDS)
 
@@ -72,14 +73,14 @@ class PendingWaitSpec extends CommandSpec {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         Journal journal = context.getBean(Journal)
-        journal.append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+        journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "already here"))
         stdout = new StringWriter()
 
         expect:
         run("pending", "--repo", repo.toString(), "--role", "claude", "--wait", "--timeout", "5") == ExitCode.OK
         json().updates*.body == ["already here"]
-        json().end == Files.size(journalFile)
+        json().end == context.getBean(Journal).end(stateDir)
 
         when: "the plain pending afterwards is the read that marks it shown, exactly once"
         stdout = new StringWriter()
@@ -97,13 +98,13 @@ class PendingWaitSpec extends CommandSpec {
     void "--wait ignores acks and entries for the other role"() {
         given:
         Journal journal = context.getBean(Journal)
-        journal.append(journalFile, Fixtures.humanDraft("@codex one", [Fixtures.CODEX]))
-        journal.append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.ACK,
+        journal.append(stateDir, Fixtures.humanDraft("@codex one", [Fixtures.CODEX]))
+        journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.ACK,
                 replyTo: "019a", causedBy: null, expectsReply: false, body: "received"))
 
         expect:
         run("pending", "--repo", repo.toString(), "--role", "claude", "--wait", "--timeout", "0") == ExitCode.TIMED_OUT
-        json().end == Files.size(journalFile)
+        json().end == context.getBean(Journal).end(stateDir)
     }
 
     void "--wait with --timeout gives up with the timed-out code, still printing the report, without advancing"() {
@@ -120,7 +121,7 @@ class PendingWaitSpec extends CommandSpec {
     void "a report that could not be written does not advance the read position"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        context.getBean(Journal).append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+        context.getBean(Journal).append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "fragile"))
         def cli = com.moltenbits.sideband.SidebandCommand.commandLine(context)
         cli.out = new PrintWriter(new Writer() {
@@ -149,7 +150,7 @@ class PendingWaitSpec extends CommandSpec {
     void "a waited report that could not be written ends the command with the I/O code, one-shot or streaming"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        context.getBean(Journal).append(journalFile, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
+        context.getBean(Journal).append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "fragile"))
         def cli = com.moltenbits.sideband.SidebandCommand.commandLine(context)
         cli.out = new PrintWriter(new Writer() {

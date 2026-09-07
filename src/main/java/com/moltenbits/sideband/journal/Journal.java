@@ -3,35 +3,33 @@ package com.moltenbits.sideband.journal;
 import com.moltenbits.sideband.protocol.Draft;
 
 import java.nio.file.Path;
+import java.util.Optional;
 
 /**
- * The append-only journal shared by every Sideband participant.
- * <p>
- * Each entry is an HTML-comment metadata block, a generated heading, the body, and a
- * closing marker. The body's byte length is recorded in the metadata, so a body may
- * contain anything, including another complete entry.
+ * The append-only journal shared by every Sideband participant: every entry ever written,
+ * in the order it was written. Each entry has a position, the sequence number the store
+ * assigned when it was appended; positions only grow, so a reader that remembers the last
+ * one it saw asks for everything after it.
  */
 public interface Journal {
-
-    /** The file name of the journal inside the state directory. */
-    String FILE_NAME = "journal.md";
 
     /** The protocol version this implementation writes and the only one it reads. */
     String PROTOCOL_VERSION = "v1";
 
     /**
      * Assigns an identifier and timestamp to the draft and appends it as one complete
-     * entry, serialized against concurrent writers. An incomplete fragment left by a
-     * crashed writer is closed with an abort marker first; existing bytes are never changed.
+     * entry, serialized against concurrent writers.
      *
-     * @throws com.moltenbits.sideband.locking.LockTimeoutException when another writer holds the lock for too long
+     * @throws com.moltenbits.sideband.store.BusyException when another writer holds the store for too long
      */
-    Entry append(Path file, Draft draft);
+    Entry append(Path stateDirectory, Draft draft);
 
-    /**
-     * Reads every complete, well-formed entry that starts at or after {@code offset}.
-     * Malformed entries are reported as diagnostics and skipped. An incomplete trailing
-     * entry is never returned; {@link Read#end()} stops before it.
-     */
-    Read readCompleteFrom(Path file, long offset);
+    /** Every entry whose position is greater than {@code position}, in order. */
+    Read readAfter(Path stateDirectory, long position);
+
+    /** The entry with the given identifier, when it exists. */
+    Optional<Entry> find(Path stateDirectory, String id);
+
+    /** The position of the last entry, or zero when there is none. */
+    long end(Path stateDirectory);
 }

@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /**
  * Everything a writer supplies for a new entry. The journal assigns the identifier,
- * timestamp, and body length when it appends the draft.
+ * timestamp, and position when it appends the draft.
  */
 public record Draft(
         ParticipantId from,
