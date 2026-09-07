@@ -1,0 +1,52 @@
+# Runs on every pull request against main, never on plain pushes: main only
+# changes through pull requests, and this is the check that gates them.
+name: Pull request
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pull-request-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: JVM tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run the Spock suite
+        run: ./gradlew test
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          if-no-files-found: ignore
+
+  native:
+    name: Native executable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build the native image
+        run: ./gradlew nativeCompile
+      - name: Smoke-test the executable
+        run: |
+          ./build/native/nativeCompile/sideband --version
+          ./build/native/nativeCompile/sideband --help > /dev/null
