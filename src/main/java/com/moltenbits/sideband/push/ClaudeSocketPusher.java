@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -144,7 +145,48 @@ class ClaudeSocketPusher implements HostPusher {
      * message; the display names here contain none of those.
      */
     static String attributed(ParticipantId from, String text) {
-        return "<cross-session-message from-name=\"" + from.displayName() + "\">\n" + text + "\n</cross-session-message>";
+        return "<cross-session-message from-name=\"" + from.displayName() + "\">\n" + canonical(text) + "\n</cross-session-message>";
+    }
+
+    /**
+     * Where Claude Code would see the closing tag inside the envelope: an opening bracket or
+     * one of the lookalikes it lists, then anything but a name character, then a slash or a
+     * lookalike, then the tag name in any case with invisible characters allowed between its
+     * letters, and then not a name character. Its own serializer escapes such a bracket, and
+     * it recognizes only text that its serializer would leave alone.
+     */
+    private static final Pattern CLOSING_TAG_INSIDE = Pattern.compile(
+            "[<\\u02C2\\u1438\\u2039\\u226E\\u227A\\u22D6\\u2329\\u276C\\u276E\\u2770\\u27E8\\u29FC\\u3008\\uFE64\\uFF1C]"
+                    + "(?=[^A-Za-z0-9_\\-]*[/\\u2044\\u2215\\uFF0F][^A-Za-z0-9_\\-]*"
+                    + spaced("cross-session-message") + "(?:[^A-Za-z0-9_\\-]|$))",
+            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+
+    /** The tag name as a pattern: each letter, with invisible characters allowed between them and any dash for its hyphens. */
+    private static String spaced(String name) {
+        String invisible = "[\\p{Cf}\\p{Cc}\\p{Mn}\\p{Me}\\u2028\\u2029]*";
+        String dash = "[\\-\\p{Pd}\\u2212\\u207B\\u208B\\u02D7\\u2796\\u2043\\u30FC\\uFF70]";
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < name.length(); i++) {
+            if (i > 0) {
+                out.append(invisible);
+            }
+            char c = name.charAt(i);
+            out.append(c == '-' ? dash : String.valueOf(c));
+        }
+        return out.toString();
+    }
+
+    /**
+     * The envelope with every bracket that would read as the closing tag spelled as the JSON
+     * escape of that character. The envelope is the marker line and then JSON, in which the
+     * six-character escape of a bracket is a legal spelling of it: a reader decoding the
+     * entries gets every body back unchanged, and Claude Code's serializer, which escapes
+     * only a literal bracket, would leave the text as it is, so it recognizes the frame.
+     * Brackets anywhere else, generics and markup among them, stay as they are, so the
+     * envelope reads as it was written. The Sideband journal never sees this spelling.
+     */
+    static String canonical(String envelope) {
+        return CLOSING_TAG_INSIDE.matcher(envelope).replaceAll(match -> String.format("\\\\u%04x", (int) match.group().charAt(0)));
     }
 
     /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */

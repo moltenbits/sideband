@@ -743,6 +743,17 @@ entry author's display name, so the message is attributed to Codex or the
 operator rather than to an anonymous session. The Claude adapter tells the
 model to trust that name and `metadata.from` over the introduction.
 
+Claude Code recognizes only text its own serializer would leave alone, and
+that serializer escapes any opening bracket, or lookalike, that begins the
+closing tag inside the body, however cased or padded with invisible
+characters. An entry quoting the closing tag would otherwise arrive
+unattributed. So the writer spells such a bracket inside the envelope as its
+JSON escape (`\u003c`), which is the same text once the JSON is decoded: every
+entry body reaches the model unchanged, the journal never sees the spelling,
+and brackets anywhere else are left as written. The prompt hook skips a prompt
+that begins with this tag, as it skips the bare marker, because Claude Code
+hands a pushed envelope to the hook as if it were typed.
+
 Claude Code applies its inbound controls to the frame: a message whose sender
 attests no permission mode is held for the operator's approval in a
 bypass-permissions session unless `crossSessionInbound` is `accept`. Claude

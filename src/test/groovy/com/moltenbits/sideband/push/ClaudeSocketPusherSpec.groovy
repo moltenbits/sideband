@@ -141,6 +141,65 @@ class ClaudeSocketPusherSpec extends Specification {
         "claude"   | "Claude"
     }
 
+    /**
+     * What Claude Code 2.1.263 accepts as its own frame: the exact tag form, and a body its
+     * serializer would leave alone. That serializer escapes any opening bracket, or lookalike,
+     * that begins the closing tag, however the tag is cased or padded with invisible characters.
+     */
+    static final java.util.regex.Pattern HOST_FORM = ~/(?s)^<cross-session-message from-name="([^"<>\n\r]+)">\n(.*)\n<\/cross-session-message>$/
+    static final java.util.regex.Pattern HOST_WOULD_ESCAPE = ~/(?iu)[<\u02C2\uFF1C\u2039](?!\\)[^A-Za-z0-9_\-]*[\/\uFF0F][^A-Za-z0-9_\-]*c[\p{Cf}]*r[\p{Cf}]*o[\p{Cf}]*s[\p{Cf}]*s[\p{Cf}]*-[\p{Cf}]*s[\p{Cf}]*e[\p{Cf}]*s[\p{Cf}]*s[\p{Cf}]*i[\p{Cf}]*o[\p{Cf}]*n[\p{Cf}]*-[\p{Cf}]*m[\p{Cf}]*e[\p{Cf}]*s[\p{Cf}]*s[\p{Cf}]*a[\p{Cf}]*g[\p{Cf}]*e(?:[^A-Za-z0-9_\-]|$)/
+
+    void "a closing tag quoted in an entry body is spelled so Claude Code still recognizes the frame, and decodes unchanged: #label"() {
+        given: "a real envelope: the marker line, then JSON whose entry body quotes the closing tag"
+        ObjectMapper mapper = context.getBean(ObjectMapper)
+        String envelope = "[Sideband message]\n" + mapper.writeValueAsString([intent: "Sideband delivery", entries: [[body: body]]])
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(4244, repo, socket)
+
+        when:
+        pusher.push(state, CODEX, envelope)
+        String content = mapper.readValue(received.get(), Map).message.content
+        def form = HOST_FORM.matcher(content)
+
+        then: "the tag is the exact form, named for the author"
+        form.matches()
+        form.group(1) == "Codex"
+
+        and: "the host's serializer would leave the inner text alone, so the host recognizes it"
+        !HOST_WOULD_ESCAPE.matcher(form.group(2)).find()
+
+        and: "the inner text is still the marker and JSON, and the entry body decodes to what was written"
+        form.group(2).startsWith("[Sideband message]\n{")
+        mapper.readValue(form.group(2).substring("[Sideband message]\n".length()), Map).entries[0].body == body
+
+        where:
+        label              | body
+        "plain"            | "the frame ends with </cross-session-message> and Claude Code parses it"
+        "upper case"       | "or </CROSS-SESSION-MESSAGE> in any case"
+        "padded"           | "or < /cross-session-message> with filler after the bracket"
+        "fullwidth"        | "or \uFF1C/cross-session-message> with a lookalike bracket"
+        "invisible"        | "or </cross\u200B-session-message> with a zero-width space inside the name"
+        "at the very end"  | "or </cross-session-message"
+    }
+
+    void "brackets that do not begin the closing tag are left as written, so the envelope reads as it was"() {
+        given:
+        ObjectMapper mapper = context.getBean(ObjectMapper)
+        String body = "List<String> and <b>bold</b> and </cross-session-messages> and <cross-session-message> stay"
+        String envelope = "[Sideband message]\n" + mapper.writeValueAsString([entries: [[body: body]]])
+        Path socket = socketPath()
+        def received = inbox(socket)
+        register(4245, repo, socket)
+
+        when:
+        pusher.push(state, CODEX, envelope)
+        String content = mapper.readValue(received.get(), Map).message.content
+
+        then:
+        content == "<cross-session-message from-name=\"Codex\">\n" + envelope + "\n</cross-session-message>"
+    }
+
     void "no registered session for this repository leaves the entry for backlog"() {
         given: "a session in another repository, and one registered under a working directory that no longer exists"
         register(1, TempRepo.init(), socketPath())
