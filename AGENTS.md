@@ -68,6 +68,28 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
 
 ## Build
 
+- **jOOQ's shared reachability metadata never applies here.** The GraalVM
+  metadata repository's entries for `org.jooq:jooq` are conditioned on
+  `org_jooq.jooq.JooqTest`, a class that exists only in the repository's own
+  test image, so a native build with jOOQ on the classpath fails at run time in
+  `SQLDataType.<clinit>` with a `NullPointerException` from
+  `DefaultDataType` (measured with jOOQ 3.21.6, GraalVM 25.0.4, metadata
+  repository 1.1.2). Workaround: `src/main/resources/META-INF/native-image/`
+  ships a `reflect-config.json` registering the array class of every type
+  `SQLDataType` declares; regenerate it from `javap` on `SQLDataType` when
+  jOOQ is upgraded.
+- **Changing the SQLite journal mode per connection fails under contention.**
+  sqlite-jdbc applies `PRAGMA journal_mode` while opening a connection, and
+  SQLite answers `SQLITE_BUSY` at once, without the busy handler, when another
+  connection is mid-write (measured: 8 threads appending, one writer lost).
+  The store therefore never sets a journal mode and relies on the default
+  rollback journal plus the busy timeout.
+- **sqlite-jdbc extracts its native library on every run.** The driver writes
+  `libsqlitejdbc` to a fresh temporary file each process and macOS inspects
+  the new file before loading it, which cost ~200 ms of a ~250 ms command. The
+  store caches one copy under `$XDG_CACHE_HOME/sideband/sqlite-jdbc-<version>/`
+  (default `~/.cache`) and points the driver at it through
+  `org.sqlite.lib.path`; a warm command takes ~40 ms, the first one ~1 s.
 - **The skill instructions are embedded in the executable.** `build.gradle.kts`
   copies `skills/` into the resources, so a change under `skills/` needs
   `just install` before the installed hooks and skills reflect it.

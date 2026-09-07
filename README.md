@@ -50,7 +50,7 @@ flowchart LR
     end
     subgraph Sideband
         Bin["sideband executable"]
-        Journal[("journal.md")]
+        Journal[("sideband.db")]
     end
 
     Operator -- tasks --> Claude
@@ -60,33 +60,40 @@ flowchart LR
     Bin <-- "append, read" --> Journal
 ```
 
-The executable is the only thing that parses or writes the journal, takes the
-append lock, resolves routing, checks provenance, or touches a session record. The
+The executable is the only thing that reads or writes the journal, resolves
+routing, checks provenance, or touches a session record. The
 skills contain no logic of their own: the installed `SKILL.md` files are stubs
 that run `sideband skill`, which prints the adapter instructions embedded in
 the executable, so upgrading the binary upgrades both adapters.
 
 ### The journal
 
-`journal.md` is a Markdown file that stays readable by a person. Each entry is
-a metadata comment, a heading naming author and recipients, the verbatim body,
-and a closing marker:
+`sideband.db` is one SQLite database in the state directory holding every
+entry and both roles' session records. An entry is its metadata plus the
+verbatim body; every command prints it as JSON, and `sideband log` prints the
+whole discussion as Markdown for a person to read:
 
 ```markdown
-<!-- sideband:v1
-{"id":"…","created_at":"…","from":"operator","via":"claude","to":["codex"],"type":"request","route":"direct","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":31}
--->
-
 ## Operator → Codex (via Claude)
 
+- position: 12
+- id: …
+- created: 2026-09-07T18:07:52-05:00
+- type: request (expects a reply)
+- to: codex
+
 @codex review the locking behavior.
-<!-- /sideband -->
+
+---
 ```
 
-Entries are immutable and appended under a lock, so two clients writing at
-once never interleave. Byte offsets are the addressing scheme: a session
-records the journal size when it joins as its watermark, and everything after
-it is live.
+Entries are immutable and inserted in transactions that SQLite serializes
+across processes, so two clients writing at once never interleave. Positions
+are the addressing scheme: each entry gets the next sequence number, a session
+records the last position when it joins as its watermark, and everything
+after it is live. A state directory from before the database (`journal.md`
+and `sessions/`) is imported once, on first contact, and its files can then
+be deleted.
 
 ### How each client is reached
 
@@ -197,6 +204,7 @@ just install          # builds the native executable and puts it on PATH
 cd <your repository>
 sideband init         # private state directory, both skills, the capture hook
 sideband doctor       # paths, versions, discussion health, sessions, skill links
+sideband log          # the discussion as Markdown, oldest first
 ```
 
 `init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
@@ -260,7 +268,7 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
 `! sideband pending`. Commands print one JSON object, except that `skill`
-prints Markdown, `--help` prints text, the hook follows its host's contract
+and `log` print Markdown, `--help` prints text, the hook follows its host's contract
 and may print nothing, and the streaming `pending --wait --stream` prints one
 report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
 contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
