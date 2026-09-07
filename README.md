@@ -129,10 +129,17 @@ settings, and changing them takes effect the next time `/sideband` runs.
 Codex has no such registry. It records its thread id when it joins, and the
 writer pushes the envelope into that thread with `codex queue`. That address
 follows you: `/clear` in Codex starts a new thread and leaves the old one
-loaded, where a queued envelope would run unseen, so a session-start hook
-moves the role to the new thread the moment you clear, and the prompt hook
-does the same whenever a prompt you type comes from a thread other than the
-recorded one. Only your own input moves it; a delivered envelope never does.
+loaded, where a queued envelope would run unseen, so the hooks move the role
+to the new thread: the session-start hook when Codex runs it for the clear,
+and the prompt hook whenever a prompt you type comes from a thread other
+than the recorded one. Only your own input moves it; a delivered envelope
+never does. One window remains. Codex runs both hooks only when you submit
+your first prompt in the new thread, not at the clear itself, and nothing
+outside Codex can learn the new thread's id before then (Codex exposes no
+query for the thread on screen, and its lock files do not track it). So
+**after `/clear` in Codex, type one prompt before expecting delivery**. An
+entry pushed in between goes to the old thread, which still handles it and
+journals its reply; you just do not see it, and `sideband pending` shows it.
 The same hooks run in Claude Code, where the socket is found by process and
 the move is only bookkeeping.
 
@@ -230,9 +237,11 @@ Codex gives hook shells no environment markers. Nothing else about the
 caller matters: a prompt is recorded for its client's role whenever that
 role has joined here, whichever conversation or process is running the hook,
 so restarting a client needs nothing. Clearing a context is handled by the
-hooks described above: the role follows you into the new conversation, and
-that conversation opens with a note saying Sideband is live there and how
-many entries addressed to it need attention, acknowledged ones included.
+hooks described above: the role follows you into the new conversation at
+your first prompt there, and that conversation opens with a note saying
+Sideband is live there and how many entries addressed to it need attention,
+acknowledged ones included. In Codex, type that first prompt before you
+expect anything to be delivered to the new thread.
 
 ## Use
 

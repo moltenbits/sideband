@@ -264,15 +264,29 @@ is registered under each client's `SessionStart` event with the matcher
 `clear`: a clear replaces the conversation on screen with a new one before
 any prompt is typed, and the old conversation may live on inside the client,
 where a push addressed to it would run unseen. The session-start hook moves
-the joined role to the new conversation at once and tells it, through the
-context field, that Sideband is live there and how many entries addressed
+the joined role to the new conversation when the host runs it and tells it,
+through the context field, that Sideband is live there and how many entries addressed
 to it need attention, counting requests it acknowledged and has not yet
 answered, since the ack is the one thing the new conversation has forgotten.
 `init` places the handler under the `clear` matcher and moves one it finds
 under any other matcher, where it would never fire; `doctor` reports a
 handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
 record alone: they keep the conversation the role is in, or are a new client
-whose first prompt claims the role through the prompt hook. Registration for a client is added only once that client's hook
+whose first prompt claims the role through the prompt hook.
+
+The hooks cannot close the window between a clear and the first prompt in
+Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new
+thread at the clear but runs the session-start hook, with source `clear`,
+only when the first prompt is submitted there, in the same instant as the
+prompt hook; nothing runs in between, and no supported query, event, or
+file reveals the thread on screen to an external process. An entry pushed
+in that window is queued into the old thread, which handles it and journals
+its reply unseen. The accepted behavior is therefore: after `/clear` in
+Codex, the operator types one prompt before expecting delivery, and the
+skills and README say so. Resolving the on-screen thread from Codex's
+thread-writer lock files was rejected: a resumed thread keeps its original
+lock time, ephemeral threads take no lock, forks and side threads take
+their own, and a crash leaves stale ones. Registration for a client is added only once that client's hook
 contract has been verified against its official documentation
 (section 17.2).
 
@@ -1534,8 +1548,21 @@ matcher on `source`; `hookSpecificOutput.additionalContext` on stdout) and on
 the installed Claude Code 2.1.263, whose binary declares the same event with
 sources `startup`, `resume`, `clear`, `compact` and `fork`, matches the
 matcher against `source`, and reads `additionalContext` from the same output
-shape. Codex must trust the new registration through `/hooks` before it runs;
-a live clear in each client is the remaining check.
+shape. Codex must trust the new registration through `/hooks` before it runs.
+
+Live clear in Codex (2026-09-07, with a logging shim in front of the
+executable): `/clear` created the new thread and its writer lock at once
+and ran no hook; the first prompt in the new thread ran the session-start
+hook (source `clear`, new thread id, transcript path) and the prompt hook
+in the same instant, and the record moved. Two entries pushed between the
+clear and that prompt were queued into the old thread and answered there.
+Codex confirmed from the installed binary's generated app-server protocol
+that no request or notification names the displayed thread, that
+`codex queue` accepts only a thread id or exact session name, that the
+in-process server of a running TUI has no attachable socket, and measured
+the lock-file behavior recorded in section 7.1. Codex trusts hooks per
+definition hash; after `init` rewrote `.codex/hooks.json`, no Sideband hook
+ran in Codex until James re-trusted them through `/hooks`.
 
 Neither is a release blocker for the Claude Code path.
 
