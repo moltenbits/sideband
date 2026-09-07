@@ -18,7 +18,7 @@ jobs:
     name: JVM tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: graalvm/setup-graalvm@v1
         with:
           # The 25.3 line, matching .sdkmanrc (25.3.4+1.r25-graal); java-version
@@ -26,12 +26,12 @@ jobs:
           version: '25.3'
           java-version: '25'
           distribution: 'graalvm'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Run the Spock suite
         run: ./gradlew test
       - name: Keep the test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-report
           path: build/reports/tests/test
@@ -41,7 +41,7 @@ jobs:
     name: Native executable
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: graalvm/setup-graalvm@v1
         with:
           # The 25.3 line, matching .sdkmanrc (25.3.4+1.r25-graal); java-version
@@ -49,7 +49,7 @@ jobs:
           version: '25.3'
           java-version: '25'
           distribution: 'graalvm'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
       - name: Build the native image
         run: ./gradlew nativeCompile
       - name: Smoke-test the executable
