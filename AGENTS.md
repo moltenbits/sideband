@@ -20,7 +20,7 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   not lost: it is handled by the old thread and its reply is recorded in the
   discussion, just not shown in the new conversation. `sideband pending` does
   not replay Codex's completed replies.
-- **There is no way to find the thread on screen from outside.** Codex's
+- **No supported displayed-thread lookup was found in the tested TUI setup.** Codex's
   generated app-server protocol has no request or notification for a client's
   displayed thread; `codex queue` takes only a thread id or exact session
   name; the running TUI's in-process server had no attachable socket in the
