@@ -1605,7 +1605,10 @@ release blocker until implementation reaches the affected feature boundary.
 ## 18. Executable command contract
 
 Every state-changing or reporting command prints one JSON document on stdout;
-the exceptions are `skill` without `--eject`, which prints the adapter
+the exceptions are `init` and `doctor`, which print reports for a person to
+read (`init`: where the state lives, what was installed, and what to do next;
+`doctor`: versions, paths, database health, sessions, and the client items),
+`skill` without `--eject`, which prints the adapter
 instructions as Markdown, `log`, which prints the discussion as Markdown,
 `--help`, which prints text, `hook prompt`, whose
 output follows the host's hook contract, and `pending --wait --stream`, which
@@ -1622,7 +1625,7 @@ hidden overrides for tests. `append --from` is the one visible author flag:
 override for tests.
 
 ```text
-sideband init [--skip-clients]                     # state directory, both skill stubs, both hook registrations
+sideband init [--skip-clients]                     # state directory and database, both skill stubs, both hook registrations
 sideband join [--resume]                           # start this client's session, taking the role over; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
 sideband append --type request --to <role> --caused-by <id> [--body-file <path>]
