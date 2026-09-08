@@ -270,13 +270,3 @@ just test             # Spock suite on the JVM
 just check            # tests plus the native build, the pre-commit gate
 just run doctor       # run any command on the JVM without a native build
 ```
-
-Java for main sources, Groovy and Spock for tests, Gradle for the build. The
-design and its reasoning are in [REQUIREMENTS.md](REQUIREMENTS.md).
-
-Commands print one JSON object, except that `init` and `doctor` print
-reports for a person to read, `skill` and `log` print Markdown, `--help`
-prints text, the hook follows its host's contract and may print nothing, and
-the streaming `pending --wait --stream` prints one report per line. Exit
-codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
-6 timed out. Codes 3 and 7 are retired.
