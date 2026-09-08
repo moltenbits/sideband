@@ -20,16 +20,15 @@ class InitAndDoctorSpec extends CommandSpec {
 
     void "init creates the state directory, installs both skills and the hook, and append --from operator journals the operator"() {
         when:
-        Map init = runJson("init", "--repo", repo.toString(), "--home", home.toString())
+        int code = run("init", "--repo", repo.toString(), "--home", home.toString())
 
         then:
-        init.state_directory == repo.toRealPath().resolve(".git/sideband").toString()
-        init.clients.skills*.state == ["installed", "installed"]
-        init.clients.hook.state == "added"
-        init.clients.inbound.state == "missing"
-        init.clients.inbound.note.contains("accept in " + home.resolve(".claude/settings.json"))
+        code == ExitCode.OK
+        Files.isDirectory(repo.resolve(".git/sideband"))
         Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
+        Files.exists(home.resolve(".agents/skills/sideband/SKILL.md"))
         Files.exists(repo.resolve(".claude/settings.json"))
+        Files.exists(repo.resolve(".codex/hooks.json"))
 
         when:
         Map captured = runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file",
@@ -55,12 +54,11 @@ class InitAndDoctorSpec extends CommandSpec {
         Path plain = Files.createDirectories(TempRepo.plainDirectory().resolve("nested/work"))
 
         when:
-        Map init = runJson("init", "--repo", plain.toString(), "--home", home.toString())
+        int initialised = run("init", "--repo", plain.toString(), "--home", home.toString())
 
         then:
-        init.state_directory == plain.toRealPath().resolve(".sideband").toString()
+        initialised == ExitCode.OK
         Files.isDirectory(plain.resolve(".sideband"))
-        init.clients.hook.state == "added"
         Files.exists(plain.resolve(".claude/settings.json"))
         Files.exists(plain.resolve(".codex/hooks.json"))
         !Files.exists(plain.getParent().resolve(".claude"))
@@ -97,7 +95,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
     void "doctor reports database health, sessions, and pending counts"() {
         given:
-        runJson("init", "--repo", repo.toString(), "--skip-clients")
+        run("init", "--repo", repo.toString(), "--skip-clients")
         runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
 
