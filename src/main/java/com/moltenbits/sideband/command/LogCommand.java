@@ -69,6 +69,10 @@ public class LogCommand implements Callable<Integer> {
             out.print(render(entry));
         }
         out.flush();
+        if (out.checkError()) {
+            spec.commandLine().getErr().println("sideband log: could not write the output");
+            return ExitCode.IO_FAILURE;
+        }
         return ExitCode.OK;
     }
 

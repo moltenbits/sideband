@@ -166,6 +166,33 @@ class SqliteJournalSpec extends Specification {
         read.entries()*.metadata()*.id().toSet().size() == writers * perWriter
     }
 
+    void "a state directory named with URI-significant characters gets its own database at exactly that path"() {
+        given: "two directories a raw jdbc:sqlite pathname would read as one database plus pragmas"
+        Path parent = Files.createTempDirectory("odd names")
+        Path first = Files.createDirectory(parent.resolve("question?busy_timeout=1"))
+        Path second = Files.createDirectory(parent.resolve("question?busy_timeout=2"))
+        Path third = Files.createDirectory(parent.resolve("hash# percent%20 caf\u00e9"))
+        Journal shared = context.getBean(Journal)
+
+        when:
+        Entry a = shared.append(first, Fixtures.humanDraft("first"))
+        Entry b = shared.append(second, Fixtures.humanDraft("second"))
+        Entry c = shared.append(third, Fixtures.humanDraft("third"))
+
+        then:
+        [a, b, c]*.seq() == [1L, 1L, 1L]
+        Files.exists(first.resolve(Store.FILE_NAME))
+        Files.exists(second.resolve(Store.FILE_NAME))
+        Files.exists(third.resolve(Store.FILE_NAME))
+        !Files.exists(parent.resolve("question"))
+        shared.readAfter(first, 0).entries()*.body() == ["first"]
+        shared.readAfter(second, 0).entries()*.body() == ["second"]
+        shared.readAfter(third, 0).entries()*.body() == ["third"]
+        shared.find(first, a.metadata().id()).isPresent()
+        shared.find(second, a.metadata().id()).isEmpty()
+        shared.end(third) == 1
+    }
+
     void "a writer that cannot get the lock in time reports contention rather than corrupting anything"() {
         given: "another connection holds the write lock across the whole wait"
         journal.append(directory, Fixtures.humanDraft())

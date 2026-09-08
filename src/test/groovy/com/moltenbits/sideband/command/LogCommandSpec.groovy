@@ -1,9 +1,11 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.Fixtures
+import com.moltenbits.sideband.SidebandCommand
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.MessageType
+import picocli.CommandLine
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -91,6 +93,22 @@ done
         run("log", "--repo", empty.toString()) == ExitCode.OK
         stdout.toString().isEmpty()
         !Files.exists(empty.resolve(".git/sideband/sideband.db"))
+    }
+
+    void "an output that cannot be written is an I/O failure, not a success"() {
+        given:
+        context.getBean(Journal).append(state, Fixtures.humanDraft("something to print", [Fixtures.CODEX]))
+        CommandLine cli = SidebandCommand.commandLine(context)
+        cli.out = new PrintWriter(new Writer() {
+            void write(char[] buffer, int offset, int length) throws IOException { throw new IOException("pipe closed") }
+            void flush() throws IOException { throw new IOException("pipe closed") }
+            void close() { }
+        })
+        cli.err = new PrintWriter(stderr, true)
+
+        expect:
+        cli.execute("log", "--repo", repo.toString()) == ExitCode.IO_FAILURE
+        stderr.toString().contains("could not write the output")
     }
 
     void "negative ranges are invalid input"() {

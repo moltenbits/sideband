@@ -938,7 +938,8 @@ Version one does not provide:
 - MCP-based transport.
 - Non-interactive client driving through `claude -p`, `codex exec`, or resume
   automation.
-- A database or graphical user interface.
+- A database server or a graphical user interface; the embedded database is
+  a file in the state directory that only the executable opens.
 - Multiple simultaneous sessions of the same client role in one repository.
 - Session-specific routing or presence heartbeats.
 - Exactly-once delivery.

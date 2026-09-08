@@ -66,7 +66,9 @@ final class SidebandDataSource implements DataSource {
         config.setBusyTimeout((int) busyTimeout.toMillis());
         // A transaction takes the write lock as it begins, so a read inside it never has to upgrade.
         config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE);
-        return config.createConnection("jdbc:sqlite:" + file(stateDirectory));
+        // As a file URI: a raw pathname after jdbc:sqlite: is split on ? and read for pragmas,
+        // so a directory named question?busy_timeout=1 would open a database called question.
+        return config.createConnection("jdbc:sqlite:" + file(stateDirectory).toUri());
     }
 
     @Override
