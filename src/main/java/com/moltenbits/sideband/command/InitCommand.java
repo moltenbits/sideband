@@ -56,12 +56,13 @@ public class InitCommand implements Callable<Integer> {
         Path stateDirectory = repository.stateDirectory(home);
         InstallReport clients = skipClients ? null : installer.install(homeDirectory, home.projectRoot(stateDirectory));
         PrintWriter out = spec.commandLine().getOut();
-        out.print(render(stateDirectory, clients));
+        out.print(render(stateDirectory, clients, homeDirectory.resolve(".claude/settings.json")));
         out.flush();
         return ExitCode.OK;
     }
 
-    static String render(Path stateDirectory, @Nullable InstallReport clients) {
+    /** @param userSettings the Claude Code user settings file, the only place that can grant acceptance of pushes */
+    static String render(Path stateDirectory, @Nullable InstallReport clients, Path userSettings) {
         StringBuilder text = new StringBuilder();
         text.append("Sideband is set up in ").append(stateDirectory).append("\n\n");
         if (clients == null) {
@@ -77,10 +78,16 @@ public class InitCommand implements Callable<Integer> {
 
         List<String> steps = new ArrayList<>();
         steps.add("In Codex, run /hooks and trust the Sideband hook definitions; Codex skips a hook until you do.");
-        if (!"installed".equals(clients.inbound().state())) {
-            steps.add("Set crossSessionInbound to accept in " + clients.inbound().path()
+        Item inbound = clients.inbound();
+        if (!"installed".equals(inbound.state())) {
+            String step = "Set crossSessionInbound to accept in " + userSettings
                     + " (or /config, \"Messages from your other sessions\") so pushes reach Claude Code;"
-                    + " until then Claude listens instead.");
+                    + " until then Claude listens instead.";
+            if (!userSettings.toString().equals(inbound.path())) {
+                step += " The repository's " + inbound.path() + " also restricts it (" + inbound.state()
+                        + "); a repository file can only tighten the user setting, so loosen it there too.";
+            }
+            steps.add(step);
         }
         steps.add("Start a discussion: /sideband in Claude Code, $sideband in Codex.");
         text.append("\nNext steps:\n");

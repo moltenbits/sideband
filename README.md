@@ -106,8 +106,9 @@ executable. Ejecting again is refused so your edits survive, unless you pass
 `--force`. Delete the file and rerun `sideband init` to go back.
 
 Any command runs directly from the prompt with no model turn: in Claude Code,
-`! sideband pending`. Commands print one JSON object, except that `skill`
-and `log` print Markdown, `--help` prints text, the hook follows its host's contract
+`! sideband pending`. Commands print one JSON object, except that `init`
+prints a report for the person running it, `skill` and `log` print
+Markdown, `--help` prints text, the hook follows its host's contract
 and may print nothing, and the streaming `pending --wait --stream` prints one
 report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
 contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.

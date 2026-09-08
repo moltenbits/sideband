@@ -5,8 +5,9 @@ directory. This adapter is the Claude Code side. Everything protocol-related
 lives in the `sideband` executable (`just install` puts it in `~/.local/bin`);
 this file only says when to call it and what to do with the results.
 
-Commands print one JSON object on stdout, except `skill` and `log`, which
-print Markdown, and use these exit codes: 0 ok,
+Commands print one JSON object on stdout, except `init`, which prints a
+report for the person running it, and `skill` and `log`, which print
+Markdown, and use these exit codes: 0 ok,
 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out; 3 and 7 are
 retired. Bodies travel through
 `--body-file` or stdin, never as an argument. Every command resolves the

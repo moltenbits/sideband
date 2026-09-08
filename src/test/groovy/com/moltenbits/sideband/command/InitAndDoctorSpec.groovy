@@ -39,6 +39,21 @@ class InitAndDoctorSpec extends CommandSpec {
         context.getBean(Journal).readAfter(repo.resolve(".git/sideband"), 0).entries()*.body() == ["hello"]
     }
 
+    void "init tells the user to accept pushes in the user settings, never in a repository file that only tightens them"() {
+        given: "no user setting, and a repository file holding pushes"
+        Files.createDirectories(repo.resolve(".claude"))
+        Files.writeString(repo.resolve(".claude/settings.local.json"), '{"crossSessionInbound":"hold"}')
+
+        when:
+        int code = run("init", "--repo", repo.toString(), "--home", home.toString())
+        String step = stdout.toString().readLines().find { it.contains("crossSessionInbound") }
+
+        then:
+        code == ExitCode.OK
+        step.contains("accept in " + home.resolve(".claude/settings.json"))
+        step.contains(repo.toRealPath().resolve(".claude/settings.local.json").toString())
+    }
+
     void "append --from operator works without init because nothing about the operator is configured"() {
         when:
         int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file",
