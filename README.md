@@ -19,14 +19,14 @@ native image, and everything a client runs is a subcommand of it.
   - [2.1 Claude Code](#21-claude-code)
   - [2.2 Codex](#22-codex)
   - [2.3 Talk](#23-talk)
-- [3. What it does](#3-what-it-does)
-- [4. How the pieces fit](#4-how-the-pieces-fit)
-  - [4.1 The journal](#41-the-journal)
-  - [4.2 How each client is reached](#42-how-each-client-is-reached)
-  - [4.3 What init sets up](#43-what-init-sets-up)
-  - [4.4 One task, two agents](#44-one-task-two-agents)
-  - [4.5 What is waiting for a role](#45-what-is-waiting-for-a-role)
-- [5. Development](#5-development)
+- [3. How it works](#3-how-it-works)
+  - [3.1 What it does](#31-what-it-does)
+  - [3.2 The journal](#32-the-journal)
+  - [3.3 Claude Code](#33-claude-code)
+  - [3.4 Codex](#34-codex)
+  - [3.5 One task, two agents](#35-one-task-two-agents)
+  - [3.6 What is waiting for a role](#36-what-is-waiting-for-a-role)
+- [4. Development](#4-development)
 
 ## 1. Install
 
@@ -122,7 +122,45 @@ other and reply on their own, and `sideband log` shows the whole discussion:
 @all read the requirements before we start
 ```
 
-## 3. What it does
+## 3. How it works
+
+The executable is the only thing that reads or writes the journal, resolves
+routing, checks provenance, or touches a session record. The skills contain
+no logic of their own: the installed `SKILL.md` files are stubs that run
+`sideband skill`, which prints the adapter instructions embedded in the
+executable, so upgrading the binary upgrades both adapters. To edit the
+instructions yourself, run `sideband skill --eject` inside the client; that
+writes them into the client's `SKILL.md`, which is then yours and stops
+updating with the executable. Ejecting again is refused so your edits
+survive, unless you pass `--force`; delete the file and rerun `sideband init`
+to go back.
+
+Whoever appends an entry pushes the complete envelope into the recipient's
+running session, which starts a new turn there when the session is idle; the
+recipient reads the entry from that message and acts on it directly. Every
+envelope and every `pending` report begin with an `intent` field that says
+only "Sideband delivery; use the Sideband skill (/sideband) for handling
+instructions". That is what lets a conversation whose context was cleared, or
+one that never joined, find the skill and handle what arrives.
+
+The hooks are the only thing that records prompts: `init` registers
+`sideband hook prompt` under each client's `UserPromptSubmit` and
+`sideband hook session-start` under `SessionStart` with the matcher `clear`,
+each naming its client with `--agent claude` or `--agent codex` because both
+hosts send the same payload and Codex gives hook shells no environment
+markers. A prompt is recorded for its client's role whenever that role has
+joined here, whichever conversation or process is running the hook, so
+restarting a client needs nothing; when a hook cannot record, it tells the
+model to tell you, and no client records a prompt on its behalf. Clearing a
+context is handled by the same hooks: the role follows you into the new
+conversation at your first prompt there, and that conversation opens with a
+note saying Sideband is live there and how many entries addressed to it need
+attention, acknowledged ones included. `doctor` reports each client's
+registration as missing when the file is absent or holds no Sideband
+command, stale when it is incomplete or has the session-start command under
+another matcher, and installed otherwise.
+
+### 3.1 What it does
 
 - **Agents delegate to each other and reply.** Claude asks Codex to review
   a change, Codex asks Claude to explain a design, either reports status.
@@ -135,7 +173,7 @@ other and reply on their own, and `sideband log` shows the whole discussion:
   the other's work for as long as the human's request stands.
 - **Delivery wakes the idle recipient** in its existing conversation, without
   any model tokens spent waiting. Each client is reached the way its host
-  allows, described below.
+  allows, described in 3.3 and 3.4.
 - **The human is a participant, not a transport.** Every prompt typed into
   either client is journaled verbatim and attributed to the human. Normally
   each agent is spoken to in its own session; `@codex` at the start of a
@@ -150,39 +188,12 @@ other and reply on their own, and `sideband log` shows the whole discussion:
   Whoever joins as a role last holds it; one client per role per repository is
   a convention the operator keeps, not something the executable polices.
 
-## 4. How the pieces fit
-
-```mermaid
-flowchart LR
-    Operator(["Operator"])
-    subgraph Agents
-        Claude["Claude Code"]
-        Codex["Codex"]
-    end
-    subgraph Sideband
-        Bin["sideband executable"]
-        Journal[("sideband.db")]
-    end
-
-    Operator -- tasks --> Claude
-    Operator -- tasks --> Codex
-    Claude <-- "commands, wake-ups" --> Bin
-    Codex <-- "commands, wake-ups" --> Bin
-    Bin <-- "append, read" --> Journal
-```
-
-The executable is the only thing that reads or writes the journal, resolves
-routing, checks provenance, or touches a session record. The
-skills contain no logic of their own: the installed `SKILL.md` files are stubs
-that run `sideband skill`, which prints the adapter instructions embedded in
-the executable, so upgrading the binary upgrades both adapters.
-
-### 4.1 The journal
+### 3.2 The journal
 
 `sideband.db` is one SQLite database in the state directory holding every
 entry and both roles' session records. An entry is its metadata plus the
-verbatim body; every command prints it as JSON, and `sideband log` prints the
-whole discussion as Markdown for a person to read:
+verbatim body, and `sideband log` prints the whole discussion as Markdown for
+a person to read:
 
 ```markdown
 ## Operator → Codex (via Claude)
@@ -205,14 +216,11 @@ records the last position when it joins as its watermark, and everything
 after it is live. A state directory from before the database still holds
 `journal.md` and `sessions/`; nothing reads them, and they can be deleted.
 
-### 4.2 How each client is reached
+### 3.3 Claude Code
 
-Whoever appends an entry pushes the complete envelope into the recipient's
-running session, which starts a new turn there when the session is idle; the
-recipient reads the entry from that message and acts on it directly. Neither
-client needs a listener for that, though Claude keeps one as a fallback,
-described below.
-
+`init` installs the skill under `~/.claude/skills/sideband` and registers
+both hooks in the repository's `.claude/settings.json`. In Claude Code the
+hooks are only bookkeeping, because the session is found by process:
 Claude Code registers every session in `~/.claude/sessions/<pid>.json` with
 its working directory and an inbox socket, the channel its own cross-session
 messaging uses. The writer finds the registered session working in this
@@ -229,130 +237,69 @@ the shape Claude Code's own cross-session messaging uses, a
 message's origin, so the envelope arrives named for its author: Codex, or the
 operator, rather than an anonymous session.
 
-The socket is used whenever it can be, and the executable falls back to a
-listener when it cannot. Claude Code delivers such a frame only when your
-user settings accept cross-session messages (section 1.2); otherwise it
-would hold every one for your approval. So each time an entry for Claude is
-appended, the executable checks your settings: if they accept, it posts the
-frame; if not, it posts nothing and reports that Claude's listener delivers.
-The Claude skill makes the same check when it activates, through
-`sideband doctor`, and starts a listener only in the second case: one
-persistent Monitor on `sideband pending --wait --stream`, a native process
-that blocks on the journal and prints one line per batch of new entries;
-the host turns each line into a notification, and Claude then reads the
-entries with `sideband pending`. Nothing is configured for this beyond your
-settings, and changing them takes effect the next time `/sideband` runs.
+One setting is yours to make (section 1.2), and without it Claude falls
+back to listening. A pushed envelope reaches Claude Code from a process that
+is not the session's own child, and a session run with bypass permissions
+holds such a message for your approval unless `crossSessionInbound` is
+`accept` in your user settings, `~/.claude/settings.json` (or `/config`,
+"Messages from your other sessions"). Claude Code lets a repository's
+`.claude/settings.json` and `.claude/settings.local.json` only tighten that
+value, so `init` does not write it; `doctor` reports whether pushes will be
+delivered, held, or refused, names the file that decided, and says where
+accept must go. Managed settings and `--settings`, which it cannot read, take
+the place of your user file as the base; a repository's tightening still
+applies over them.
 
-Codex has no such registry. It records its thread id when it joins, and the
-writer pushes the envelope into that thread with `codex queue`. That address
-follows you: `/clear` in Codex starts a new thread and leaves the old one
-loaded, where a queued envelope would run unseen, so the hooks move the role
-to the new thread: the session-start hook when Codex runs it for the clear,
-and the prompt hook whenever a prompt you type comes from a thread other
-than the recorded one. Only your own input moves it; a delivered envelope
-never does. One window remains. Codex runs both hooks only when you submit
-your first prompt in the new thread, not at the clear itself, and in the
-tested Codex 0.153.4 TUI setup Sideband has no supported way to identify
+The socket is used whenever it can be, and the executable falls back to a
+listener when it cannot. Each time an entry for Claude is appended, the
+executable checks your settings: if they accept, it posts the frame; if not,
+it posts nothing and reports that Claude's listener delivers. The Claude
+skill makes the same check when it activates, through `sideband doctor`, and
+starts a listener only in the second case: one persistent Monitor on
+`sideband pending --wait --stream`, a native process that blocks on the
+journal and prints one line per batch of new entries; the host turns each
+line into a notification, and Claude then reads the entries with
+`sideband pending`. Nothing is configured for this beyond your settings, and
+changing them takes effect the next time `/sideband` runs.
+
+### 3.4 Codex
+
+`init` installs the skill under `~/.agents/skills/sideband` and registers
+both hooks in the repository's `.codex/hooks.json`. Codex runs a hook only
+once you have trusted it through `/hooks` (section 1.3), and again whenever
+`init` adds or changes a definition: Codex binds trust to each definition's
+hash and skips an untrusted definition, while an unchanged, already trusted
+one keeps running. Codex warns at startup when hooks need review, but
+`doctor` checks registration, not host trust, so a skipped hook looks
+installed to it. The trust entries land in your Codex `config.toml`.
+
+Codex has no session registry. It records its thread id when it joins, and
+the writer pushes the envelope into that thread with `codex queue`. That
+address follows you: `/clear` in Codex starts a new thread and leaves the old
+one loaded, where a queued envelope would run unseen, so the hooks move the
+role to the new thread: the session-start hook when Codex runs it for the
+clear, and the prompt hook whenever a prompt you type comes from a thread
+other than the recorded one. Only your own input moves it; a delivered
+envelope never does. One window remains. Codex runs both hooks only when you
+submit your first prompt in the new thread, not at the clear itself, and in
+the tested Codex 0.153.4 TUI setup Sideband has no supported way to identify
 the thread on screen during that window. So **after `/clear` in Codex, type
 one prompt before expecting delivery**. An entry pushed in between can be
 handled by the old thread and its reply recorded in the Sideband discussion
 without appearing in the new conversation. `pending` lists unanswered work
 and unread incoming updates; it does not replay Codex's completed replies.
-The same hooks run in Claude Code, where the socket is found by process and
-the move is only bookkeeping.
 
-Every envelope and every `pending` report begin with an `intent` field that
-says only "Sideband delivery; use the Sideband skill (/sideband) for handling
-instructions". That is what lets a conversation whose context was cleared, or
-one that never joined, find the skill and handle what arrives.
+### 3.5 One task, two agents
 
-### 4.3 What init sets up
-
-`init` creates the private state directory with its database, installs the
-skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers two commands in the repository's `.claude/settings.json` and
-`.codex/hooks.json`, each naming its client with `--agent claude` or
-`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
-`sideband hook session-start` under `SessionStart` with the matcher `clear`.
-Rerunning it is safe. `doctor` reports each client's registration as
-missing when the file is absent or holds no Sideband command, stale when it
-is incomplete or has the session-start command under another matcher, and
-installed otherwise.
-
-One setting is yours to make, and without it Claude falls back to listening.
-A pushed envelope reaches Claude Code from a process that is not the
-session's own child, and a session run with bypass permissions holds such a
-message for your approval unless `crossSessionInbound` is `accept` in your
-user settings,
-`~/.claude/settings.json` (or `/config`, "Messages from your other
-sessions"). Claude Code lets a repository's `.claude/settings.json` and
-`.claude/settings.local.json` only tighten that value, so `init` does not
-write it; `doctor` reports whether pushes will be delivered, held, or refused,
-names the file that decided, and says where accept must go. Managed settings
-and `--settings`, which it cannot read, take the place of your user file as
-the base; a repository's tightening still applies over them.
-In Codex, review and trust the hooks through `/hooks`, and again whenever
-`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
-trust to each definition's hash and skips an untrusted definition; an
-unchanged, already trusted one keeps running. Codex warns at startup when
-hooks need review, but `doctor` checks registration, not host trust, so a
-skipped hook looks installed to it. After trusting, type one prompt to
-refresh the current delivery address. The trust entries land in your Codex
-`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
-setting in section 1.2.
-
-The hook is the only thing that records prompts: when it cannot, it tells
-the model to tell you, and no client records a prompt on its behalf. The
-registration names the client because both hosts send the same payload and
-Codex gives hook shells no environment markers. Nothing else about the
-caller matters: a prompt is recorded for its client's role whenever that
-role has joined here, whichever conversation or process is running the hook,
-so restarting a client needs nothing. Clearing a context is handled by the
-hooks described above: the role follows you into the new conversation at
-your first prompt there, and that conversation opens with a note saying
-Sideband is live there and how many entries addressed to it need attention,
-acknowledged ones included. In Codex, type that first prompt before you
-expect anything to be delivered to the new thread.
-
-The installed skills are stubs that read their instructions from the
-executable, so a new release updates both. To edit the instructions yourself,
-eject them inside the client; that writes them into the client's `SKILL.md`,
-which is then yours and stops updating with the executable. Ejecting again
-is refused so your edits survive, unless you pass `--force`; delete the file
-and rerun `sideband init` to go back:
-
-```bash
-sideband skill --eject
-```
-
-Commands print one JSON object, except that `init` and `doctor` print
-reports for a person to read, `skill` and `log` print Markdown, `--help`
-prints text, the hook follows its host's contract and may print nothing, and
-the streaming `pending --wait --stream` prints one report per line. Exit
-codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
-6 timed out. Codes 3 and 7 are retired.
-
-### 4.4 One task, two agents
-
-```mermaid
-sequenceDiagram
-    actor Operator
-    participant Claude as Claude Code
-    participant SB as sideband
-    participant Codex
-
-    Operator->>Claude: "Add retries to the uploader, have Codex review the tests"
-    Claude->>SB: hook prompt, which journals the prompt as a request from the operator
-    Note over Claude: Claude implements the change
-    Claude->>SB: append --to codex --type request --caused-by (the operator's entry)
-    SB->>Codex: codex queue starts a turn with the envelope
-    Note over Codex: Codex acknowledges, then reviews the tests and runs them
-    Codex->>SB: append --type ack --reply-to (the request)
-    Codex->>SB: append --type reply --reply-to (the request)
-    SB->>Claude: the envelope is posted to Claude Code's inbox socket, starting a turn
-    Note over Claude: Claude fixes what Codex found
-    Claude->>Operator: The change, with Codex's review folded in
-```
+The operator tells Claude: "Add retries to the uploader, have Codex review
+the tests." The prompt hook journals that as a request from the operator.
+Claude implements the change, then appends a request to Codex that names the
+operator's entry as its cause, and the executable queues the envelope into
+Codex's thread, starting a turn there. Codex acknowledges, reviews and runs
+the tests, and appends its reply to the request; the executable posts that
+envelope to Claude Code's inbox socket, starting a turn there. Claude fixes
+what Codex found and hands the operator the change with the review folded
+in.
 
 The request carries `--caused-by`, naming the human entry that authorized the
 delegation, and the reply carries `--reply-to`, naming the request. Nothing
@@ -361,7 +308,7 @@ its own session at any point, including to redirect the review while Claude
 was still waiting for it. Waiting costs nothing: Claude's conversation stays
 free for the operator until the reply arrives.
 
-### 4.5 What is waiting for a role
+### 3.6 What is waiting for a role
 
 Nothing about it is stored. `pending` derives it from the journal on every
 read: a request is open until the role's ack exists and in progress until its
@@ -371,7 +318,7 @@ no deadline; the sender decides what to do. The only thing a role keeps beside
 the journal is its session record, identity and how far it has read, so
 informational updates are shown once.
 
-## 5. Development
+## 4. Development
 
 ```bash
 just test             # Spock suite on the JVM
@@ -381,3 +328,10 @@ just run doctor       # run any command on the JVM without a native build
 
 Java for main sources, Groovy and Spock for tests, Gradle for the build. The
 design and its reasoning are in [REQUIREMENTS.md](REQUIREMENTS.md).
+
+Commands print one JSON object, except that `init` and `doctor` print
+reports for a person to read, `skill` and `log` print Markdown, `--help`
+prints text, the hook follows its host's contract and may print nothing, and
+the streaming `pending --wait --stream` prints one report per line. Exit
+codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
+6 timed out. Codes 3 and 7 are retired.
