@@ -1,0 +1,182 @@
+# Runs when a version tag is pushed. Builds the native executable on each
+# supported platform, publishes them all on one GitHub release, then writes
+# the Homebrew formula in moltenbits/homebrew-tap so `brew upgrade` sees it.
+# A tag with a hyphen (v1.1.0-rc1) is a pre-release and leaves the tap alone.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-15
+          - target: macos-x86_64
+            runner: macos-15-intel
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+      - name: Build the native executable
+        run: ./gradlew nativeCompile -Pversion=${{ steps.version.outputs.version }}
+      - name: Smoke-test the executable
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          bin=$PWD/build/native/nativeCompile/sideband
+          "$bin" --version | tee /dev/stderr | grep -Fx "sideband $VERSION (protocol v1)"
+          repo=$(mktemp -d)
+          git -C "$repo" init -q
+          "$bin" init --skip-clients --repo "$repo" > /dev/null
+          echo "claude: release smoke test" | "$bin" append --repo "$repo" --from operator > /dev/null
+          "$bin" log --repo "$repo" | grep -F "release smoke test"
+          "$bin" doctor --repo "$repo" | grep -F '"integrity":"ok"'
+      - name: Package
+        env:
+          ARCHIVE: sideband-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz
+        run: |
+          mkdir -p dist
+          tar -C build/native/nativeCompile -czf "dist/$ARCHIVE" sideband
+          shasum -a 256 "dist/$ARCHIVE"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*.tar.gz
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Output SHA256
+        run: |
+          {
+            echo "### Release Artifacts"
+            echo ""
+            echo '```'
+            shasum -a 256 dist/*.tar.gz
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  update-homebrew:
+    name: Homebrew formula
+    needs: release
+    runs-on: ubuntu-latest
+    if: ${{ !contains(github.ref, '-') }}
+    steps:
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+      - name: Get each archive's SHA256 from the release
+        id: sha256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for target in macos-arm64 macos-x86_64 linux-x86_64 linux-arm64; do
+            sha=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
+              --jq ".assets[] | select(.name == \"sideband-${VERSION}-${target}.tar.gz\") | .digest" \
+              | sed 's/^sha256://')
+            if ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{64}'; then
+              echo "::error::no sha256 digest for sideband-${VERSION}-${target}.tar.gz on release v${VERSION}"; exit 1
+            fi
+            echo "${target}=${sha}" >> "$GITHUB_OUTPUT"
+          done
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v7
+        with:
+          repository: moltenbits/homebrew-tap
+          token: ${{ secrets.HOMEBREW_CASK_TOKEN }}
+          path: homebrew-tap
+      - name: Update formula
+        run: |
+          mkdir -p homebrew-tap/Formula
+          cat > homebrew-tap/Formula/sideband.rb << 'EOF'
+          class Sideband < Formula
+            desc "Local, durable, tridirectional communication between a human, Claude Code, and Codex"
+            homepage "https://github.com/moltenbits/sideband"
+            version "${{ steps.version.outputs.version }}"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-macos-arm64.tar.gz"
+                sha256 "${{ steps.sha256.outputs.macos-arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-macos-x86_64.tar.gz"
+                sha256 "${{ steps.sha256.outputs.macos-x86_64 }}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-linux-arm64.tar.gz"
+                sha256 "${{ steps.sha256.outputs.linux-arm64 }}"
+              end
+              on_intel do
+                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-linux-x86_64.tar.gz"
+                sha256 "${{ steps.sha256.outputs.linux-x86_64 }}"
+              end
+            end
+
+            def install
+              bin.install "sideband"
+            end
+
+            test do
+              assert_match "sideband #{version}", shell_output("#{bin}/sideband --version")
+              repo = testpath/"repo"
+              system "git", "init", "-q", repo
+              system bin/"sideband", "init", "--skip-clients", "--repo", repo
+              pipe_output("#{bin}/sideband append --repo #{repo} --from operator", "claude: brew test\n")
+              assert_match "brew test", shell_output("#{bin}/sideband log --repo #{repo}")
+            end
+          end
+          EOF
+
+          echo "Updated Formula/sideband.rb:"
+          cat homebrew-tap/Formula/sideband.rb
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/sideband.rb
+          git commit -m "sideband ${{ steps.version.outputs.version }}"
+          git push

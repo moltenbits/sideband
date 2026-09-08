@@ -196,10 +196,23 @@ informational updates are shown once.
 
 ## Install
 
-Requires a GraalVM JDK with `native-image` and [just](https://github.com/casey/just).
+From the moltenbits Homebrew tap, on macOS or Linux, Apple silicon or x86_64:
+
+```bash
+brew tap moltenbits/tap
+brew install sideband
+```
+
+Or from source, which needs a GraalVM JDK with `native-image` and
+[just](https://github.com/casey/just):
 
 ```bash
 just install          # builds the native executable and puts it on PATH
+```
+
+Then, either way:
+
+```bash
 cd <your repository>
 sideband init         # private state directory, both skills, the capture hook
 sideband doctor       # paths, versions, discussion health, sessions, skill links
