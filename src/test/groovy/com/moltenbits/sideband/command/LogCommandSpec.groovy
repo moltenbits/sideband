@@ -7,6 +7,7 @@ import com.moltenbits.sideband.protocol.MessageType
 
 import java.nio.file.Files
 import java.nio.file.Path
+import java.time.format.DateTimeFormatter
 
 /** `sideband log` is the readable form of the discussion: Markdown on stdout, nothing else. */
 class LogCommandSpec extends CommandSpec {
@@ -36,7 +37,7 @@ class LogCommandSpec extends CommandSpec {
 
 - position: 1
 - id: ${first.metadata().id()}
-- created: ${first.metadata().createdAt()}
+- created: ${DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(first.metadata().createdAt())}
 - type: request (expects a reply)
 - to: codex
 
@@ -51,7 +52,7 @@ class LogCommandSpec extends CommandSpec {
 
 - position: 2
 - id: ${reply.metadata().id()}
-- created: ${reply.metadata().createdAt()}
+- created: ${DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(reply.metadata().createdAt())}
 - type: reply
 - to: claude, operator
 - reply_to: ${first.metadata().id()}
