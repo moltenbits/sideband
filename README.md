@@ -196,7 +196,7 @@ informational updates are shown once.
 
 ## Install
 
-From the moltenbits Homebrew tap, on macOS or Linux, Apple silicon or x86_64:
+From the moltenbits Homebrew tap, on Apple silicon or on Linux (x86_64 or arm64):
 
 ```bash
 brew tap moltenbits/tap
