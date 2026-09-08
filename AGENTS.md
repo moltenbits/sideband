@@ -85,10 +85,10 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   inspects the new file before loading it. Probe: `DYLD_PRINT_LIBRARIES=1
   sideband pending` shows the temporary path; `/usr/bin/time` put a warm
   command at ~250 ms, ~40 ms with `-Dorg.sqlite.lib.path` pointing at a copy
-  extracted once. The store caches one copy under
-  `$XDG_CACHE_HOME/sideband/sqlite-jdbc-<version>/` (default `~/.cache`) and
-  points the driver at it through `org.sqlite.lib.path`; the first command on
-  a machine takes ~1 s to write it.
+  extracted once. The store keeps one copy in the state directory, beside the
+  database, named `sqlite-jdbc-<version>-libsqlitejdbc.<ext>`, and points the
+  driver at it through `org.sqlite.lib.path`; the first command in a
+  repository takes ~1 s to write it.
 - **The skill instructions are embedded in the executable.** `build.gradle.kts`
   copies `skills/` into the resources, so a change under `skills/` needs
   `just install` before the installed hooks and skills reflect it.

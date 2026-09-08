@@ -61,7 +61,7 @@ final class SidebandDataSource implements DataSource {
         if (stateDirectory == null) {
             throw new IllegalStateException("no state directory entered on this thread");
         }
-        library.prepare();
+        library.prepare(stateDirectory);
         SQLiteConfig config = new SQLiteConfig();
         config.setBusyTimeout((int) busyTimeout.toMillis());
         // A transaction takes the write lock as it begins, so a read inside it never has to upgrade.

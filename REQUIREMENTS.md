@@ -113,11 +113,13 @@ The layout is:
 
 ```text
 <git-common-dir>/sideband/
-└── sideband.db
+├── sideband.db
+└── sqlite-jdbc-<version>-libsqlitejdbc.<ext>
 ```
 
 `sideband.db` is one SQLite database holding the journal and both roles'
-session records. SQLite's own locking serializes access to it; no lock file
+session records. Beside it the executable keeps the SQLite native library the
+driver loads, written once so no command extracts it again. SQLite's own locking serializes access to it; no lock file
 exists beside it. A state directory written before the database existed held
 `journal.md`, `sessions/<role>.json`, and `journal.lock`; nothing reads those
 files any more, and they may be deleted.

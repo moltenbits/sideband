@@ -1,6 +1,5 @@
 package com.moltenbits.sideband.store;
 
-import io.micronaut.context.annotation.Value;
 import jakarta.inject.Singleton;
 import org.sqlite.SQLiteJDBCLoader;
 import org.sqlite.util.LibraryLoaderUtil;
@@ -12,46 +11,41 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 /**
- * Keeps one copy of SQLite's native library per user and version, so the driver loads it
- * in place instead of extracting a fresh copy to a temporary file on every command. The
- * extraction and the operating system's first look at a new library cost more than the
- * rest of a command put together; a hook pays that on every prompt.
+ * Keeps one copy of SQLite's native library in the state directory, beside the database,
+ * so the driver loads it in place instead of extracting a fresh copy to a temporary file
+ * on every command. The extraction and the operating system's first look at a new library
+ * cost more than the rest of a command put together; a hook pays that on every prompt.
  * <p>
- * The copy lives under the user's cache directory ({@code $XDG_CACHE_HOME}, else
- * {@code ~/.cache}), keyed by the driver version so an upgrade never loads a stale
- * library. When the cache cannot be written the driver's own extraction still works.
+ * The file is named with the driver version so an upgrade never loads a stale library.
+ * When it cannot be written the driver's own extraction still works.
  */
 @Singleton
 final class NativeLibrary {
 
-    private final Path cacheDirectory;
     private boolean prepared;
 
-    NativeLibrary(@Value("${sideband.cache-directory:}") String cacheDirectory) {
-        this.cacheDirectory = cacheDirectory == null || cacheDirectory.isBlank()
-                ? defaultCacheDirectory()
-                : Path.of(cacheDirectory);
+    /** The file the library is kept in, inside the state directory. */
+    static Path file(Path stateDirectory) {
+        return stateDirectory.resolve("sqlite-jdbc-" + SQLiteJDBCLoader.getVersion() + "-" + LibraryLoaderUtil.getNativeLibName());
     }
 
-    /** The directory the library is kept in: the cache, then the driver version. */
-    Path directory() {
-        return cacheDirectory.resolve("sideband").resolve("sqlite-jdbc-" + SQLiteJDBCLoader.getVersion());
-    }
-
-    /** Points the driver at the cached library, writing it first when it is not there yet. Idempotent. */
-    synchronized void prepare() {
+    /**
+     * Points the driver at the library in {@code stateDirectory}, writing it first when it is
+     * not there yet. The driver loads a library once per process, so this happens once per
+     * process too: the first state directory a process opens is where it loads from.
+     */
+    synchronized void prepare(Path stateDirectory) {
         if (prepared) {
             return;
         }
         prepared = true;
-        String name = LibraryLoaderUtil.getNativeLibName();
-        Path library = directory().resolve(name);
+        Path library = file(stateDirectory);
         try {
             if (!Files.exists(library)) {
                 write(library);
             }
             System.setProperty("org.sqlite.lib.path", library.getParent().toString());
-            System.setProperty("org.sqlite.lib.name", name);
+            System.setProperty("org.sqlite.lib.name", library.getFileName().toString());
         } catch (IOException | RuntimeException e) {
             // Leave the driver to its own extraction; slower, never wrong.
         }
@@ -59,8 +53,7 @@ final class NativeLibrary {
 
     /** Writes the bundled library beside its final name and moves it into place, so a concurrent reader never sees a partial file. */
     private static void write(Path library) throws IOException {
-        Files.createDirectories(library.getParent());
-        String resource = LibraryLoaderUtil.getNativeLibResourcePath() + "/" + library.getFileName();
+        String resource = LibraryLoaderUtil.getNativeLibResourcePath() + "/" + LibraryLoaderUtil.getNativeLibName();
         try (InputStream in = NativeLibrary.class.getResourceAsStream(resource)) {
             if (in == null) {
                 throw new IOException("no bundled library at " + resource);
@@ -73,12 +66,5 @@ final class NativeLibrary {
                 Files.deleteIfExists(temp);
             }
         }
-    }
-
-    private static Path defaultCacheDirectory() {
-        String xdg = System.getenv("XDG_CACHE_HOME");
-        return xdg == null || xdg.isBlank()
-                ? Path.of(System.getProperty("user.home"), ".cache")
-                : Path.of(xdg);
     }
 }
