@@ -11,6 +11,107 @@ Nothing leaves the machine. There is no daemon, no server, no MCP bridge, and
 no interpreter: `sideband` is a Micronaut application compiled to a GraalVM
 native image, and everything a client runs is a subcommand of it.
 
+- [Install](#install)
+- [Use](#use)
+- [What it does](#what-it-does)
+- [How the pieces fit](#how-the-pieces-fit)
+  - [The journal](#the-journal)
+  - [How each client is reached](#how-each-client-is-reached)
+  - [One task, two agents](#one-task-two-agents)
+  - [What is waiting for a role](#what-is-waiting-for-a-role)
+- [Development](#development)
+
+## Install
+
+From the moltenbits Homebrew tap, on Apple silicon or on Linux (x86_64 or arm64):
+
+```bash
+brew tap moltenbits/tap
+brew install sideband
+```
+
+Or from source, which needs a GraalVM JDK with `native-image` and
+[just](https://github.com/casey/just):
+
+```bash
+just install          # builds the native executable and puts it on PATH
+```
+
+Then, either way:
+
+```bash
+cd <your repository>
+sideband init         # private state directory, both skills, the capture hook
+sideband doctor       # paths, versions, discussion health, sessions, skill links
+sideband log          # the discussion as Markdown, oldest first
+```
+
+`init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
+and registers two commands in the repository's `.claude/settings.json` and
+`.codex/hooks.json`, each naming its client with `--agent claude` or
+`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
+`sideband hook session-start` under `SessionStart` with the matcher `clear`.
+Rerunning it is safe. `doctor` reports each client's registration as
+missing when the file is absent or holds no Sideband command, stale when it
+is incomplete or has the session-start command under another matcher, and
+installed otherwise.
+
+One setting is yours to make, and without it Claude falls back to listening.
+A pushed envelope reaches Claude Code from a process that is not the
+session's own child, and a session run with bypass permissions holds such a
+message for your approval unless `crossSessionInbound` is `accept` in your
+user settings,
+`~/.claude/settings.json` (or `/config`, "Messages from your other
+sessions"). Claude Code lets a repository's `.claude/settings.json` and
+`.claude/settings.local.json` only tighten that value, so `init` does not
+write it; `doctor` reports whether pushes will be delivered, held, or refused,
+names the file that decided, and says where accept must go. Managed settings
+and `--settings`, which it cannot read, take the place of your user file as
+the base; a repository's tightening still applies over them.
+In Codex, review and trust the hooks through `/hooks`, and again whenever
+`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
+trust to each definition's hash and skips an untrusted definition; an
+unchanged, already trusted one keeps running. Codex warns at startup when
+hooks need review, but `doctor` checks registration, not host trust, so a
+skipped hook looks installed to it. After trusting, type one prompt to
+refresh the current delivery address. The trust entries land in your Codex
+`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
+setting above.
+
+The hook is the only thing that records prompts: when it cannot, it tells
+the model to tell you, and no client records a prompt on its behalf. The
+registration names the client because both hosts send the same payload and
+Codex gives hook shells no environment markers. Nothing else about the
+caller matters: a prompt is recorded for its client's role whenever that
+role has joined here, whichever conversation or process is running the hook,
+so restarting a client needs nothing. Clearing a context is handled by the
+hooks described above: the role follows you into the new conversation at
+your first prompt there, and that conversation opens with a note saying
+Sideband is live there and how many entries addressed to it need attention,
+acknowledged ones included. In Codex, type that first prompt before you
+expect anything to be delivered to the new thread.
+
+## Use
+
+In Claude Code, `/sideband` joins the discussion; in Codex, `$sideband`. From
+then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
+start of a prompt routes it. The skills also accept `help`, `status`,
+`pending`, and `off` after the command name.
+
+The installed skills are stubs that read their instructions from the
+executable, so a new release updates both. To edit the instructions yourself,
+run `sideband skill --eject` inside the client: it writes them into that
+client's `SKILL.md`, which is then yours and stops updating with the
+executable. Ejecting again is refused so your edits survive, unless you pass
+`--force`. Delete the file and rerun `sideband init` to go back.
+
+Any command runs directly from the prompt with no model turn: in Claude Code,
+`! sideband pending`. Commands print one JSON object, except that `skill`
+and `log` print Markdown, `--help` prints text, the hook follows its host's contract
+and may print nothing, and the streaming `pending --wait --stream` prints one
+report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
+contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
+
 ## What it does
 
 - **Agents delegate to each other and reply.** Claude asks Codex to review
@@ -193,97 +294,6 @@ received and then answered, and how long it has been silent since. There is
 no deadline; the sender decides what to do. The only thing a role keeps beside
 the journal is its session record, identity and how far it has read, so
 informational updates are shown once.
-
-## Install
-
-From the moltenbits Homebrew tap, on Apple silicon or on Linux (x86_64 or arm64):
-
-```bash
-brew tap moltenbits/tap
-brew install sideband
-```
-
-Or from source, which needs a GraalVM JDK with `native-image` and
-[just](https://github.com/casey/just):
-
-```bash
-just install          # builds the native executable and puts it on PATH
-```
-
-Then, either way:
-
-```bash
-cd <your repository>
-sideband init         # private state directory, both skills, the capture hook
-sideband doctor       # paths, versions, discussion health, sessions, skill links
-sideband log          # the discussion as Markdown, oldest first
-```
-
-`init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers two commands in the repository's `.claude/settings.json` and
-`.codex/hooks.json`, each naming its client with `--agent claude` or
-`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
-`sideband hook session-start` under `SessionStart` with the matcher `clear`.
-Rerunning it is safe. `doctor` reports each client's registration as
-missing when the file is absent or holds no Sideband command, stale when it
-is incomplete or has the session-start command under another matcher, and
-installed otherwise.
-
-One setting is yours to make, and without it Claude falls back to listening.
-A pushed envelope reaches Claude Code from a process that is not the
-session's own child, and a session run with bypass permissions holds such a
-message for your approval unless `crossSessionInbound` is `accept` in your
-user settings,
-`~/.claude/settings.json` (or `/config`, "Messages from your other
-sessions"). Claude Code lets a repository's `.claude/settings.json` and
-`.claude/settings.local.json` only tighten that value, so `init` does not
-write it; `doctor` reports whether pushes will be delivered, held, or refused,
-names the file that decided, and says where accept must go. Managed settings
-and `--settings`, which it cannot read, take the place of your user file as
-the base; a repository's tightening still applies over them.
-In Codex, review and trust the hooks through `/hooks`, and again whenever
-`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
-trust to each definition's hash and skips an untrusted definition; an
-unchanged, already trusted one keeps running. Codex warns at startup when
-hooks need review, but `doctor` checks registration, not host trust, so a
-skipped hook looks installed to it. After trusting, type one prompt to
-refresh the current delivery address. The trust entries land in your Codex
-`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
-setting above.
-
-The hook is the only thing that records prompts: when it cannot, it tells
-the model to tell you, and no client records a prompt on its behalf. The
-registration names the client because both hosts send the same payload and
-Codex gives hook shells no environment markers. Nothing else about the
-caller matters: a prompt is recorded for its client's role whenever that
-role has joined here, whichever conversation or process is running the hook,
-so restarting a client needs nothing. Clearing a context is handled by the
-hooks described above: the role follows you into the new conversation at
-your first prompt there, and that conversation opens with a note saying
-Sideband is live there and how many entries addressed to it need attention,
-acknowledged ones included. In Codex, type that first prompt before you
-expect anything to be delivered to the new thread.
-
-## Use
-
-In Claude Code, `/sideband` joins the discussion; in Codex, `$sideband`. From
-then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
-start of a prompt routes it. The skills also accept `help`, `status`,
-`pending`, and `off` after the command name.
-
-The installed skills are stubs that read their instructions from the
-executable, so a new release updates both. To edit the instructions yourself,
-run `sideband skill --eject` inside the client: it writes them into that
-client's `SKILL.md`, which is then yours and stops updating with the
-executable. Ejecting again is refused so your edits survive, unless you pass
-`--force`. Delete the file and rerun `sideband init` to go back.
-
-Any command runs directly from the prompt with no model turn: in Claude Code,
-`! sideband pending`. Commands print one JSON object, except that `skill`
-and `log` print Markdown, `--help` prints text, the hook follows its host's contract
-and may print nothing, and the streaming `pending --wait --stream` prints one
-report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
-contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
 
 ## Development
 
