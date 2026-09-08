@@ -146,7 +146,7 @@ jobs:
               repo = testpath/"repo"
               system "git", "init", "-q", repo
               system bin/"sideband", "init", "--skip-clients", "--repo", repo
-              pipe_output("#{bin}/sideband append --repo #{repo} --from operator", "claude: brew test\n")
+              pipe_output("#{bin}/sideband append --repo #{repo} --from operator --via claude", "claude: brew test\n")
               assert_match "brew test", shell_output("#{bin}/sideband log --repo #{repo}")
             end
           end
