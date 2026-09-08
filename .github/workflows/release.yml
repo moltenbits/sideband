@@ -46,7 +46,7 @@ jobs:
           "$bin" --version | tee /dev/stderr | grep -Fx "sideband $VERSION (protocol v1)"
           repo=$(mktemp -d)
           git -C "$repo" init -q
-          "$bin" init --repo "$repo" > /dev/null
+          "$bin" init --skip-clients --repo "$repo" > /dev/null
           echo "claude: release smoke test" | "$bin" append --repo "$repo" --from operator > /dev/null
           "$bin" log --repo "$repo" | grep -F "release smoke test"
           "$bin" doctor --repo "$repo" | grep -F '"integrity":"ok"'
@@ -163,7 +163,7 @@ jobs:
               assert_match "sideband #{version}", shell_output("#{bin}/sideband --version")
               repo = testpath/"repo"
               system "git", "init", "-q", repo
-              system bin/"sideband", "init", "--repo", repo
+              system bin/"sideband", "init", "--skip-clients", "--repo", repo
               pipe_output("#{bin}/sideband append --repo #{repo} --from operator", "claude: brew test\n")
               assert_match "brew test", shell_output("#{bin}/sideband log --repo #{repo}")
             end
