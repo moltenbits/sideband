@@ -10,7 +10,6 @@ import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import com.moltenbits.sideband.store.Store;
-import com.moltenbits.sideband.store.StoreHealth;
 import io.micronaut.context.annotation.Prototype;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
@@ -70,8 +69,8 @@ public class DoctorCommand implements Callable<Integer> {
         } else {
             text.append("State directory: ").append(stateDirectory)
                     .append(" (").append(permissions(stateDirectory)).append(")\n");
-            text.append("Database: ").append(store.inspect(stateDirectory).map(DoctorCommand::database)
-                    .orElse("none yet; the first entry creates it")).append('\n');
+            text.append("Database: ").append(store.inspect(stateDirectory).map(ReportLines::database)
+                    .orElse("none; rerun sideband init to create it")).append('\n');
             text.append("\nRoles:\n");
             for (Role role : Role.values()) {
                 Session session = sessions.load(stateDirectory, role).orElse(null);
@@ -90,16 +89,11 @@ public class DoctorCommand implements Callable<Integer> {
         }
         InstallReport clients = installer.inspect(homeDirectory, home.projectRoot(stateDirectory));
         text.append("\nClients:\n");
-        InstallLines.append(text, clients, !"installed".equals(clients.inbound().state()));
+        ReportLines.clients(text, clients, !"installed".equals(clients.inbound().state()));
         PrintWriter out = spec.commandLine().getOut();
         out.print(text);
         out.flush();
         return ExitCode.OK;
-    }
-
-    private static String database(StoreHealth health) {
-        return health.path() + ", " + health.entries() + (health.entries() == 1 ? " entry, " : " entries, ")
-                + health.bytes() + " bytes, integrity " + health.integrity();
     }
 
     private static String permissions(Path path) throws IOException {

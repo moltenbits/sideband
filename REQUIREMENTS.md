@@ -1625,7 +1625,7 @@ hidden overrides for tests. `append --from` is the one visible author flag:
 override for tests.
 
 ```text
-sideband init [--skip-clients]                     # state directory, both skill stubs, both hook registrations
+sideband init [--skip-clients]                     # state directory and database, both skill stubs, both hook registrations
 sideband join [--resume]                           # start this client's session, taking the role over; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
 sideband append --type request --to <role> --caused-by <id> [--body-file <path>]

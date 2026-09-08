@@ -25,6 +25,12 @@ class SqliteStore implements Store {
     }
 
     @Override
+    public StoreHealth create(Path stateDirectory) {
+        database.write(stateDirectory, () -> null); // a write migrates an absent or old database before its transaction
+        return inspect(stateDirectory).orElseThrow(() -> new IllegalStateException("no database after migration in " + stateDirectory));
+    }
+
+    @Override
     public Optional<StoreHealth> inspect(Path stateDirectory) {
         Path file = SidebandDataSource.file(stateDirectory);
         return database.read(stateDirectory, Optional.empty(), () -> {

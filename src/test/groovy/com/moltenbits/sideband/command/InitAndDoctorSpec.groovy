@@ -32,6 +32,7 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         Files.isDirectory(repo.resolve(".git/sideband"))
+        Files.isRegularFile(repo.resolve(".git/sideband/sideband.db"))
         Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
         Files.exists(home.resolve(".agents/skills/sideband/SKILL.md"))
         Files.exists(repo.resolve(".claude/settings.json"))

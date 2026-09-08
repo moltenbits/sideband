@@ -41,12 +41,12 @@ Then, either way:
 
 ```bash
 cd <your repository>
-sideband init         # private state directory, both skills, the capture hook
+sideband init         # state directory and database, both skills, the capture hook
 sideband doctor       # paths, versions, discussion health, sessions, skill links
 sideband log          # the discussion as Markdown, oldest first
 ```
 
-`init` creates the private state directory, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
+`init` creates the private state directory with its database, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
 and registers two commands in the repository's `.claude/settings.json` and
 `.codex/hooks.json`, each naming its client with `--agent claude` or
 `--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
