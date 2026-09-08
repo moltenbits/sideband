@@ -113,8 +113,8 @@ jobs:
             sha=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
               --jq ".assets[] | select(.name == \"sideband-${VERSION}-${target}.tar.gz\") | .digest" \
               | sed 's/^sha256://')
-            if [ -z "$sha" ]; then
-              echo "::error::no digest for sideband-${VERSION}-${target}.tar.gz on release v${VERSION}"; exit 1
+            if ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{64}'; then
+              echo "::error::no sha256 digest for sideband-${VERSION}-${target}.tar.gz on release v${VERSION}"; exit 1
             fi
             echo "${target}=${sha}" >> "$GITHUB_OUTPUT"
           done
@@ -161,6 +161,11 @@ jobs:
 
             test do
               assert_match "sideband #{version}", shell_output("#{bin}/sideband --version")
+              repo = testpath/"repo"
+              system "git", "init", "-q", repo
+              system bin/"sideband", "init", "--repo", repo
+              pipe_output("#{bin}/sideband append --repo #{repo} --from operator", "claude: brew test\n")
+              assert_match "brew test", shell_output("#{bin}/sideband log --repo #{repo}")
             end
           end
           EOF
