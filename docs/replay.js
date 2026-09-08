@@ -10,8 +10,8 @@
     X: document.getElementById('pane-codex'),
     J: document.getElementById('ledger')
   };
-  var playBtn = document.getElementById('play');
-  var scrub = document.getElementById('scrub');
+  var track = document.getElementById('replay-track');
+  var bar = document.getElementById('progress-bar');
   var chapterEls = Array.prototype.slice.call(document.getElementById('chapters').children);
   var copyBtn = document.getElementById('copy');
 
@@ -182,45 +182,32 @@
     chapterEls.forEach(function (el, i) { el.className = i === ch ? 'on' : ''; });
   }
 
-  var playing = false, T = 0, lastFrame = 0, raf = null;
-  function frame(now) {
-    if (!playing) return;
-    if (lastFrame) T = Math.min(TOTAL, T + (now - lastFrame));
-    lastFrame = now;
-    render(T);
-    scrub.value = Math.round(T / TOTAL * 1000);
-    if (T >= TOTAL) { stop(); playBtn.textContent = 'Replay'; return; }
-    raf = requestAnimationFrame(frame);
-  }
-  function play() {
-    if (T >= TOTAL) T = 0;
-    playing = true; lastFrame = 0; playBtn.textContent = 'Pause';
-    raf = requestAnimationFrame(frame);
-  }
-  function stop() {
-    playing = false; if (raf) cancelAnimationFrame(raf); raf = null;
-    playBtn.textContent = 'Play';
-  }
-  playBtn.addEventListener('click', function () { playing ? stop() : play(); });
-  scrub.addEventListener('input', function () {
-    stop();
-    T = scrub.value / 1000 * TOTAL;
-    render(T);
-  });
-
+  // Scroll drives the replay: the stage stays pinned while the track
+  // scrolls past, and the fraction scrolled is the fraction played, so
+  // scrolling back up rewinds.
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  render(0);
-  if (reduced || location.hash === '#end') {
-    T = TOTAL; render(T); scrub.value = 1000; playBtn.textContent = 'Replay';
-  } else if ('IntersectionObserver' in window) {
-    var started = false;
-    var io = new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (e.isIntersecting && !started) { started = true; play(); io.disconnect(); }
-      });
-    }, { threshold: 0.4 });
-    io.observe(document.getElementById('replay'));
+  var pinned = window.matchMedia && window.matchMedia('(min-width: 901px)').matches;
+  function progress() {
+    var rect = track.getBoundingClientRect();
+    var range = track.offsetHeight - window.innerHeight;
+    if (range <= 0) return 1;
+    return Math.min(1, Math.max(0, -rect.top / range));
+  }
+  function show(p) {
+    render(p * TOTAL);
+    bar.style.width = (p * 100) + '%';
+  }
+  if (reduced || !pinned || location.hash === '#end') {
+    show(1);
   } else {
-    play();
+    var ticking = false;
+    function onScroll() {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(function () { show(progress()); ticking = false; });
+    }
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    show(progress());
   }
 })();
