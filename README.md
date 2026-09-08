@@ -20,10 +20,9 @@ native image, and everything a client runs is a subcommand of it.
   - [2.2 Codex](#22-codex)
   - [2.3 Talk](#23-talk)
 - [3. How it works](#3-how-it-works)
-  - [3.1 What it does](#31-what-it-does)
-  - [3.2 The journal](#32-the-journal)
-  - [3.3 Claude Code](#33-claude-code)
-  - [3.4 Codex](#34-codex)
+  - [3.1 The journal](#31-the-journal)
+  - [3.2 Claude Code](#32-claude-code)
+  - [3.3 Codex](#33-codex)
 - [4. Development](#4-development)
 
 ## 1. Install
@@ -137,8 +136,6 @@ can redirect either agent, or `@all` can speak to both at once.
 
 ## 3. How it works
 
-### 3.1 What it does
-
 - **Agents delegate to each other and reply.** Claude asks Codex to review
   a change, Codex asks Claude to explain a design, either reports status.
   Requests, replies, and status notes are all journal entries of one shape,
@@ -150,7 +147,7 @@ can redirect either agent, or `@all` can speak to both at once.
   the other's work for as long as the human's request stands.
 - **Delivery wakes the idle recipient** in its existing conversation, without
   any model tokens spent waiting. Each client is reached the way its host
-  allows, described in 3.3 and 3.4.
+  allows, described in 3.2 and 3.3.
 - **The human is a participant, not a transport.** Every prompt typed into
   either client is journaled verbatim and attributed to the human. Normally
   each agent is spoken to in its own session; `@codex` at the start of a
@@ -165,7 +162,7 @@ can redirect either agent, or `@all` can speak to both at once.
   Whoever joins as a role last holds it; one client per role per repository is
   a convention the operator keeps, not something the executable polices.
 
-### 3.2 The journal
+### 3.1 The journal
 
 `sideband.db` is one SQLite database in the state directory holding every
 entry and both roles' session records. An entry is its metadata plus the
@@ -193,7 +190,7 @@ records the last position when it joins as its watermark, and everything
 after it is live. A state directory from before the database still holds
 `journal.md` and `sessions/`; nothing reads them, and they can be deleted.
 
-### 3.3 Claude Code
+### 3.2 Claude Code
 
 `init` installs the skill under `~/.claude/skills/sideband` and registers
 both hooks in the repository's `.claude/settings.json`. In Claude Code the
@@ -239,7 +236,7 @@ line into a notification, and Claude then reads the entries with
 `sideband pending`. Nothing is configured for this beyond your settings, and
 changing them takes effect the next time `/sideband` runs.
 
-### 3.4 Codex
+### 3.3 Codex
 
 `init` installs the skill under `~/.agents/skills/sideband` and registers
 both hooks in the repository's `.codex/hooks.json`. Codex runs a hook only
