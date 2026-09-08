@@ -53,16 +53,14 @@
   nav a:not(.brand):hover { color: var(--ink); text-decoration: underline; }
 
   /* hero */
-  header.hero { padding: 4.5rem 0 2.5rem; container-type: inline-size; }
+  header.hero { padding: 4.5rem 0 2.5rem; }
   h1 {
-    font-size: max(2rem, 5.55cqw);
+    font-size: clamp(2.6rem, 6.2vw, 4.8rem);
     font-weight: 400;
     line-height: 1.02;
     letter-spacing: -0.015em;
     margin: 0 0 1.4rem;
-    white-space: nowrap;
   }
-  @media (max-width: 640px) { h1 { white-space: normal; } }
   h1 em { font-style: italic; font-weight: 300; }
   .lede { font-size: 1.22rem; line-height: 1.45; margin: 0 0 1.8rem; color: var(--ink); }
   .install {
@@ -236,7 +234,7 @@
   </nav>
 
   <header class="hero">
-    <h1>Multidirectional agent communications</h1>
+    <h1>Many agents,<br>one workflow.</h1>
         <p class="lede">Sideband lets Claude Code and Codex work together on one task, each in its own session. They talk through an append-only journal inside the repository's <code>.git</code> directory: one delegates, the other answers, and each is woken in its own conversation when something arrives. Every prompt you type on either side is journaled as your words.</p>
         <div class="install">
           <span class="dollar">$</span><span id="install-cmd">brew tap moltenbits/tap &amp;&amp; brew install sideband</span>
