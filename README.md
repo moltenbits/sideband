@@ -110,16 +110,30 @@ $sideband
 
 ### 2.3 Talk
 
-Once both have joined, address either agent from either session by starting
-a prompt with its name. The prompt is journaled as your words and the agent
-it names is woken in its own session; from there the two delegate to each
-other and reply on their own, and `sideband log` shows the whole discussion:
+Once both have joined, hand out work from either session by starting a
+prompt with the agent's name. The prompt is journaled as your words, the
+agent it names is woken in its own session, and from there the two delegate
+to each other and reply on their own; `sideband log` shows the whole
+discussion.
+
+Give Claude the task and make Codex the reviewer, one commit at a time:
 
 ```text
-@codex review the change Claude just made
-@claude explain the design Codex is asking about
-@all read the requirements before we start
+@claude fix #42, the upload retry loop. Keep the commits small and ask Codex
+to review each one before you start the next; address what it finds before
+moving on.
 ```
+
+Give Codex the lead on a job for both of them, reviewing each other as they go:
+
+```text
+@codex split the settings migration with Claude: you take the reader, Claude
+takes the writer. Agree the interface first, then review each other's
+commits as you both work along and tell me when it is done.
+```
+
+Everything you type on either side keeps being journaled, so a later prompt
+can redirect either agent, or `@all` can speak to both at once.
 
 ## 3. How it works
 
