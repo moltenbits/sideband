@@ -36,6 +36,10 @@ Follow the hook's capture outcome, not an assumption that invoking the skill
 proves success. If the note is missing, report the missing confirmation.
 Never record the skill argument yourself; reporting is the whole recovery.
 
+To read what has been said, `sideband log` prints the discussion as Markdown,
+oldest first, with `--after <position>` and `--limit <n>` to select a range.
+It is a plain command, `! sideband log`, not a skill argument.
+
 ## Join
 
 ```bash
