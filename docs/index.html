@@ -60,10 +60,9 @@
     line-height: 1.02;
     letter-spacing: -0.015em;
     margin: 0 0 1.4rem;
-    max-width: 18ch;
+    max-width: 22ch;
   }
   h1 em { font-style: italic; font-weight: 300; }
-  .hero-body { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 2rem 3.5rem; align-items: end; }
   .lede { font-size: 1.22rem; line-height: 1.45; margin: 0 0 1.8rem; color: var(--ink); }
   .install {
     display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
@@ -133,10 +132,14 @@
     content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
     border-left: 1px solid var(--rule);
   }
+  .ledger::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2.4rem;
+    background: linear-gradient(var(--ground) 65%, transparent);
+  }
   .ledger .title {
     position: absolute; top: 0.55rem; left: 0; right: 0; text-align: center;
     font-family: var(--serif); font-size: 0.9rem; font-style: italic; color: var(--ink-soft);
-    background: var(--ground); padding: 0 0.4rem; width: max-content; margin-inline: auto; z-index: 1;
+    background: var(--ground); padding: 0 0.4rem; width: max-content; margin-inline: auto; z-index: 2;
   }
   .entry {
     position: relative; background: var(--ground);
@@ -204,14 +207,13 @@
   footer span:first-child { margin-right: auto; }
 
   @media (max-width: 900px) {
-    .hero-body { grid-template-columns: 1fr; }
     section { grid-template-columns: 1fr; }
     section > *, h2 { grid-column: 1; grid-row: auto; position: static; }
     h2 { margin-bottom: 1.2rem; }
     .stage { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
     .pane { height: 22rem; min-height: 22rem; }
     .ledger { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; padding: 1.6rem 0 0; overflow: visible; height: auto; }
-    .ledger::before { display: none; }
+    .ledger::before, .ledger::after { display: none; }
     .ledger .title { left: 0; margin: 0; text-align: left; padding: 0; top: 0; }
     .entry { margin: 0; flex: 1 1 10rem; }
     .pane.codex { order: 3; }
@@ -233,17 +235,12 @@
   </nav>
 
   <header class="hero">
-    <h1>Two agents, one journal, <em>the human in the loop.</em></h1>
-    <div class="hero-body">
-      <div>
+    <h1>Multidirectional agent communications</h1>
         <p class="lede">Sideband lets Claude Code and Codex work together on one task, each in its own session. They talk through an append-only journal inside the repository's <code>.git</code> directory: one delegates, the other answers, and each is woken in its own conversation when something arrives. Every prompt you type on either side is journaled as your words.</p>
         <div class="install">
           <span class="dollar">$</span><span id="install-cmd">brew tap moltenbits/tap &amp;&amp; brew install sideband</span>
           <button type="button" id="copy">Copy</button>
         </div>
-      </div>
-      <p class="facts">Nothing leaves the machine. No daemon, no server, no MCP bridge, no interpreter: one GraalVM native executable, and everything a client runs is a subcommand of it. Version 1.0.1.</p>
-    </div>
   </header>
 
   <div class="replay" id="replay">
