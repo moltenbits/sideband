@@ -11,18 +11,23 @@ Nothing leaves the machine. There is no daemon, no server, no MCP bridge, and
 no interpreter: `sideband` is a Micronaut application compiled to a GraalVM
 native image, and everything a client runs is a subcommand of it.
 
-- [Install](#install)
-- [Use](#use)
-- [What it does](#what-it-does)
-- [How the pieces fit](#how-the-pieces-fit)
-  - [The journal](#the-journal)
-  - [How each client is reached](#how-each-client-is-reached)
-  - [What init sets up](#what-init-sets-up)
-  - [One task, two agents](#one-task-two-agents)
-  - [What is waiting for a role](#what-is-waiting-for-a-role)
-- [Development](#development)
+- [1. Install](#1-install)
+  - [1.1 Sideband](#11-sideband)
+  - [1.2 Claude Code](#12-claude-code)
+  - [1.3 Codex](#13-codex)
+- [2. Use](#2-use)
+- [3. What it does](#3-what-it-does)
+- [4. How the pieces fit](#4-how-the-pieces-fit)
+  - [4.1 The journal](#41-the-journal)
+  - [4.2 How each client is reached](#42-how-each-client-is-reached)
+  - [4.3 What init sets up](#43-what-init-sets-up)
+  - [4.4 One task, two agents](#44-one-task-two-agents)
+  - [4.5 What is waiting for a role](#45-what-is-waiting-for-a-role)
+- [5. Development](#5-development)
 
-## Install
+## 1. Install
+
+### 1.1 Sideband
 
 From the moltenbits Homebrew tap, on Apple silicon or on Linux (x86_64 or arm64):
 
@@ -46,6 +51,16 @@ cd <your repository>
 sideband init
 ```
 
+Check the result at any time. `doctor` reports the database, both roles'
+sessions, and every client item, and says where anything still needs your
+attention:
+
+```bash
+sideband doctor
+```
+
+### 1.2 Claude Code
+
 Let Claude Code accept pushes from Sideband, or Claude falls back to
 listening. In Claude Code this is `/config`, "Messages from your other
 sessions"; the same setting in `~/.claude/settings.json` is:
@@ -54,21 +69,25 @@ sessions"; the same setting in `~/.claude/settings.json` is:
 { "crossSessionInbound": "accept" }
 ```
 
-Trust the hooks in Codex, and again whenever `init` reports one as added or
-updated:
+Nothing else is needed: `init` installed the skill under
+`~/.claude/skills/sideband` and the hooks in the repository's
+`.claude/settings.json`.
+
+### 1.3 Codex
+
+Trust the hooks that `init` registered in the repository's
+`.codex/hooks.json`, and again whenever a later `init` reports one as added
+or updated:
 
 ```text
 /hooks
 ```
 
-Check the result. `doctor` reports the database, both roles' sessions, and
-every client item, and says where anything still needs your attention:
+Then type one prompt, so the hook records the current thread as the
+delivery address. The skill is already installed under
+`~/.agents/skills/sideband`.
 
-```bash
-sideband doctor
-```
-
-## Use
+## 2. Use
 
 In Claude Code, `/sideband` joins the discussion; in Codex, `$sideband`. From
 then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
@@ -89,7 +108,7 @@ and may print nothing, and the streaming `pending --wait --stream` prints one
 report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
 contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
 
-## What it does
+## 3. What it does
 
 - **Agents delegate to each other and reply.** Claude asks Codex to review
   a change, Codex asks Claude to explain a design, either reports status.
@@ -117,7 +136,7 @@ contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
   Whoever joins as a role last holds it; one client per role per repository is
   a convention the operator keeps, not something the executable polices.
 
-## How the pieces fit
+## 4. How the pieces fit
 
 ```mermaid
 flowchart LR
@@ -144,7 +163,7 @@ skills contain no logic of their own: the installed `SKILL.md` files are stubs
 that run `sideband skill`, which prints the adapter instructions embedded in
 the executable, so upgrading the binary upgrades both adapters.
 
-### The journal
+### 4.1 The journal
 
 `sideband.db` is one SQLite database in the state directory holding every
 entry and both roles' session records. An entry is its metadata plus the
@@ -172,7 +191,7 @@ records the last position when it joins as its watermark, and everything
 after it is live. A state directory from before the database still holds
 `journal.md` and `sessions/`; nothing reads them, and they can be deleted.
 
-### How each client is reached
+### 4.2 How each client is reached
 
 Whoever appends an entry pushes the complete envelope into the recipient's
 running session, which starts a new turn there when the session is idle; the
@@ -198,7 +217,7 @@ operator, rather than an anonymous session.
 
 The socket is used whenever it can be, and the executable falls back to a
 listener when it cannot. Claude Code delivers such a frame only when your
-user settings accept cross-session messages (see Install); otherwise it
+user settings accept cross-session messages (section 1.2); otherwise it
 would hold every one for your approval. So each time an entry for Claude is
 appended, the executable checks your settings: if they accept, it posts the
 frame; if not, it posts nothing and reports that Claude's listener delivers.
@@ -233,7 +252,7 @@ says only "Sideband delivery; use the Sideband skill (/sideband) for handling
 instructions". That is what lets a conversation whose context was cleared, or
 one that never joined, find the skill and handle what arrives.
 
-### What init sets up
+### 4.3 What init sets up
 
 `init` creates the private state directory with its database, installs the
 skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
@@ -266,7 +285,7 @@ hooks need review, but `doctor` checks registration, not host trust, so a
 skipped hook looks installed to it. After trusting, type one prompt to
 refresh the current delivery address. The trust entries land in your Codex
 `config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
-setting above.
+setting in section 1.2.
 
 The hook is the only thing that records prompts: when it cannot, it tells
 the model to tell you, and no client records a prompt on its behalf. The
@@ -281,7 +300,7 @@ Sideband is live there and how many entries addressed to it need attention,
 acknowledged ones included. In Codex, type that first prompt before you
 expect anything to be delivered to the new thread.
 
-### One task, two agents
+### 4.4 One task, two agents
 
 ```mermaid
 sequenceDiagram
@@ -310,7 +329,7 @@ its own session at any point, including to redirect the review while Claude
 was still waiting for it. Waiting costs nothing: Claude's conversation stays
 free for the operator until the reply arrives.
 
-### What is waiting for a role
+### 4.5 What is waiting for a role
 
 Nothing about it is stored. `pending` derives it from the journal on every
 read: a request is open until the role's ack exists and in progress until its
@@ -320,7 +339,7 @@ no deadline; the sender decides what to do. The only thing a role keeps beside
 the journal is its session record, identity and how far it has read, so
 informational updates are shown once.
 
-## Development
+## 5. Development
 
 ```bash
 just test             # Spock suite on the JVM
