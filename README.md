@@ -16,6 +16,9 @@ native image, and everything a client runs is a subcommand of it.
   - [1.2 Claude Code](#12-claude-code)
   - [1.3 Codex](#13-codex)
 - [2. Use](#2-use)
+  - [2.1 Claude Code](#21-claude-code)
+  - [2.2 Codex](#22-codex)
+  - [2.3 Either client](#23-either-client)
 - [3. What it does](#3-what-it-does)
 - [4. How the pieces fit](#4-how-the-pieces-fit)
   - [4.1 The journal](#41-the-journal)
@@ -83,30 +86,69 @@ or updated:
 /hooks
 ```
 
-Then type one prompt, so the hook records the current thread as the
-delivery address. The skill is already installed under
+Then `$sideband` joins and records this thread as Codex's delivery
+address (section 2.2); after a later trust or a clear, an ordinary prompt
+refreshes it. The skill is already installed under
 `~/.agents/skills/sideband`.
 
 ## 2. Use
 
-In Claude Code, `/sideband` joins the discussion; in Codex, `$sideband`. From
-then on every prompt is journaled, and `@codex`, `@claude`, or `@all` at the
-start of a prompt routes it. The skills also accept `help`, `status`,
-`pending`, and `off` after the command name.
+### 2.1 Claude Code
+
+`/sideband` joins the discussion and resumes where Claude left off. Once
+joined, every prompt you type is journaled as your own words, and `@codex`,
+`@claude`, or `@all` at the start of a prompt routes it, with or without the
+skill name in front:
+
+```text
+/sideband                     # join, and pick up where Claude left off
+/sideband @codex <message>    # send Codex a request; @claude and @all route the same way
+/sideband status              # summarize doctor: sessions, pending counts, database, clients
+/sideband pending             # what is open, in progress, and unanswered for Claude
+/sideband off                 # stop the listener if one is running; the bookmark stays
+```
+
+### 2.2 Codex
+
+`$sideband` does the same in Codex. Codex runs nothing in the background:
+entries are pushed to it by whoever writes them, and the prompt hook reads
+what is waiting at each prompt:
+
+```text
+$sideband                     # join, and pick up where Codex left off
+$sideband @claude <message>   # send Claude a request; @codex and @all route the same way
+$sideband status              # summarize doctor: sessions, pending counts, database, clients
+$sideband pending             # what is open, in progress, and unanswered for Codex
+$sideband off                 # explains that there is no listener to stop
+```
+
+### 2.3 Either client
+
+Any command runs directly from the prompt with no model turn:
+
+```text
+! sideband log                # the discussion as Markdown, oldest first
+! sideband pending            # this client's pending report as JSON
+! sideband doctor             # the installation report
+```
 
 The installed skills are stubs that read their instructions from the
 executable, so a new release updates both. To edit the instructions yourself,
-run `sideband skill --eject` inside the client: it writes them into that
-client's `SKILL.md`, which is then yours and stops updating with the
-executable. Ejecting again is refused so your edits survive, unless you pass
-`--force`. Delete the file and rerun `sideband init` to go back.
+eject them inside the client; that writes them into the client's `SKILL.md`,
+which is then yours and stops updating with the executable. Ejecting again
+is refused so your edits survive, unless you pass `--force`; delete the file
+and rerun `sideband init` to go back:
 
-Any command runs directly from the prompt with no model turn: in Claude Code,
-`! sideband pending`. Commands print one JSON object, except that `init` and `doctor`
-print reports for a person to read, `skill` and `log` print Markdown, `--help` prints text, the hook follows its host's contract
-and may print nothing, and the streaming `pending --wait --stream` prints one
-report per line, and use stable exit codes: 0 ok, 2 invalid input, 4 lock
-contention, 5 I/O failure, 6 timed out. Codes 3 and 7 are retired.
+```bash
+sideband skill --eject
+```
+
+Commands print one JSON object, except that `init` and `doctor` print
+reports for a person to read, `skill` and `log` print Markdown, `--help`
+prints text, the hook follows its host's contract and may print nothing, and
+the streaming `pending --wait --stream` prints one report per line. Exit
+codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
+6 timed out. Codes 3 and 7 are retired.
 
 ## 3. What it does
 
