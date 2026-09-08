@@ -8,6 +8,10 @@
         </encoder>
     </appender>
 
+    <!-- In the native image Flyway gets its migrations precomputed at build time; its classpath scanner still
+         reports the location it cannot scan, which is noise on every first contact with a database. -->
+    <logger name="org.flywaydb.core.internal.scanner" level="error" />
+
     <root level="warn">
         <appender-ref ref="STDERR" />
     </root>

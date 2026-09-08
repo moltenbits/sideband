@@ -10,7 +10,7 @@ import java.util.Objects;
 
 /**
  * The machine-readable metadata stored with every journal entry. Field order is the
- * serialized order. Construction validates the structural rules of the protocol.
+ * serialized order; the body travels beside it, never inside it. Construction validates the structural rules of the protocol.
  */
 @Serdeable(naming = SnakeCaseStrategy.class)
 public record EntryMetadata(
@@ -24,8 +24,7 @@ public record EntryMetadata(
         @Nullable String replyTo,
         @Nullable String causedBy,
         boolean expectsReply,
-        Delivery delivery,
-        long bodyBytes) {
+        Delivery delivery) {
 
     public EntryMetadata {
         Rules.checkId(id, "id");
@@ -41,9 +40,6 @@ public record EntryMetadata(
         }
         if (causedBy != null) {
             Rules.checkId(causedBy, "caused_by");
-        }
-        if (bodyBytes < 0) {
-            throw new InvalidEntryException("'body_bytes' must not be negative");
         }
     }
 

@@ -41,7 +41,8 @@ invocations such as `claude -p` or `codex exec resume`.
 - The journal is the authoritative record of Sideband communication that a
   client successfully captures. Section 7.1 defines the capture guarantee when
   a host does not expose a deterministic prompt-submit hook.
-- The raw journal remains pleasant for a human to read.
+- The journal is inspectable through the tool: `sideband log` renders it as
+  Markdown on demand. Nothing on disk needs to be readable by a person.
 - Human authorship, the client through which a message entered, and the
   intended recipients are separate concepts.
 - Live messages and messages accumulated while a client was offline have
@@ -83,7 +84,8 @@ Version one supports:
 - One local Git repository.
 - One active Claude Code session and one active Codex session per repository.
 - One shared native `sideband` executable used by both client skills.
-- A single append-only `journal.md` shared by both clients.
+- A single append-only journal shared by both clients, in one embedded
+  database.
 - Human-to-agent, agent-to-agent, and agent-to-human entries.
 - Direct and broadcast routing.
 - Immediate handling of live messages.
@@ -107,16 +109,23 @@ checkout. Consequently, every worktree sees the same Sideband conversation,
 while Sideband state remains absent from `git status` and cannot be committed
 or pushed accidentally.
 
-The initial layout is:
+The layout is:
 
 ```text
 <git-common-dir>/sideband/
-├── journal.md
-├── sessions/
-│   ├── claude.json
-│   └── codex.json
-└── journal.lock
+├── sideband.db
+└── sqlite-jdbc-<version>-<os>-<arch>/
+    └── libsqlitejdbc.<ext>
 ```
+
+`sideband.db` is one SQLite database holding the journal and both roles'
+session records. Beside it the executable keeps the SQLite native library the
+driver loads, written once so no command extracts it again; a copy the driver
+cannot load, damaged or from another platform, is ignored in favour of the
+driver's own extraction. SQLite's own locking serializes access to it; no lock file
+exists beside it. A state directory written before the database existed held
+`journal.md`, `sessions/<role>.json`, and `journal.lock`; nothing reads those
+files any more, and they may be deleted.
 
 Outside any Git repository, the state directory is `.sideband` in the
 working directory itself, with the same contents.
@@ -132,31 +141,21 @@ working directory itself, with the same contents.
 
 ## 6. Journal
 
-### 6.1 General format
+### 6.1 Logical schema
 
-`journal.md` is a single append-only Markdown document. Each entry consists of:
+The journal is the `entries` table of the database: one row per entry, holding
+the metadata of section 6.2 as columns and the body as text. The row's
+sequence number, assigned by the database on insert and never reused, is the
+entry's position; positions only grow, and a reader that remembers the last
+position it saw asks for everything after it. The same metadata is what every
+command prints as JSON, for example:
 
-1. Machine-readable JSON metadata inside a Markdown-compatible HTML comment.
-2. A human-readable Markdown heading.
-3. A Markdown message body.
-4. An explicit closing marker.
-
-For example:
-
-```markdown
-<!-- sideband:v1
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}
--->
-
-## James → Claude + Codex (via Claude)
-
-@all independently review the proposed database migration.
-
-<!-- /sideband -->
+```json
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}
 ```
 
-The JSON is visible in the raw file but hidden by normal Markdown rendering.
-The heading and body remain readable in both forms.
+`sideband log` renders entries as Markdown for a person: a heading naming
+author and recipients, the metadata as a list, and the body verbatim.
 
 ### 6.2 Required metadata
 
@@ -177,7 +176,6 @@ Every entry must include:
 - `expects_reply`: whether recipients should treat the entry as actionable.
 - `delivery.live`: the delivery policy for live messages.
 - `delivery.backlog`: the delivery policy for backlog messages.
-- `body_bytes`: the UTF-8 byte length of the exact message body.
 
 The following fields are conditional:
 
@@ -191,33 +189,27 @@ The following fields are conditional:
   agent-authored; this field must not skip intervening messages to point to
   the original human prompt.
 
-Additional metadata may be introduced compatibly. Readers must ignore unknown
-fields.
+Additional metadata may be introduced compatibly: a new column is a Flyway
+migration the executable applies the first time it opens a database that is
+behind, and readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 
-The entry format must preserve and parse any text or Markdown body, including a
-body that contains the literal `<!-- /sideband -->` closing marker or another
-complete example entry. Readers must use `body_bytes` to locate the end of the
-body and then validate the closing marker at the resulting boundary; they must
-not search for the first marker-like line. Any separator newline added by the
-writer is outside the counted body.
+The body is stored as one text value, so any text or Markdown body, including
+one that contains a complete example entry in any format, is preserved and
+returned byte for byte. No marker, length, or separator is involved.
 
 ### 6.4 Immutability
 
 - Existing entries must never be edited or deleted.
 - Corrections, acknowledgements, and state changes are represented by later
   entries. Nothing about what was said or done lives outside the journal.
-- Physical append order is the canonical journal order.
-- Readers must not process an entry until its closing marker is present.
-- A malformed or incomplete trailing entry must not prevent processing earlier
-  valid entries.
-- A reader is a byte-oriented scan for the exact opener at the start of a line,
-  the single JSON metadata line, the heading, exactly `body_bytes` bytes of
-  body, and the exact closing marker. Anything that fails that shape produces
-  one diagnostic and the scan resumes at the next opener. Unknown metadata
-  fields are ignored; an unknown value of a required enum is invalid and the
-  entry is skipped, never guessed at.
+- Position order is the canonical journal order.
+- An entry is visible to readers only once its transaction has committed, so
+  a reader never sees a partial entry and a crashed writer leaves nothing
+  behind.
+- An unknown value of a required enum in a stored row is invalid and the read
+  fails, never guessed at; it means a newer executable wrote the row.
 
 ## 7. Human participation and provenance
 
@@ -384,10 +376,11 @@ JSON batch holding the complete entry:
 
 ```text
 [Sideband message]
-{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":12,"end":12,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","seq":12,"effective_live":"auto","lineage_problem":null}],"timed_out":false}
 ```
 
-Claude receives the same marker and batch over its inbox socket, with
+A directly pushed batch holds one entry, so `start` and `end` are both its
+position. Claude receives the same marker and batch over its inbox socket, with
 `/sideband` in the intent sentence. Both clients handle the entries directly
 from the message, without a `pending` read.
 
@@ -590,7 +583,8 @@ operator's convention, not something the executable polices. `join`
 starts the bookmark at the latest point; `join --resume` keeps the previous
 one (or the start of the journal for a role that never had one), so
 everything written for the role while it was away is shown. The read position
-is the byte offset up to which entries have been shown to the role. Nothing
+is the position up to which entries have been shown to the role, and the
+watermark is the position of the last entry present at the join. Nothing
 about what a role has done with an entry is stored; that is in the journal,
 as the role's own acks and replies.
 
@@ -892,11 +886,13 @@ use the same serialized append mechanism.
 The shared `sideband` executable must:
 
 1. Validate required metadata.
-2. Construct the complete entry in temporary storage.
-3. Acquire `journal.lock` atomically.
-4. Append the entry as one serialized operation.
-5. Flush and close the journal.
-6. Release the lock.
+2. Insert the entry in one database transaction, which SQLite serializes
+   against every other writer, waiting a bounded time for a live one.
+3. Commit, so the entry is durable and visible in one step.
+
+A session record is written the same way; a join reads the journal's end and
+writes the record in one transaction, so the watermark of section 9.3 is
+race-safe.
 
 The executable is invoked for journal and session-record operations, and by
 the writer of an entry to push it. The parent must not invoke a blocking
@@ -906,13 +902,13 @@ the same installed binary.
 
 ### 11.2 Failure behavior
 
-- A writer crash must not interleave two entries.
-- Readers must wait for a closing marker before delivering a new entry.
-- Lock ownership must include enough information to detect and recover a stale
-  lock without disrupting a live writer.
+- A writer crash must not interleave two entries or leave a partial one.
+- Readers must not see an entry before its transaction commits.
+- A lock left by a dead writer must not block a live one; SQLite's locks are
+  released with the process.
 - A write failure must leave prior journal content intact.
-- Malformed metadata must be reported and skipped, not interpreted
-  heuristically as an instruction.
+- A writer that cannot get the lock in time fails with the lock-contention
+  exit code and writes nothing.
 
 ### 11.3 Delivery guarantees
 
@@ -947,7 +943,8 @@ Version one does not provide:
 - MCP-based transport.
 - Non-interactive client driving through `claude -p`, `codex exec`, or resume
   automation.
-- A database or graphical user interface.
+- A database server or a graphical user interface; the embedded database is
+  a file in the state directory that only the executable opens.
 - Multiple simultaneous sessions of the same client role in one repository.
 - Session-specific routing or presence heartbeats.
 - Exactly-once delivery.
@@ -1478,6 +1475,35 @@ their tests. This acceptance does not resolve the parent-wake feasibility gate.
 
 <!-- /sideband -->
 
+<!-- sideband:v0
+{"id":"rev-0005","created_at":"2026-09-07T18:20:00-05:00","from":"claude","via":"claude","to":["codex","operator"],"type":"status","route":"broadcast","reply_to":null,"caused_by":"moltenbits/sideband#1","expects_reply":false}
+-->
+
+### Claude → Codex + James (via Claude): the journal moves into SQLite
+
+James opened issue #1 on 2026-09-05: replace the Markdown journal, the JSON
+session files, and the lock file with one embedded SQLite database. The
+readability principle of section 2 had cost real complexity that nobody used:
+byte-counted framing with abort markers for crashed writers, two files for one
+logical write, full scans for every lookup, and a lock file with PID liveness.
+Nobody opened the raw file; both clients present entries in their own
+conversations.
+
+**Decision, recorded on 2026-09-07:** sections 2, 4, 5.1, 6, 9.5, 11, 18, and
+19 now describe the database. The journal is the `entries` table; a row's
+sequence number is its position, replacing byte offsets everywhere a position
+was exposed (session watermark and bookmark, batch start and end, an entry's
+own `seq`). `body_bytes` and read diagnostics are gone, since the database
+cannot hold a torn entry. `sideband log` is the readable form. Multi-process
+access, Claude's listener reading while Codex's append writes, is why SQLite
+rather than a pure-Java store. Protocol semantics, routing, ancestry,
+delivery policies, session records as separate facts, and pushes are
+unchanged; the skills did not change beyond dropping the diagnostics field.
+State from before the change is not carried over: the only journals were
+development repositories, and their files are simply left behind.
+
+<!-- /sideband -->
+
 ## 17. Remaining implementation blockers
 
 ### 17.1 Bidirectional parent wake path
@@ -1580,7 +1606,8 @@ release blocker until implementation reaches the affected feature boundary.
 
 Every state-changing or reporting command prints one JSON document on stdout;
 the exceptions are `skill` without `--eject`, which prints the adapter
-instructions as Markdown, `--help`, which prints text, `hook prompt`, whose
+instructions as Markdown, `log`, which prints the discussion as Markdown,
+`--help`, which prints text, `hook prompt`, whose
 output follows the host's hook contract, and `pending --wait --stream`, which
 prints one JSON report per line for as long as it runs. Errors go to stderr
 as text. Every command exits with a stable code: `0` ok, `2` invalid input, `4` lock
@@ -1605,6 +1632,7 @@ sideband append --type ack --reply-to <id>         # receipt; body optional; nev
 sideband pending                                   # open, in progress, updates, outgoing; advances the bookmark
 sideband pending --wait [--timeout <s>]            # block until something new, then report; never advances
 sideband pending --wait --stream                   # the listener: one report per batch, forever; never advances
+sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown, oldest first
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
 sideband hook session-start                        # both clients' SessionStart hook for a clear: move the role to the new conversation
@@ -1635,8 +1663,8 @@ Version one is complete when:
   neither containing a private copy, with `skill --eject` as the operator's way
   to take a skill's text over;
 - local installation is repeatable, and `doctor` reports paths, versions,
-  discussion health, each role's session and pending counts, skill state, and
-  lock ownership without printing message bodies;
+  database health, each role's session and pending counts, and skill state
+  without printing message bodies;
 - the JVM suite passes, and the native executable is exercised black-box
   through its command line, covering serialization, process and filesystem
   access, concurrency, restart, and exit behavior, since the installed

@@ -44,8 +44,7 @@ class JournalPending implements Pending {
 
     @Override
     public PendingReport report(Path stateDirectory, Role role) {
-        Path file = stateDirectory.resolve(Journal.FILE_NAME);
-        Read all = journal.readCompleteFrom(file, 0);
+        Read all = journal.readAfter(stateDirectory, 0);
         Optional<Session> session = sessions.load(stateDirectory, role);
         long watermark = session.map(Session::watermark).orElse(Long.MAX_VALUE);
         boolean resumed = session.map(Session::resumed).orElse(false);
@@ -71,7 +70,7 @@ class JournalPending implements Pending {
                     Optional<OffsetDateTime> acked = latest(mine, MessageType.ACK);
                     acked.ifPresent(at -> acknowledged.put(m.id(), at));
                     (acked.isPresent() ? inProgress : open).add(entry);
-                } else if (entry.end() > offset) {
+                } else if (entry.seq() > offset) {
                     updates.add(entry);
                 }
             }
@@ -95,20 +94,19 @@ class JournalPending implements Pending {
         return new PendingReport(
                 Handling.forRole(role),
                 session.orElse(null),
-                items(file, open, confirmOld ? watermark : 0L, acknowledged),
-                items(file, inProgress, confirmOld ? watermark : 0L, acknowledged),
-                handoffs.prepare(file, updates),
+                items(stateDirectory, open, confirmOld ? watermark : 0L, acknowledged),
+                items(stateDirectory, inProgress, confirmOld ? watermark : 0L, acknowledged),
+                handoffs.prepare(stateDirectory, updates),
                 outgoing,
-                all.diagnostics(),
                 all.end());
     }
 
-    private List<OpenItem> items(Path file, List<Entry> entries, long watermark, Map<String, OffsetDateTime> acknowledged) {
-        List<Handoff> prepared = handoffs.prepare(file, entries);
+    private List<OpenItem> items(Path stateDirectory, List<Entry> entries, long watermark, Map<String, OffsetDateTime> acknowledged) {
+        List<Handoff> prepared = handoffs.prepare(stateDirectory, entries);
         List<OpenItem> items = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
-            items.add(new OpenItem(prepared.get(i), entry.end() <= watermark, acknowledged.get(entry.metadata().id())));
+            items.add(new OpenItem(prepared.get(i), entry.seq() <= watermark, acknowledged.get(entry.metadata().id())));
         }
         return items;
     }

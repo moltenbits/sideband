@@ -8,7 +8,6 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
-import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.Delivery;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.EntryMetadata;
@@ -28,10 +27,7 @@ import picocli.CommandLine.Model.CommandSpec;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.Callable;
 
 /**
@@ -128,9 +124,8 @@ public class AppendCommand implements Callable<Integer> {
             body = Bodies.read(bodyFile);
         }
         Path stateDirectory = repository.stateDirectory(home);
-        Path file = stateDirectory.resolve(Journal.FILE_NAME);
-        Map<String, EntryMetadata> byId = index(file);
-        EntryMetadata answered = replyTo == null ? null : byId.get(replyTo);
+        EntryIndex index = id -> journal.find(stateDirectory, id).map(Entry::metadata);
+        EntryMetadata answered = replyTo == null ? null : index.find(replyTo).orElse(null);
         if (replyTo != null && answered == null) {
             throw new IllegalArgumentException("--reply-to names no entry in this discussion: " + replyTo);
         }
@@ -142,8 +137,8 @@ public class AppendCommand implements Callable<Integer> {
         }
         Draft draft = new Draft(ParticipantId.of(author), null, to, type, Route.forRecipients(to),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
-        checkLineage(byId, draft);
-        Entry entry = journal.append(file, draft);
+        checkLineage(index, draft);
+        Entry entry = journal.append(stateDirectory, draft);
         Output.print(spec, json, Captured.of(entry, pushes.deliver(stateDirectory, entry)));
         return ExitCode.OK;
     }
@@ -159,21 +154,11 @@ public class AppendCommand implements Callable<Integer> {
         return ExitCode.OK;
     }
 
-    private Map<String, EntryMetadata> index(Path file) {
-        Read all = journal.readCompleteFrom(file, 0);
-        Map<String, EntryMetadata> byId = new HashMap<>();
-        for (Entry entry : all.entries()) {
-            byId.put(entry.metadata().id(), entry.metadata());
-        }
-        return byId;
-    }
-
     /** The draft has no identifier yet, so trace from a stand-in with the same links. */
-    private void checkLineage(Map<String, EntryMetadata> byId, Draft draft) {
-        EntryIndex index = id -> Optional.ofNullable(byId.get(id));
+    private void checkLineage(EntryIndex index, Draft draft) {
         EntryMetadata candidate = new EntryMetadata(DRAFT_ID, OffsetDateTime.MIN, draft.from(), draft.via(),
                 draft.to(), draft.type(), draft.route(), draft.replyTo(), draft.causedBy(), draft.expectsReply(),
-                draft.delivery(), 0);
+                draft.delivery());
         ancestry.trace(candidate, index);
     }
 }

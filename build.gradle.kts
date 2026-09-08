@@ -16,11 +16,17 @@ dependencies {
     implementation("info.picocli:picocli")
     implementation("io.micronaut.picocli:micronaut-picocli")
     implementation("io.micronaut.serde:micronaut-serde-jackson")
+    annotationProcessor("io.micronaut.data:micronaut-data-processor")
+    implementation("io.micronaut.data:micronaut-data-jdbc")
+    implementation("io.micronaut.sql:micronaut-jdbc-sqlite")
+    implementation("io.micronaut.flyway:micronaut-flyway")
+    implementation("org.xerial:sqlite-jdbc:3.53.4.0")
     runtimeOnly("ch.qos.logback:logback-classic")
 }
 
 application {
     mainClass = "com.moltenbits.sideband.SidebandCommand"
+    applicationDefaultJvmArgs = listOf("--enable-native-access=ALL-UNNAMED")
 }
 
 java {
@@ -32,6 +38,8 @@ graalvmNative {
     binaries {
         all {
             buildArgs.add("-H:+SharedArenaSupport")
+            // sqlite-jdbc loads its bundled library with System.load, which the JDK warns about unless native access is granted.
+            buildArgs.add("--enable-native-access=ALL-UNNAMED")
             resources.includedPatterns.add("skills/.*")
         }
     }

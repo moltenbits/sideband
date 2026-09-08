@@ -1,11 +1,11 @@
-package com.moltenbits.sideband.journal;
+package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.ParticipantId;
 
 import java.util.stream.Collectors;
 
-/** The generated Markdown heading: presentation only, never authoritative. */
+/** The Markdown heading {@code sideband log} prints for an entry: presentation only, never authoritative. */
 final class Heading {
 
     static final String PREFIX = "## ";
@@ -21,7 +21,7 @@ final class Heading {
         return PREFIX + sanitize(metadata.from().displayName()) + " → " + sanitize(recipients) + via;
     }
 
-    /** Headings are single lines; control characters would break the framing. */
+    /** Headings are single lines; control characters would break them. */
     private static String sanitize(String text) {
         return text.codePoints()
                 .filter(cp -> !Character.isISOControl(cp))

@@ -6,6 +6,7 @@ import com.moltenbits.sideband.command.DoctorCommand;
 import com.moltenbits.sideband.command.ExitCode;
 import com.moltenbits.sideband.command.HookCommand;
 import com.moltenbits.sideband.command.InitCommand;
+import com.moltenbits.sideband.command.LogCommand;
 import com.moltenbits.sideband.command.PendingCommand;
 import com.moltenbits.sideband.command.SkillCommand;
 import io.micronaut.configuration.picocli.MicronautFactory;
@@ -15,6 +16,13 @@ import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import com.moltenbits.sideband.journal.Journal;
 import picocli.CommandLine.IVersionProvider;
+
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.PrintWriter;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * The {@code sideband} root command. Every operation is a subcommand; because this class is
@@ -29,6 +37,7 @@ import picocli.CommandLine.IVersionProvider;
                 JoinCommand.class,
                 AppendCommand.class,
                 PendingCommand.class,
+                LogCommand.class,
                 SkillCommand.class,
                 HookCommand.class,
                 DoctorCommand.class
@@ -43,11 +52,17 @@ public class SidebandCommand {
         System.exit(exitCode);
     }
 
-    /** Builds the command tree with subcommands resolved as Micronaut beans and failures mapped to exit codes. */
+    /**
+     * Builds the command tree with subcommands resolved as Micronaut beans and failures mapped
+     * to exit codes. Output goes through a writer on the raw standard-output descriptor rather
+     * than {@code System.out}: a {@code PrintStream} swallows write failures, so a command
+     * checking its writer after a flush would never learn that a pipe was closed.
+     */
     public static CommandLine commandLine(ApplicationContext context) {
         return new CommandLine(SidebandCommand.class, new MicronautFactory(context))
                 .setCaseInsensitiveEnumValuesAllowed(true)
-                .setExecutionExceptionHandler(ExitCode.HANDLER);
+                .setExecutionExceptionHandler(ExitCode.HANDLER)
+                .setOut(new PrintWriter(new OutputStreamWriter(new FileOutputStream(FileDescriptor.out), UTF_8), true));
     }
 
     /** Reports the build version, which Gradle generates into {@link BuildVersion}. */

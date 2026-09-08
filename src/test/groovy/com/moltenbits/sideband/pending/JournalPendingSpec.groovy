@@ -24,14 +24,13 @@ class JournalPendingSpec extends Specification {
     Sessions sessions = context.getBean(Sessions)
     Pending pending = context.getBean(Pending)
     Path dir = Files.createTempDirectory("pending")
-    Path file = dir.resolve(Journal.FILE_NAME)
 
     Entry human(String body = "@codex review this", Role via = Role.CLAUDE, Role to = Role.CODEX) {
-        journal.append(file, Fixtures.humanDraft(body, [ParticipantId.of(to)], via))
+        journal.append(dir, Fixtures.humanDraft(body, [ParticipantId.of(to)], via))
     }
 
     Entry agent(Role from, Role to, MessageType type, Map more = [:]) {
-        journal.append(file, Fixtures.agentDraft([from: ParticipantId.of(from), to: [ParticipantId.of(to)], type: type,
+        journal.append(dir, Fixtures.agentDraft([from: ParticipantId.of(from), to: [ParticipantId.of(to)], type: type,
                 causedBy: null, replyTo: null, expectsReply: type == MessageType.REQUEST, body: type.id()] + more))
     }
 
@@ -53,7 +52,7 @@ class JournalPendingSpec extends Specification {
         report.inProgress()[0].acknowledgedAt() != null
         report.updates().isEmpty()
         report.intent() == "Sideband delivery; use the Sideband skill (\$sideband) for handling instructions"
-        report.end() == Files.size(file)
+        report.end() == journal.end(dir)
     }
 
     void "before any session everything predates it; after activation only later entries do not"() {
@@ -105,7 +104,7 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CLAUDE).updates()*.metadata()*.id() == [status.metadata().id()]
 
         when:
-        sessions.advance(dir, Role.CLAUDE, status.end())
+        sessions.advance(dir, Role.CLAUDE, status.seq())
 
         then:
         pending.report(dir, Role.CLAUDE).updates().isEmpty()

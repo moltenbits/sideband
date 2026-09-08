@@ -10,9 +10,9 @@ import java.util.List;
 
 /** The stored entry plus how each client recipient was reached. */
 @Serdeable(naming = SnakeCaseStrategy.class)
-public record Captured(EntryMetadata metadata, String body, long start, long end, List<PushResult> pushes) {
+public record Captured(EntryMetadata metadata, String body, long seq, List<PushResult> pushes) {
 
     public static Captured of(Entry entry, List<PushResult> pushes) {
-        return new Captured(entry.metadata(), entry.body(), entry.start(), entry.end(), pushes);
+        return new Captured(entry.metadata(), entry.body(), entry.seq(), pushes);
     }
 }

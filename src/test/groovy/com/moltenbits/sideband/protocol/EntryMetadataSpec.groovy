@@ -13,7 +13,7 @@ class EntryMetadataSpec extends Specification {
 
     static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude",' +
             '"to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,' +
-            '"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"},"body_bytes":58}'
+            '"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}'
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
@@ -31,7 +31,7 @@ class EntryMetadataSpec extends Specification {
 
     void "unknown fields are ignored on read"() {
         given:
-        String extended = SAMPLE.replace('"body_bytes":58}', '"body_bytes":58,"future_field":{"x":1}}')
+        String extended = SAMPLE.replace('"backlog":"confirm"}}', '"backlog":"confirm"},"body_bytes":58,"future_field":{"x":1}}')
 
         expect:
         json.readValue(extended, EntryMetadata) == Fixtures.metadata()
@@ -48,7 +48,7 @@ class EntryMetadataSpec extends Specification {
     void "agent entries carry no via and nullable links serialize as null"() {
         given:
         EntryMetadata reply = Fixtures.metadata(id: "019c", from: Fixtures.CODEX, via: null, to: [Fixtures.CLAUDE],
-                type: MessageType.REPLY, route: Route.DIRECT, replyTo: "019b", expectsReply: false, bodyBytes: 3)
+                type: MessageType.REPLY, route: Route.DIRECT, replyTo: "019b", expectsReply: false)
 
         expect:
         json.writeValueAsString(reply).contains('"from":"codex","via":null,"to":["claude"],"type":"reply","route":"direct","reply_to":"019b","caused_by":null,"expects_reply":false')
@@ -72,7 +72,6 @@ class EntryMetadataSpec extends Specification {
         [from: Fixtures.CLAUDE, via: null, type: MessageType.REPLY, replyTo: null]         | "reply must set"
         [id: ""]                                                                           | "'id' must not be blank"
         [id: "a b"]                                                                        | "whitespace"
-        [bodyBytes: -1]                                                                    | "negative"
         [from: Fixtures.CLAUDE, via: null, type: MessageType.REQUEST, replyTo: " "]        | "'reply_to' must not be blank"
     }
 

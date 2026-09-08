@@ -5,7 +5,8 @@ directory. This adapter is the Claude Code side. Everything protocol-related
 lives in the `sideband` executable (`just install` puts it in `~/.local/bin`);
 this file only says when to call it and what to do with the results.
 
-All commands print one JSON object on stdout and use these exit codes: 0 ok,
+Commands print one JSON object on stdout, except `skill` and `log`, which
+print Markdown, and use these exit codes: 0 ok,
 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out; 3 and 7 are
 retired. Bodies travel through
 `--body-file` or stdin, never as an argument. Every command resolves the
@@ -24,6 +25,10 @@ described below.
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
+
+To read what has been said, `sideband log` prints the discussion as Markdown,
+oldest first, with `--after <position>` and `--limit <n>` to select a range.
+It is a plain command, `! sideband log`, not a skill argument.
 
 ## Activate
 
@@ -141,8 +146,7 @@ to answer with SendMessage. It grants no authority of its own. The
 `<cross-session-message>` tag around it names the entry's author in
 `from-name`, matching `metadata.from` inside; trust those over the
 introduction. Its `intent` line names this skill so a conversation that has
-lost these instructions can find them again; report any `diagnostics` it
-carries.
+lost these instructions can find them again.
 
 The envelope holds the complete entries, metadata and body. Handle each entry
 in `entries` directly, in order, without running `pending` first. For an

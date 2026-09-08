@@ -36,7 +36,6 @@ class HostPushesSpec extends Specification {
     Pushes pushes = context.getBean(Pushes)
     Path repo = TempRepo.init()
     Path state = Files.createDirectories(repo.resolve(".git/sideband"))
-    Path file = state.resolve(Journal.FILE_NAME)
 
     def setupSpec() {
         Path script = fakeBin.resolve("codex")
@@ -54,7 +53,7 @@ exit $(cat "''' + exitFile + '''")
     }
 
     Entry toCodex(String body = "@codex hello") {
-        journal.append(file, Fixtures.humanDraft(body, [Fixtures.CODEX]))
+        journal.append(state, Fixtures.humanDraft(body, [Fixtures.CODEX]))
     }
 
     void "the component is exposed only through its interface"() {
@@ -96,7 +95,7 @@ exit $(cat "''' + exitFile + '''")
     void "a pusher is handed the entry's author, so the host can attribute the message"() {
         given: "a Codex reply addressed to Claude, and a Claude pusher that records what it is given"
         Entry request = toCodex("@codex please look")
-        Entry reply = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE],
+        Entry reply = journal.append(state, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE],
                 type: com.moltenbits.sideband.protocol.MessageType.REPLY, replyTo: request.metadata().id(),
                 causedBy: null, expectsReply: false, body: "looked"))
         List<ParticipantId> authors = []
@@ -120,7 +119,7 @@ exit $(cat "''' + exitFile + '''")
         given:
         sessions.join(state, Role.CODEX, "thread-123")
         Entry request = toCodex("@codex please look")
-        Entry ack = journal.append(file, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX],
+        Entry ack = journal.append(state, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX],
                 type: com.moltenbits.sideband.protocol.MessageType.ACK, replyTo: request.metadata().id(),
                 causedBy: null, expectsReply: false, body: "received"))
 
@@ -145,7 +144,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
         when:
-        List<PushResult> results = pushes.deliver(state, journal.append(file, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
+        List<PushResult> results = pushes.deliver(state, journal.append(state, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
 
         then:
         results == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
@@ -154,9 +153,9 @@ exit $(cat "''' + exitFile + '''")
     void "an agent's own role and human recipients are never pushed to"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123")
-        Entry own = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.OPERATOR],
+        Entry own = journal.append(state, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CODEX, Fixtures.OPERATOR],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "note to self"))
-        Entry toHuman = journal.append(file, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.OPERATOR],
+        Entry toHuman = journal.append(state, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.OPERATOR],
                 type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "done"))
 
         expect:
@@ -168,8 +167,8 @@ exit $(cat "''' + exitFile + '''")
     void "a broadcast pushes to each client recipient except the one the human typed into"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123")
-        Entry viaClaude = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
-        Entry viaCodex = journal.append(file, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
+        Entry viaClaude = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
+        Entry viaCodex = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
 
         expect:
         pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]

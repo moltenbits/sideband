@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.journal.Journal
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -36,7 +37,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         then:
         captured.metadata.from == "operator"
-        Files.readString(repo.resolve(".git/sideband/journal.md")).contains("## Operator → Claude (via Claude)")
+        context.getBean(Journal).readAfter(repo.resolve(".git/sideband"), 0).entries()*.body() == ["hello"]
     }
 
     void "append --from operator works without init because nothing about the operator is configured"() {
@@ -75,7 +76,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        Files.readString(plain.resolve(".sideband/journal.md")).contains("no repo here")
+        context.getBean(Journal).readAfter(plain.resolve(".sideband"), 0).entries()*.body() == ["no repo here"]
     }
 
     void "doctor reports an uninitialized repository without failing"() {
@@ -86,7 +87,7 @@ class InitAndDoctorSpec extends CommandSpec {
         report.initialized == false
         report.protocol == "v1"
         report.version ==~ /sideband \S+ \(protocol v1\)/
-        report.journal == null
+        report.database == null
         report.roles == [:]
         report.clients.skills*.state == ["missing", "missing"]
         report.clients.hook.state == "missing"
@@ -94,12 +95,11 @@ class InitAndDoctorSpec extends CommandSpec {
         report.clients.inbound.note.contains("can only tighten it")
     }
 
-    void "doctor reports journal health, sessions, pending counts, and the lock owner"() {
+    void "doctor reports database health, sessions, and pending counts"() {
         given:
         runJson("init", "--repo", repo.toString(), "--skip-clients")
         runJson("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude", "--body-file", Files.writeString(repo.resolve("p.md"), "@codex hi").toString())
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
-        Files.writeString(repo.resolve(".git/sideband/journal.lock"), "12345")
 
         when:
         Map report = runJson("doctor", "--repo", repo.toString(), "--home", home.toString())
@@ -107,14 +107,15 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         report.initialized
         report.permissions == "rwx------"
-        report.journal.entries == 1
-        report.journal.diagnostics == 0
-        report.journal.incomplete_tail == false
+        report.database.path == repo.toRealPath().resolve(".git/sideband/sideband.db").toString()
+        report.database.bytes > 0
+        report.database.entries == 1
+        report.database.integrity == "ok"
         report.roles.codex.session_id == "s1"
         report.roles.codex.open == 1
         report.roles.claude.session_id == null
         report.roles.claude.open == 0
-        report.lock_owner_pid == "12345"
+        !report.containsKey("lock_owner_pid")
         !stdout.toString().contains("@codex hi")
     }
 }

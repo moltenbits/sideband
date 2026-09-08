@@ -13,7 +13,7 @@ import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 
-/** Shared sample data. The fixed clock and IDs let specifications assert exact bytes. */
+/** Shared sample data. The fixed clock and IDs let specifications assert exact values. */
 class Fixtures {
 
     static final ParticipantId OPERATOR = ParticipantId.OPERATOR
@@ -32,10 +32,10 @@ class Fixtures {
         Map m = [
                 id: "019a", createdAt: T0, from: OPERATOR, via: Role.CLAUDE, to: [CLAUDE, CODEX],
                 type: MessageType.REQUEST, route: Route.BROADCAST, replyTo: null, causedBy: null,
-                expectsReply: true, delivery: Delivery.DEFAULT, bodyBytes: 58,
+                expectsReply: true, delivery: Delivery.DEFAULT,
         ] + overrides
         new EntryMetadata(m.id, m.createdAt, m.from, m.via, m.to, m.type, m.route, m.replyTo, m.causedBy,
-                m.expectsReply, m.delivery, m.bodyBytes)
+                m.expectsReply, m.delivery)
     }
 
     static Draft humanDraft(String body = "@all independently review the proposed database migration.",

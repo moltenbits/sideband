@@ -6,8 +6,6 @@ import io.micronaut.serde.Encoder;
 import io.micronaut.serde.Serde;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.stream.Collectors;
 
 /** Reads and writes a {@link Wire} enum by its identifier; an unknown identifier is an error, never a guess. */
 public abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
@@ -26,12 +24,10 @@ public abstract class WireSerde<E extends Enum<E> & Wire> implements Serde<E> {
     @Override
     public E deserialize(Decoder decoder, DecoderContext context, Argument<? super E> argument) throws IOException {
         String id = decoder.decodeString();
-        for (E constant : type.getEnumConstants()) {
-            if (constant.id().equals(id)) {
-                return constant;
-            }
+        try {
+            return Wire.fromId(type, id);
+        } catch (InvalidEntryException e) {
+            throw decoder.createDeserializationException(e.getMessage(), id);
         }
-        throw decoder.createDeserializationException("'" + id + "' is not one of "
-                + Arrays.stream(type.getEnumConstants()).map(Wire::id).collect(Collectors.joining(", ")), id);
     }
 }

@@ -3,7 +3,6 @@ package com.moltenbits.sideband.push;
 import com.moltenbits.sideband.handoff.Batch;
 import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.journal.Entry;
-import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
@@ -46,8 +45,7 @@ class HostPushes implements Pushes {
     }
 
     private PushResult deliver(Path stateDirectory, Entry entry, Role role) {
-        Path journalFile = stateDirectory.resolve(Journal.FILE_NAME);
-        Batch batch = Batch.forRole(role, entry.start(), entry.end(), handoffs.prepare(journalFile, List.of(entry)), List.of(), false);
+        Batch batch = Batch.forRole(role, entry.seq(), entry.seq(), handoffs.prepare(stateDirectory, List.of(entry)), false);
         return pushers.get(role).push(stateDirectory, entry.metadata().from(), handoffs.envelope(batch));
     }
 }

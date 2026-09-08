@@ -68,6 +68,31 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
 
 ## Build
 
+- **Changing the SQLite journal mode per connection fails under contention**
+  (sqlite-jdbc 3.53.4.0 bundling SQLite 3.53.4, macOS 26 on Apple silicon,
+  measured 2026-09-07). `SQLiteConfig.setJournalMode(WAL)` makes the driver
+  run `PRAGMA journal_mode` inside `SQLiteConfig.apply` while opening each
+  connection, and SQLite answers `SQLITE_BUSY` there at once, without the busy
+  handler, when another connection is mid-write. Probe: the "concurrent
+  writers" case of `SqliteJournalSpec` (8 threads, 25 appends each) with that
+  setting on the data source; it lost one writer's 25 appends in about one run
+  in three, the failure's cause chain ending in `SQLiteConfig.apply`. The store
+  therefore never sets a journal mode and relies on the default rollback journal
+  plus the busy timeout.
+- **sqlite-jdbc extracts its native library on every run** (same versions and
+  date). `SQLiteJDBCLoader` writes `libsqlitejdbc.dylib` to a fresh
+  `java.io.tmpdir` file, named with a random UUID, each process, and macOS
+  inspects the new file before loading it. Probe: `DYLD_PRINT_LIBRARIES=1
+  sideband pending` shows the temporary path; `/usr/bin/time` put a warm
+  command at ~250 ms, ~40 ms with `-Dorg.sqlite.lib.path` pointing at a copy
+  extracted once. The store keeps one copy in the state directory, beside the
+  database, as `sqlite-jdbc-<version>-<os>-<arch>/libsqlitejdbc.<ext>`, and
+  points the driver at that directory through `org.sqlite.lib.path` only:
+  overriding `org.sqlite.lib.name` as well would make the driver look for a
+  bundled resource of that name after a failed load and skip its extraction
+  fallback, so a damaged copy would lock the database (Codex reproduced this
+  with an x86_64 library in an ARM state directory, 2026-09-07). The first
+  command in a repository takes ~1 s to write it.
 - **The skill instructions are embedded in the executable.** `build.gradle.kts`
   copies `skills/` into the resources, so a change under `skills/` needs
   `just install` before the installed hooks and skills reflect it.
