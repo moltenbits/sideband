@@ -119,10 +119,8 @@ The layout is:
 `sideband.db` is one SQLite database holding the journal and both roles'
 session records. SQLite's own locking serializes access to it; no lock file
 exists beside it. A state directory written before the database existed held
-`journal.md`, `sessions/<role>.json`, and `journal.lock`; the first time the
-executable opens such a directory it imports the journal and session records
-into a new database, in one transaction, and leaves the old files alone. They
-are never read again while the database exists and may be deleted.
+`journal.md`, `sessions/<role>.json`, and `journal.lock`; nothing reads those
+files any more, and they may be deleted.
 
 Outside any Git repository, the state directory is `.sideband` in the
 working directory itself, with the same contents.
@@ -1494,7 +1492,8 @@ access, Claude's listener reading while Codex's append writes, is why SQLite
 rather than a pure-Java store. Protocol semantics, routing, ancestry,
 delivery policies, session records as separate facts, and pushes are
 unchanged; the skills did not change beyond dropping the diagnostics field.
-A state directory from before the change is imported once, on first contact.
+State from before the change is not carried over: the only journals were
+development repositories, and their files are simply left behind.
 
 <!-- /sideband -->
 

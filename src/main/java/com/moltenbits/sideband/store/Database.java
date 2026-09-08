@@ -32,9 +32,9 @@ import java.util.function.Supplier;
  * <p>
  * The schema is Flyway's: the migrations under {@code db/migration} run when a write finds
  * the database absent or below the current version, which each migration stamps into
- * {@code PRAGMA user_version}, so an up-to-date database costs one pragma to check. The
- * first write also imports a journal written before the store existed. A read finds no
- * database, or one another process has created but not yet migrated, and reports absence.
+ * {@code PRAGMA user_version}, so an up-to-date database costs one pragma to check. A read
+ * finds no database, or one another process has created but not yet migrated, and reports
+ * absence.
  */
 @Singleton
 final class Database {
@@ -49,7 +49,6 @@ final class Database {
     private final FlywayConfigurationProperties migrations;
     private final ConnectionOperations<Connection> connections;
     private final TransactionOperations<Connection> transactions;
-    private final LegacyImport legacy;
 
     Database(@Value("${sideband.store.busy-timeout:10s}") Duration busyTimeout,
              @Named("default") DataSource dataSource,
@@ -57,8 +56,7 @@ final class Database {
              FlywayMigrator migrator,
              @Named("default") FlywayConfigurationProperties migrations,
              @Named("default") ConnectionOperations<Connection> connections,
-             @Named("default") TransactionOperations<Connection> transactions,
-             LegacyImport legacy) {
+             @Named("default") TransactionOperations<Connection> transactions) {
         this.busyTimeout = busyTimeout;
         // The injected bean is Micronaut Data's contextual proxy, usable only inside a connection scope; Flyway needs the real one.
         this.dataSource = resolver.resolve(dataSource);
@@ -66,40 +64,26 @@ final class Database {
         this.migrations = migrations;
         this.connections = connections;
         this.transactions = transactions;
-        this.legacy = legacy;
     }
 
-    /**
-     * Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is
-     * none. A journal from before the store counts as an existing store: it is imported first.
-     */
+    /** Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is none. */
     <T> T read(Path stateDirectory, T whenAbsent, Supplier<T> work) {
         Path file = SidebandDataSource.file(stateDirectory);
         if (!Files.exists(file)) {
-            if (!legacy.present(stateDirectory)) {
-                return whenAbsent;
-            }
-            write(stateDirectory, () -> null);
+            return whenAbsent;
         }
         return guarded(file, () -> SidebandDataSource.in(stateDirectory, () ->
                 version() < SCHEMA_VERSION ? whenAbsent : work.get()));
     }
 
-    /**
-     * Runs {@code work} in one transaction. A database that is absent or behind is migrated
-     * first, on Flyway's own connections, and a journal from before the store is imported in
-     * the transaction that follows.
-     */
+    /** Runs {@code work} in one transaction. A database that is absent or behind is migrated first, on Flyway's own connections. */
     <T> T write(Path stateDirectory, Supplier<T> work) {
         Path file = SidebandDataSource.file(stateDirectory);
         return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> {
             if (!Files.exists(file) || version() < SCHEMA_VERSION) {
                 migrator.run(migrations, dataSource);
             }
-            return transactions.executeWrite(status -> {
-                legacy.run(stateDirectory);
-                return work.get();
-            });
+            return transactions.executeWrite(status -> work.get());
         }));
     }
 

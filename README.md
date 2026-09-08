@@ -91,9 +91,8 @@ Entries are immutable and inserted in transactions that SQLite serializes
 across processes, so two clients writing at once never interleave. Positions
 are the addressing scheme: each entry gets the next sequence number, a session
 records the last position when it joins as its watermark, and everything
-after it is live. A state directory from before the database (`journal.md`
-and `sessions/`) is imported once, on first contact, and its files can then
-be deleted.
+after it is live. A state directory from before the database still holds
+`journal.md` and `sessions/`; nothing reads them, and they can be deleted.
 
 ### How each client is reached
 
