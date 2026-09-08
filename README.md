@@ -125,42 +125,6 @@ other and reply on their own, and `sideband log` shows the whole discussion:
 
 ## 3. How it works
 
-The executable is the only thing that reads or writes the journal, resolves
-routing, checks provenance, or touches a session record. The skills contain
-no logic of their own: the installed `SKILL.md` files are stubs that run
-`sideband skill`, which prints the adapter instructions embedded in the
-executable, so upgrading the binary upgrades both adapters. To edit the
-instructions yourself, run `sideband skill --eject` inside the client; that
-writes them into the client's `SKILL.md`, which is then yours and stops
-updating with the executable. Ejecting again is refused so your edits
-survive, unless you pass `--force`; delete the file and rerun `sideband init`
-to go back.
-
-Whoever appends an entry pushes the complete envelope into the recipient's
-running session, which starts a new turn there when the session is idle; the
-recipient reads the entry from that message and acts on it directly. Every
-envelope and every `pending` report begin with an `intent` field that says
-only "Sideband delivery; use the Sideband skill (/sideband) for handling
-instructions". That is what lets a conversation whose context was cleared, or
-one that never joined, find the skill and handle what arrives.
-
-The hooks are the only thing that records prompts: `init` registers
-`sideband hook prompt` under each client's `UserPromptSubmit` and
-`sideband hook session-start` under `SessionStart` with the matcher `clear`,
-each naming its client with `--agent claude` or `--agent codex` because both
-hosts send the same payload and Codex gives hook shells no environment
-markers. A prompt is recorded for its client's role whenever that role has
-joined here, whichever conversation or process is running the hook, so
-restarting a client needs nothing; when a hook cannot record, it tells the
-model to tell you, and no client records a prompt on its behalf. Clearing a
-context is handled by the same hooks: the role follows you into the new
-conversation at your first prompt there, and that conversation opens with a
-note saying Sideband is live there and how many entries addressed to it need
-attention, acknowledged ones included. `doctor` reports each client's
-registration as missing when the file is absent or holds no Sideband
-command, stale when it is incomplete or has the session-start command under
-another matcher, and installed otherwise.
-
 ### 3.1 What it does
 
 - **Agents delegate to each other and reply.** Claude asks Codex to review
