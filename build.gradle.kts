@@ -3,7 +3,8 @@ plugins {
     id("io.micronaut.application") version "5.0.2"
 }
 
-version = "0.1"
+// The release workflow passes the tag as -Pversion; a build without one carries a marker instead.
+version = providers.gradleProperty("version").getOrElse("0.0.0-dev")
 group = "com.moltenbits"
 
 repositories {
