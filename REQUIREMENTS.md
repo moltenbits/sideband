@@ -371,10 +371,11 @@ JSON batch holding the complete entry:
 
 ```text
 [Sideband message]
-{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":20659,"end":21024,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","effective_live":"auto","lineage_problem":null}],"diagnostics":[],"timed_out":false}
+{"intent":"Sideband delivery; use the Sideband skill ($sideband) for handling instructions","start":12,"end":12,"entries":[{"metadata":{...},"body":"@codex review the locking behavior.","seq":12,"effective_live":"auto","lineage_problem":null}],"timed_out":false}
 ```
 
-Claude receives the same marker and batch over its inbox socket, with
+A directly pushed batch holds one entry, so `start` and `end` are both its
+position. Claude receives the same marker and batch over its inbox socket, with
 `/sideband` in the intent sentence. Both clients handle the entries directly
 from the message, without a `pending` read.
 
