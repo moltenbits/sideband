@@ -46,8 +46,9 @@ Or from source, which needs a GraalVM JDK with `native-image` and
 just install          # builds the native executable and puts it on PATH
 ```
 
-Set up the repository. `init` creates the state directory and database,
-installs both skills, registers the hooks, and prints what to do next:
+Set up the repository. `init` creates the private state directory and its
+database, installs both skills, registers the hooks, and prints what to do
+next; rerunning it is safe:
 
 ```bash
 cd <your repository>
