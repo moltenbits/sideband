@@ -279,18 +279,18 @@ sideband init</pre>
 
   <section id="use">
     <h2>Use</h2>
-    <p class="prose">Join from each session working on the repository. Claude Code joins with <code>/sideband</code>, Codex with <code>$sideband</code>. Once both have joined, hand out work from either side by starting a prompt with the agent's name. The prompt is journaled as your words, the agent it names is woken in its own session, and from there the two delegate to each other and reply on their own.</p>
+    <p class="prose">Join from each session working on the repository. Claude Code joins with <code>/sideband</code>, Codex with <code>$sideband</code>. Then talk to either agent the way you always have: a prompt typed into Claude Code is for Claude, one typed into Codex is for Codex, and the prompt is journaled as your words. Ask one agent to bring in the other, and from there the two delegate to each other and reply on their own.</p>
     <div class="talk">
       <div>
-        <p>Give Claude the task and make Codex the reviewer, one commit at a time:</p>
-        <blockquote><span class="c">@claude</span> fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.</blockquote>
+        <p>In Claude Code, give Claude the task and make Codex the reviewer, one commit at a time:</p>
+        <blockquote>Fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.</blockquote>
       </div>
       <div>
-        <p>Give Codex the lead on a job for both of them, reviewing each other as they go:</p>
-        <blockquote><span class="x">@codex</span> split the settings migration with Claude: you take the reader, Claude takes the writer. Agree the interface first, then review each other's commits as you both work along and tell me when it is done.</blockquote>
+        <p>In Codex, give Codex the lead on a job for both of them, reviewing each other as they go:</p>
+        <blockquote>Split the settings migration with Claude: you take the reader, Claude takes the writer. Agree the interface first, then review each other's commits as you both work along and tell me when it is done.</blockquote>
       </div>
     </div>
-    <p class="prose" style="margin-top:1.4rem">Everything you type on either side keeps being journaled, so a later prompt can redirect either agent, and <code>@all</code> speaks to both at once. <code>sideband log</code> prints the whole discussion as Markdown.</p>
+    <p class="prose" style="margin-top:1.4rem">Everything you type on either side keeps being journaled, so a later prompt can redirect either agent. To reach the other agent without switching windows, start the prompt with <code>@codex</code> or <code>@claude</code>; <code>@all</code> speaks to both at once. <code>sideband log</code> prints the whole discussion as Markdown.</p>
   </section>
 
   <section id="how">
@@ -299,7 +299,7 @@ sideband init</pre>
       <li><b>Agents delegate to each other and reply.</b> Claude asks Codex to review a change, Codex asks Claude to explain a design, either reports status. Requests, replies, and status notes are journal entries of one shape, and a reply is correlated with the request it answers.</li>
       <li><b>Every actionable chain traces to the human.</b> An agent's request must link, through the requests and replies before it, to something the human asked, and the executable refuses one that does not. Within that, one agent may direct the other's work for as long as the human's request stands.</li>
       <li><b>Delivery wakes the idle recipient</b> in its existing conversation, without any model tokens spent waiting. Claude Code is reached over the inbox socket its own cross-session messaging uses; Codex is reached with <code>codex queue</code> into the thread it recorded when it joined.</li>
-      <li><b>The human is a participant, not a transport.</b> Every prompt typed into either client is journaled verbatim and attributed to you. Normally each agent is spoken to in its own session; <code>@codex</code> at the start of a prompt typed into Claude Code routes it to Codex anyway, and <code>@claude</code> does the reverse.</li>
+      <li><b>The human is a participant, not a transport.</b> Every prompt typed into either client is journaled verbatim and attributed to you. Each agent is spoken to in its own session; <code>@codex</code> at the start of a prompt typed into Claude Code routes it to Codex instead, and <code>@claude</code> does the reverse.</li>
       <li><b>Nothing is lost, and nothing is tracked outside the journal.</b> A request stays listed for its recipient until the journal holds an acknowledgement or reply, and for its sender until a reply exists. Requests that arrived while a client was away are confirmed with you before any action.</li>
     </ul>
     <h3>The journal</h3>

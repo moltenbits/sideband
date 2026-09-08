@@ -51,8 +51,8 @@
 
     ['ch', 1],
     ['C', 'g', '', 0],
-    ['C', 'h', '@claude fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.', 500],
-    ['J', ['12', 'operator', 'claude', 'request', 'fix #42, the upload retry loop. Keep the commits small…'], 700],
+    ['C', 'h', 'Fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.', 500],
+    ['J', ['12', 'operator', 'claude', 'request', 'Fix #42, the upload retry loop. Keep the commits small…'], 700],
     ['C', 'l', '<span class="c">⏺</span> Read(src/upload/retry.js)', 400],
     ['C', 'l', '<span class="c">⏺</span> The loop retries every failure, 4xx included, and never backs off. First commit: retry only transient errors.', 700],
     ['C', 'l', '<span class="c">⏺</span> Update(src/upload/retry.js)', 400],
