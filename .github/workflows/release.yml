@@ -1,6 +1,7 @@
-# Runs when a version tag is pushed. Builds the native executable on each
-# supported platform, publishes them all on one GitHub release, then writes
-# the Homebrew formula in moltenbits/homebrew-tap so `brew upgrade` sees it.
+# Runs when a version tag is pushed. Builds the native executable for Apple
+# silicon and for Linux on x86_64 and arm64 (there is no Intel Mac build),
+# publishes them all on one GitHub release, then writes the Homebrew formula
+# in moltenbits/homebrew-tap so `brew upgrade` sees it.
 # A tag with a hyphen (v1.1.0-rc1) is a pre-release and leaves the tap alone.
 name: Release
 
@@ -22,8 +23,6 @@ jobs:
         include:
           - target: macos-arm64
             runner: macos-15
-          - target: macos-x86_64
-            runner: macos-15-intel
           - target: linux-x86_64
             runner: ubuntu-24.04
           - target: linux-arm64
@@ -109,7 +108,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          for target in macos-arm64 macos-x86_64 linux-x86_64 linux-arm64; do
+          for target in macos-arm64 linux-x86_64 linux-arm64; do
             sha=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
               --jq ".assets[] | select(.name == \"sideband-${VERSION}-${target}.tar.gz\") | .digest" \
               | sed 's/^sha256://')
@@ -134,14 +133,8 @@ jobs:
             version "${{ steps.version.outputs.version }}"
 
             on_macos do
-              on_arm do
-                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-macos-arm64.tar.gz"
-                sha256 "${{ steps.sha256.outputs.macos-arm64 }}"
-              end
-              on_intel do
-                url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-macos-x86_64.tar.gz"
-                sha256 "${{ steps.sha256.outputs.macos-x86_64 }}"
-              end
+              url "https://github.com/moltenbits/sideband/releases/download/v#{version}/sideband-#{version}-macos-arm64.tar.gz"
+              sha256 "${{ steps.sha256.outputs.macos-arm64 }}"
             end
 
             on_linux do
