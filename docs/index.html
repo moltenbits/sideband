@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sideband</title>
+<meta name="description" content="Sideband lets Claude Code and Codex work together on one task, in their own sessions, with the human in the loop. One native executable, an append-only journal inside .git, nothing leaves the machine.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%2314202A'/%3E%3Crect x='6' y='8' width='7' height='16' fill='%23E9A23B'/%3E%3Crect x='19' y='8' width='7' height='16' fill='%234FC1B6'/%3E%3Crect x='15' y='6' width='2' height='20' fill='%238A98A6'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ground: #E8ECEF;
+    --ink: #1B2530;
+    --ink-soft: #4A5867;
+    --rule: #C9D1D8;
+    --term: #14202A;
+    --term-edge: #223240;
+    --term-text: #D6DEE5;
+    --term-dim: #7E8C99;
+    --claude: #E9A23B;
+    --codex: #4FC1B6;
+    --human: #F0F3F5;
+    --ledger: #8A98A6;
+    --serif: 'Newsreader', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+    --mono: 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+    --measure: 66ch;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--ground); color: var(--ink); }
+  body {
+    margin: 0;
+    font-family: var(--serif);
+    font-optical-sizing: auto;
+    font-size: 19px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+  a:hover { text-decoration-thickness: 2px; }
+  :focus-visible { outline: 2px solid var(--codex); outline-offset: 3px; }
+  code, kbd, pre, .pane, .ledger, .install, .talk blockquote { font-family: var(--mono); font-variant-ligatures: none; }
+  p code, li code { font-size: 0.82em; background: rgba(27,37,48,0.07); padding: 0.1em 0.35em; border-radius: 3px; }
+
+  .wrap { width: min(100% - 2.5rem, 1180px); margin-inline: auto; }
+  .prose { max-width: var(--measure); }
+
+  /* nav */
+  nav { display: flex; align-items: baseline; gap: 1.6rem; padding: 1.4rem 0 0; flex-wrap: wrap; }
+  nav .brand { font-size: 1.2rem; font-weight: 600; margin-right: auto; text-decoration: none; }
+  nav a:not(.brand) { font-size: 0.95rem; color: var(--ink-soft); text-decoration: none; }
+  nav a:not(.brand):hover { color: var(--ink); text-decoration: underline; }
+
+  /* hero */
+  header.hero { padding: 4.5rem 0 2.5rem; }
+  h1 {
+    font-size: clamp(2.4rem, 5.6vw, 4.4rem);
+    font-weight: 400;
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    margin: 0 0 1.4rem;
+    max-width: 18ch;
+  }
+  h1 em { font-style: italic; font-weight: 300; }
+  .lede { font-size: 1.22rem; line-height: 1.45; margin: 0 0 1.8rem; color: var(--ink); }
+  .install {
+    display: inline-flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 0.86rem;
+    background: var(--term); color: var(--term-text);
+    padding: 0.7rem 0.9rem 0.7rem 1rem; border-radius: 6px;
+    max-width: 100%;
+  }
+  .install #install-cmd { overflow-wrap: anywhere; }
+  .install .dollar { color: var(--term-dim); }
+  .install button {
+    font: inherit; font-size: 0.78rem; color: var(--term-text);
+    background: transparent; border: 1px solid var(--term-edge); border-radius: 4px;
+    padding: 0.2rem 0.55rem; cursor: pointer; margin-left: 0.5rem;
+  }
+  .install button:hover { border-color: var(--term-dim); }
+  .facts { margin: 1.2rem 0 0; color: var(--ink-soft); font-size: 0.95rem; }
+
+  /* replay */
+  .replay { margin: 1rem 0 0; }
+  .stage {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 15rem minmax(0, 1fr);
+    gap: 0;
+    align-items: stretch;
+  }
+  .pane {
+    background: var(--term); color: var(--term-text);
+    font-family: var(--mono); font-size: 0.8rem; line-height: 1.5;
+    border-radius: 8px; min-height: 30rem; height: 30rem;
+    display: flex; flex-direction: column; overflow: hidden;
+    box-shadow: inset 0 0 0 1px var(--term-edge);
+  }
+  .pane .bar {
+    display: flex; justify-content: space-between; align-items: baseline;
+    padding: 0.55rem 1rem; color: var(--term-dim); font-size: 0.72rem;
+    border-bottom: 1px solid var(--term-edge); flex: none;
+  }
+  .pane .bar b { font-weight: 600; }
+  .pane.claude .bar b { color: var(--claude); }
+  .pane.codex .bar b { color: var(--codex); }
+  .pane .scroll { padding: 0.8rem 1rem 1rem; overflow: hidden; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; }
+  .pane .line { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; min-height: 1.5em; flex: none; }
+  .pane .line.gap { min-height: 0.75em; }
+  .pane .human { color: var(--human); }
+  .pane .human::before { content: '❯ '; color: var(--term-dim); }
+  .pane.codex .human::before { content: '› '; }
+  .pane .dim { color: var(--term-dim); }
+  .pane .c { color: var(--claude); }
+  .pane .x { color: var(--codex); }
+  .pane .ok { color: #7FC98A; }
+  .pane .arrive {
+    border-left: 2px solid var(--codex); padding-left: 0.6rem; margin-left: 0.1rem;
+  }
+  .pane.codex .arrive { border-left-color: var(--claude); }
+  .pane .cursor::after { content: '▍'; color: var(--term-text); animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .ledger {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    padding: 2.4rem 0.9rem 0.6rem;
+    font-size: 0.7rem; line-height: 1.35;
+    color: var(--ink-soft);
+    position: relative; overflow: hidden;
+  }
+  .ledger::before {
+    content: ''; position: absolute; left: 50%; top: 0; bottom: 0;
+    border-left: 1px solid var(--rule);
+  }
+  .ledger .title {
+    position: absolute; top: 0.55rem; left: 0; right: 0; text-align: center;
+    font-family: var(--serif); font-size: 0.9rem; font-style: italic; color: var(--ink-soft);
+    background: var(--ground); padding: 0 0.4rem; width: max-content; margin-inline: auto; z-index: 1;
+  }
+  .entry {
+    position: relative; background: var(--ground);
+    padding: 0.35rem 0.5rem; margin: 0.25rem 0;
+    border: 1px solid var(--rule); border-radius: 4px;
+  }
+  .entry .pos { color: var(--ledger); }
+  .entry .who { display: block; }
+  .entry .who .c { color: #B5711C; }
+  .entry .who .x { color: #1F8C82; }
+  .entry .kind { color: var(--ink-soft); }
+  .entry .sum { display: block; color: var(--ink); font-family: var(--serif); font-size: 0.86rem; line-height: 1.3; margin-top: 0.15rem; }
+
+  .controls {
+    display: flex; align-items: center; gap: 1rem; margin-top: 0.9rem;
+    font-size: 0.9rem; color: var(--ink-soft); flex-wrap: wrap;
+  }
+  .controls button {
+    font: inherit; font-family: var(--mono); font-size: 0.78rem;
+    background: var(--ink); color: var(--ground); border: 0; border-radius: 4px;
+    padding: 0.35rem 0.8rem; cursor: pointer; min-width: 5.5rem;
+  }
+  .controls input[type=range] { flex: 1; min-width: 12rem; accent-color: var(--ink); }
+  .chapters { display: flex; gap: 1.2rem; font-family: var(--serif); font-style: italic; }
+  .chapters span { opacity: 0.45; }
+  .chapters span.on { opacity: 1; }
+  .caption { color: var(--ink-soft); font-size: 0.95rem; margin: 0.7rem 0 0; max-width: var(--measure); }
+
+  /* sections */
+  section { padding: 4rem 0 0; }
+  h2 { font-size: 1.9rem; font-weight: 400; line-height: 1.15; margin: 0 0 1.2rem; letter-spacing: -0.01em; }
+  h3 { font-size: 1.15rem; font-weight: 600; margin: 1.8rem 0 0.5rem; }
+  ol.steps { padding-left: 1.6rem; max-width: var(--measure); margin: 0; }
+  ol.steps li { margin: 0 0 1.4rem; padding-left: 0.3rem; }
+  ol.steps li::marker { font-family: var(--serif); color: var(--ink-soft); }
+  pre.cmd {
+    margin: 0.55rem 0 0; background: var(--term); color: var(--term-text);
+    font-size: 0.8rem; line-height: 1.55; padding: 0.7rem 1rem; border-radius: 6px;
+    overflow-x: auto; white-space: pre;
+  }
+  pre.cmd .dim { color: var(--term-dim); }
+  pre.cmd .human { color: var(--human); }
+  .talk { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.4rem 2.2rem; margin-top: 1.4rem; }
+  .talk blockquote {
+    margin: 0; font-family: var(--mono); font-size: 0.8rem; line-height: 1.55;
+    background: var(--term); color: var(--human); padding: 0.85rem 1rem; border-radius: 6px;
+    white-space: pre-wrap;
+  }
+  .talk blockquote .c { color: var(--claude); }
+  .talk blockquote .x { color: var(--codex); }
+  .talk p { margin: 0 0 0.5rem; font-size: 1rem; }
+  ul.how { list-style: none; padding: 0; margin: 0; max-width: var(--measure); }
+  ul.how li { padding: 1rem 0; border-top: 1px solid var(--rule); }
+  ul.how li:last-child { border-bottom: 1px solid var(--rule); }
+  ul.how b { font-weight: 600; }
+  .log {
+    margin: 1.2rem 0 0; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55;
+    background: var(--term); color: var(--term-text); padding: 0.9rem 1.1rem; border-radius: 6px;
+    white-space: pre; overflow-x: auto; max-width: 44rem;
+  }
+  .log .dim { color: var(--term-dim); }
+
+  footer { margin-top: 5rem; padding: 1.6rem 0 2.5rem; border-top: 1px solid var(--rule); color: var(--ink-soft); font-size: 0.92rem; display: flex; gap: 1.6rem; flex-wrap: wrap; }
+  footer span:first-child { margin-right: auto; }
+
+  @media (max-width: 900px) {
+    .stage { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .pane { height: 22rem; min-height: 22rem; }
+    .ledger { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; padding: 1.6rem 0 0; overflow: visible; }
+    .ledger::before { display: none; }
+    .ledger .title { left: 0; margin: 0; text-align: left; padding: 0; top: 0; }
+    .entry { margin: 0; flex: 1 1 10rem; }
+    .pane.codex { order: 3; }
+    .ledger { order: 2; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pane .cursor::after { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="#">sideband</a>
+    <a href="#install">Install</a>
+    <a href="#use">Use</a>
+    <a href="#how">How it works</a>
+    <a href="https://github.com/moltenbits/sideband">GitHub</a>
+  </nav>
+
+  <header class="hero">
+    <h1>Two agents, one journal, <em>the human in the loop.</em></h1>
+    <p class="lede prose">Sideband lets Claude Code and Codex work together on one task, each in its own session. They talk through an append-only journal inside the repository's <code>.git</code> directory: one delegates, the other answers, and each is woken in its own conversation when something arrives. Every prompt you type on either side is journaled as your words.</p>
+    <div class="install">
+      <span class="dollar">$</span><span id="install-cmd">brew tap moltenbits/tap &amp;&amp; brew install sideband</span>
+      <button type="button" id="copy">Copy</button>
+    </div>
+    <p class="facts prose">Nothing leaves the machine. No daemon, no server, no MCP bridge, no interpreter: one GraalVM native executable, and everything a client runs is a subcommand of it. Version 1.0.1.</p>
+  </header>
+
+  <div class="replay" id="replay">
+    <div class="stage">
+      <div class="pane claude">
+        <div class="bar"><span><b>Claude Code</b> · Fable 5.1</span><span>~/Projects/shop</span></div>
+        <div class="scroll" id="pane-claude"></div>
+      </div>
+      <div class="ledger" id="ledger"><span class="title">.git/sideband</span></div>
+      <div class="pane codex">
+        <div class="bar"><span><b>Codex</b> · gpt-5.1-codex-max</span><span>~/Projects/shop</span></div>
+        <div class="scroll" id="pane-codex"></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button type="button" id="play" aria-label="Play or pause the replay">Play</button>
+      <input type="range" id="scrub" min="0" max="1000" value="0" aria-label="Replay position">
+      <div class="chapters" id="chapters"><span>Join</span><span>Delegate</span><span>Review</span><span>Reply</span></div>
+    </div>
+    <p class="caption">Each side is shown the way Claude Code and Codex display a Sideband exchange. Both sessions join with one command; the task is the first example under <a href="#use">Use</a>, and the journal between them fills as the executable records each entry. Pacing is shortened.</p>
+  </div>
+
+  <section id="install">
+    <h2>Install</h2>
+    <ol class="steps">
+      <li>Install the executable from the moltenbits Homebrew tap, on Apple silicon or Linux.
+        <pre class="cmd">brew tap moltenbits/tap
+brew install sideband</pre>
+      </li>
+      <li>Set up the repository. This creates the private state directory and its database, installs both skills, registers the hooks, and prints what to do next. Rerunning it is safe, and <code>sideband doctor</code> reports the state at any time.
+        <pre class="cmd">cd &lt;your repository&gt;
+sideband init</pre>
+      </li>
+      <li>Let Claude Code accept pushes from Sideband, so entries arrive in its session directly instead of through a listener. In Claude Code this is <code>/config</code>, "Messages from your other sessions"; the same setting in your user settings is:
+        <pre class="cmd"><span class="dim">~/.claude/settings.json</span>
+{ "crossSessionInbound": "accept" }</pre>
+      </li>
+      <li>In Codex, trust the hooks that <code>init</code> registered, and again whenever a later <code>init</code> reports one as added or updated.
+        <pre class="cmd"><span class="human">/hooks</span></pre>
+      </li>
+    </ol>
+  </section>
+
+  <section id="use">
+    <h2>Use</h2>
+    <p class="prose">Join from each session working on the repository. Claude Code joins with <code>/sideband</code>, Codex with <code>$sideband</code>. Once both have joined, hand out work from either side by starting a prompt with the agent's name. The prompt is journaled as your words, the agent it names is woken in its own session, and from there the two delegate to each other and reply on their own.</p>
+    <div class="talk">
+      <div>
+        <p>Give Claude the task and make Codex the reviewer, one commit at a time:</p>
+        <blockquote><span class="c">@claude</span> fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.</blockquote>
+      </div>
+      <div>
+        <p>Give Codex the lead on a job for both of them, reviewing each other as they go:</p>
+        <blockquote><span class="x">@codex</span> split the settings migration with Claude: you take the reader, Claude takes the writer. Agree the interface first, then review each other's commits as you both work along and tell me when it is done.</blockquote>
+      </div>
+    </div>
+    <p class="prose" style="margin-top:1.4rem">Everything you type on either side keeps being journaled, so a later prompt can redirect either agent, and <code>@all</code> speaks to both at once. <code>sideband log</code> prints the whole discussion as Markdown.</p>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <ul class="how">
+      <li><b>Agents delegate to each other and reply.</b> Claude asks Codex to review a change, Codex asks Claude to explain a design, either reports status. Requests, replies, and status notes are journal entries of one shape, and a reply is correlated with the request it answers.</li>
+      <li><b>Every actionable chain traces to the human.</b> An agent's request must link, through the requests and replies before it, to something the human asked, and the executable refuses one that does not. Within that, one agent may direct the other's work for as long as the human's request stands.</li>
+      <li><b>Delivery wakes the idle recipient</b> in its existing conversation, without any model tokens spent waiting. Claude Code is reached over the inbox socket its own cross-session messaging uses; Codex is reached with <code>codex queue</code> into the thread it recorded when it joined.</li>
+      <li><b>The human is a participant, not a transport.</b> Every prompt typed into either client is journaled verbatim and attributed to you. Normally each agent is spoken to in its own session; <code>@codex</code> at the start of a prompt typed into Claude Code routes it to Codex anyway, and <code>@claude</code> does the reverse.</li>
+      <li><b>Nothing is lost, and nothing is tracked outside the journal.</b> A request stays listed for its recipient until the journal holds an acknowledgement or reply, and for its sender until a reply exists. Requests that arrived while a client was away are confirmed with you before any action.</li>
+    </ul>
+    <h3>The journal</h3>
+    <p class="prose">One SQLite database in the state directory holds every entry and both roles' session records. Entries are immutable and inserted in transactions that SQLite serializes across processes, so two clients writing at once never interleave. Positions are the addressing scheme: each entry gets the next sequence number, and a session records the last position when it joins. <code>sideband log</code> prints it for a person to read:</p>
+    <pre class="log"><span class="dim">## Operator → Codex (via Claude)</span>
+
+- position: 12
+- id: 655e8ef3-…
+- created: 2026-09-07T18:07:52-05:00
+- type: request (expects a reply)
+- to: codex
+
+@codex review the locking behavior.
+
+<span class="dim">---</span></pre>
+  </section>
+
+  <footer class="wrap">
+    <span>Sideband is a <a href="https://github.com/moltenbits">moltenbits</a> project.</span>
+    <a href="https://github.com/moltenbits/sideband">Source</a>
+    <a href="https://github.com/moltenbits/sideband/releases">Releases</a>
+    <a href="https://github.com/moltenbits/homebrew-tap">Homebrew tap</a>
+    <a href="https://github.com/moltenbits/sideband/issues">Issues</a>
+  </footer>
+</div>
+
+<script src="replay.js"></script>
+</body>
+</html>
