@@ -3,6 +3,7 @@ package com.moltenbits.sideband.store;
 import jakarta.inject.Singleton;
 import org.sqlite.SQLiteJDBCLoader;
 import org.sqlite.util.LibraryLoaderUtil;
+import org.sqlite.util.OSInfo;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -16,24 +17,30 @@ import java.nio.file.StandardCopyOption;
  * on every command. The extraction and the operating system's first look at a new library
  * cost more than the rest of a command put together; a hook pays that on every prompt.
  * <p>
- * The file is named with the driver version so an upgrade never loads a stale library.
- * When it cannot be written the driver's own extraction still works.
+ * The copy sits in a directory named for the driver version and the platform, under the
+ * library's own file name. The driver is told only the directory: it loads the file there
+ * by its usual name, and when that fails, a damaged copy or one from another machine, it
+ * falls back to extracting its bundled library as if nothing had been configured. A
+ * process loads the library once, so the first state directory a process opens is where
+ * it loads from.
  */
 @Singleton
 final class NativeLibrary {
 
     private boolean prepared;
 
-    /** The file the library is kept in, inside the state directory. */
-    static Path file(Path stateDirectory) {
-        return stateDirectory.resolve("sqlite-jdbc-" + SQLiteJDBCLoader.getVersion() + "-" + LibraryLoaderUtil.getNativeLibName());
+    /** The directory the library is kept in: state directory, driver version, operating system and architecture. */
+    static Path directory(Path stateDirectory) {
+        String platform = OSInfo.getNativeLibFolderPathForCurrentOS().replace('/', '-');
+        return stateDirectory.resolve("sqlite-jdbc-" + SQLiteJDBCLoader.getVersion() + "-" + platform);
     }
 
-    /**
-     * Points the driver at the library in {@code stateDirectory}, writing it first when it is
-     * not there yet. The driver loads a library once per process, so this happens once per
-     * process too: the first state directory a process opens is where it loads from.
-     */
+    /** The library file, under the name the driver looks for. */
+    static Path file(Path stateDirectory) {
+        return directory(stateDirectory).resolve(LibraryLoaderUtil.getNativeLibName());
+    }
+
+    /** Points the driver at the library in {@code stateDirectory}, writing it first when it is not there yet. Once per process. */
     synchronized void prepare(Path stateDirectory) {
         if (prepared) {
             return;
@@ -45,7 +52,6 @@ final class NativeLibrary {
                 write(library);
             }
             System.setProperty("org.sqlite.lib.path", library.getParent().toString());
-            System.setProperty("org.sqlite.lib.name", library.getFileName().toString());
         } catch (IOException | RuntimeException e) {
             // Leave the driver to its own extraction; slower, never wrong.
         }
@@ -53,7 +59,8 @@ final class NativeLibrary {
 
     /** Writes the bundled library beside its final name and moves it into place, so a concurrent reader never sees a partial file. */
     private static void write(Path library) throws IOException {
-        String resource = LibraryLoaderUtil.getNativeLibResourcePath() + "/" + LibraryLoaderUtil.getNativeLibName();
+        Files.createDirectories(library.getParent());
+        String resource = LibraryLoaderUtil.getNativeLibResourcePath() + "/" + library.getFileName();
         try (InputStream in = NativeLibrary.class.getResourceAsStream(resource)) {
             if (in == null) {
                 throw new IOException("no bundled library at " + resource);
