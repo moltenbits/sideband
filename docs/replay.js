@@ -187,11 +187,15 @@
   // scrolling back up rewinds.
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var pinned = window.matchMedia && window.matchMedia('(min-width: 901px)').matches;
+  // The stage pins at its sticky offset and stays pinned until the track
+  // runs out, so the pinned span is the play span.
+  var stage = document.getElementById('replay');
   function progress() {
     var rect = track.getBoundingClientRect();
-    var range = track.offsetHeight - window.innerHeight;
+    var top = parseFloat(getComputedStyle(stage).top) || 0;
+    var range = track.offsetHeight - stage.offsetHeight;
     if (range <= 0) return 1;
-    return Math.min(1, Math.max(0, -rect.top / range));
+    return Math.min(1, Math.max(0, (top - rect.top) / range));
   }
   function show(p) {
     render(p * TOTAL);
