@@ -17,6 +17,7 @@ native image, and everything a client runs is a subcommand of it.
 - [How the pieces fit](#how-the-pieces-fit)
   - [The journal](#the-journal)
   - [How each client is reached](#how-each-client-is-reached)
+  - [What init sets up](#what-init-sets-up)
   - [One task, two agents](#one-task-two-agents)
   - [What is waiting for a role](#what-is-waiting-for-a-role)
 - [Development](#development)
@@ -37,59 +38,35 @@ Or from source, which needs a GraalVM JDK with `native-image` and
 just install          # builds the native executable and puts it on PATH
 ```
 
-Then, either way:
+Set up the repository. `init` creates the state directory and database,
+installs both skills, registers the hooks, and prints what to do next:
 
 ```bash
 cd <your repository>
-sideband init         # state directory and database, both skills, the capture hook
-sideband doctor       # paths, versions, discussion health, sessions, skill links
-sideband log          # the discussion as Markdown, oldest first
+sideband init
 ```
 
-`init` creates the private state directory with its database, installs the skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
-and registers two commands in the repository's `.claude/settings.json` and
-`.codex/hooks.json`, each naming its client with `--agent claude` or
-`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
-`sideband hook session-start` under `SessionStart` with the matcher `clear`.
-Rerunning it is safe. `doctor` reports each client's registration as
-missing when the file is absent or holds no Sideband command, stale when it
-is incomplete or has the session-start command under another matcher, and
-installed otherwise.
+Let Claude Code accept pushes from Sideband, or Claude falls back to
+listening. In Claude Code this is `/config`, "Messages from your other
+sessions"; the same setting in `~/.claude/settings.json` is:
 
-One setting is yours to make, and without it Claude falls back to listening.
-A pushed envelope reaches Claude Code from a process that is not the
-session's own child, and a session run with bypass permissions holds such a
-message for your approval unless `crossSessionInbound` is `accept` in your
-user settings,
-`~/.claude/settings.json` (or `/config`, "Messages from your other
-sessions"). Claude Code lets a repository's `.claude/settings.json` and
-`.claude/settings.local.json` only tighten that value, so `init` does not
-write it; `doctor` reports whether pushes will be delivered, held, or refused,
-names the file that decided, and says where accept must go. Managed settings
-and `--settings`, which it cannot read, take the place of your user file as
-the base; a repository's tightening still applies over them.
-In Codex, review and trust the hooks through `/hooks`, and again whenever
-`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
-trust to each definition's hash and skips an untrusted definition; an
-unchanged, already trusted one keeps running. Codex warns at startup when
-hooks need review, but `doctor` checks registration, not host trust, so a
-skipped hook looks installed to it. After trusting, type one prompt to
-refresh the current delivery address. The trust entries land in your Codex
-`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
-setting above.
+```json
+{ "crossSessionInbound": "accept" }
+```
 
-The hook is the only thing that records prompts: when it cannot, it tells
-the model to tell you, and no client records a prompt on its behalf. The
-registration names the client because both hosts send the same payload and
-Codex gives hook shells no environment markers. Nothing else about the
-caller matters: a prompt is recorded for its client's role whenever that
-role has joined here, whichever conversation or process is running the hook,
-so restarting a client needs nothing. Clearing a context is handled by the
-hooks described above: the role follows you into the new conversation at
-your first prompt there, and that conversation opens with a note saying
-Sideband is live there and how many entries addressed to it need attention,
-acknowledged ones included. In Codex, type that first prompt before you
-expect anything to be delivered to the new thread.
+Trust the hooks in Codex, and again whenever `init` reports one as added or
+updated:
+
+```text
+/hooks
+```
+
+Check the result. `doctor` reports the database, both roles' sessions, and
+every client item, and says where anything still needs your attention:
+
+```bash
+sideband doctor
+```
 
 ## Use
 
@@ -255,6 +232,54 @@ Every envelope and every `pending` report begin with an `intent` field that
 says only "Sideband delivery; use the Sideband skill (/sideband) for handling
 instructions". That is what lets a conversation whose context was cleared, or
 one that never joined, find the skill and handle what arrives.
+
+### What init sets up
+
+`init` creates the private state directory with its database, installs the
+skill stubs under `~/.claude/skills/sideband` and `~/.agents/skills/sideband`,
+and registers two commands in the repository's `.claude/settings.json` and
+`.codex/hooks.json`, each naming its client with `--agent claude` or
+`--agent codex`: `sideband hook prompt` under `UserPromptSubmit`, and
+`sideband hook session-start` under `SessionStart` with the matcher `clear`.
+Rerunning it is safe. `doctor` reports each client's registration as
+missing when the file is absent or holds no Sideband command, stale when it
+is incomplete or has the session-start command under another matcher, and
+installed otherwise.
+
+One setting is yours to make, and without it Claude falls back to listening.
+A pushed envelope reaches Claude Code from a process that is not the
+session's own child, and a session run with bypass permissions holds such a
+message for your approval unless `crossSessionInbound` is `accept` in your
+user settings,
+`~/.claude/settings.json` (or `/config`, "Messages from your other
+sessions"). Claude Code lets a repository's `.claude/settings.json` and
+`.claude/settings.local.json` only tighten that value, so `init` does not
+write it; `doctor` reports whether pushes will be delivered, held, or refused,
+names the file that decided, and says where accept must go. Managed settings
+and `--settings`, which it cannot read, take the place of your user file as
+the base; a repository's tightening still applies over them.
+In Codex, review and trust the hooks through `/hooks`, and again whenever
+`init` adds or changes a definition in `.codex/hooks.json`. Codex binds
+trust to each definition's hash and skips an untrusted definition; an
+unchanged, already trusted one keeps running. Codex warns at startup when
+hooks need review, but `doctor` checks registration, not host trust, so a
+skipped hook looks installed to it. After trusting, type one prompt to
+refresh the current delivery address. The trust entries land in your Codex
+`config.toml`. Claude Code needs nothing beyond the `crossSessionInbound`
+setting above.
+
+The hook is the only thing that records prompts: when it cannot, it tells
+the model to tell you, and no client records a prompt on its behalf. The
+registration names the client because both hosts send the same payload and
+Codex gives hook shells no environment markers. Nothing else about the
+caller matters: a prompt is recorded for its client's role whenever that
+role has joined here, whichever conversation or process is running the hook,
+so restarting a client needs nothing. Clearing a context is handled by the
+hooks described above: the role follows you into the new conversation at
+your first prompt there, and that conversation opens with a note saying
+Sideband is live there and how many entries addressed to it need attention,
+acknowledged ones included. In Codex, type that first prompt before you
+expect anything to be delivered to the new thread.
 
 ### One task, two agents
 
