@@ -1605,8 +1605,10 @@ release blocker until implementation reaches the affected feature boundary.
 ## 18. Executable command contract
 
 Every state-changing or reporting command prints one JSON document on stdout;
-the exceptions are `init`, which a person runs and which prints where the
-state lives, what was installed, and what to do next, `skill` without `--eject`, which prints the adapter
+the exceptions are `init` and `doctor`, which print reports for a person to
+read (`init`: where the state lives, what was installed, and what to do next;
+`doctor`: versions, paths, database health, sessions, and the client items),
+`skill` without `--eject`, which prints the adapter
 instructions as Markdown, `log`, which prints the discussion as Markdown,
 `--help`, which prints text, `hook prompt`, whose
 output follows the host's hook contract, and `pending --wait --stream`, which

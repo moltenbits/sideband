@@ -69,12 +69,7 @@ public class InitCommand implements Callable<Integer> {
             text.append("The client skills and hooks were skipped. Rerun sideband init without --skip-clients to install them.\n");
             return text.toString();
         }
-        for (Item skill : clients.skills()) {
-            item(text, skill.name() + " skill", skill);
-        }
-        item(text, "claude hook", clients.hook());
-        item(text, "codex hook", clients.codexHook());
-        item(text, "claude inbound", clients.inbound());
+        InstallLines.append(text, clients, false);
 
         List<String> steps = new ArrayList<>();
         steps.add("In Codex, run /hooks and trust the Sideband hook definitions; Codex skips a hook until you do.");
@@ -96,12 +91,5 @@ public class InitCommand implements Callable<Integer> {
         }
         text.append("\nRerun sideband init any time; sideband doctor reports the current state.\n");
         return text.toString();
-    }
-
-    private static void item(StringBuilder text, String label, Item item) {
-        text.append(String.format("  %-15s %-11s %s%n", label, item.state(), item.path()));
-        if (item.note() != null && !"claude inbound".equals(label)) {
-            text.append("      ").append(item.note()).append('\n');
-        }
     }
 }

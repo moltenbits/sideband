@@ -18,6 +18,13 @@ class InitAndDoctorSpec extends CommandSpec {
         json()
     }
 
+    String text(String... args) {
+        stdout = new StringWriter()
+        int code = run(args)
+        assert code == ExitCode.OK: "exit $code: ${stderr}"
+        stdout.toString()
+    }
+
     void "init creates the state directory, installs both skills and the hook, and append --from operator journals the operator"() {
         when:
         int code = run("init", "--repo", repo.toString(), "--home", home.toString())
@@ -80,7 +87,7 @@ class InitAndDoctorSpec extends CommandSpec {
         !Files.exists(plain.getParent().resolve(".codex"))
 
         and: "doctor inspects the same place"
-        runJson("doctor", "--repo", plain.toString(), "--home", home.toString()).clients.hook.state != "missing"
+        text("doctor", "--repo", plain.toString(), "--home", home.toString()).readLines().find { it.startsWith("  claude hook") }.contains("installed")
 
         when:
         stdout = new StringWriter()
@@ -94,18 +101,16 @@ class InitAndDoctorSpec extends CommandSpec {
 
     void "doctor reports an uninitialized repository without failing"() {
         when:
-        Map report = runJson("doctor", "--repo", repo.toString(), "--home", home.toString())
+        String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
 
         then:
-        report.initialized == false
-        report.protocol == "v1"
-        report.version ==~ /sideband \S+ \(protocol v1\)/
-        report.database == null
-        report.roles == [:]
-        report.clients.skills*.state == ["missing", "missing"]
-        report.clients.hook.state == "missing"
-        report.clients.inbound.state == "missing"
-        report.clients.inbound.note.contains("can only tighten it")
+        report.readLines()[0] ==~ /sideband \S+ \(protocol v1\)/
+        report.contains("Not initialized")
+        !report.contains("Roles:")
+        report.readLines().find { it.startsWith("  claude skill") }.contains("missing")
+        report.readLines().find { it.startsWith("  claude hook") }.contains("missing")
+        report.readLines().find { it.startsWith("  claude inbound") }.contains("missing")
+        report.contains("can only tighten it")
     }
 
     void "doctor reports database health, sessions, and pending counts"() {
@@ -115,20 +120,16 @@ class InitAndDoctorSpec extends CommandSpec {
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
 
         when:
-        Map report = runJson("doctor", "--repo", repo.toString(), "--home", home.toString())
+        String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
+        List<String> lines = report.readLines()
 
         then:
-        report.initialized
-        report.permissions == "rwx------"
-        report.database.path == repo.toRealPath().resolve(".git/sideband/sideband.db").toString()
-        report.database.bytes > 0
-        report.database.entries == 1
-        report.database.integrity == "ok"
-        report.roles.codex.session_id == "s1"
-        report.roles.codex.open == 1
-        report.roles.claude.session_id == null
-        report.roles.claude.open == 0
-        !report.containsKey("lock_owner_pid")
-        !stdout.toString().contains("@codex hi")
+        lines.find { it.startsWith("State directory: ") }.endsWith(repo.toRealPath().resolve(".git/sideband").toString() + " (rwx------)")
+        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + repo.toRealPath().resolve(".git/sideband/sideband.db").toString() + ", 1 entry, ")
+        lines.find { it.startsWith("Database: ") }.endsWith("integrity ok")
+        lines.find { it.startsWith("  codex") }.contains("session s1")
+        lines.find { it.startsWith("  codex") }.contains("1 open")
+        lines.find { it.startsWith("  claude") }.contains("not joined")
+        !report.contains("@codex hi")
     }
 }

@@ -5,8 +5,8 @@ directory. This adapter is the Claude Code side. Everything protocol-related
 lives in the `sideband` executable (`just install` puts it in `~/.local/bin`);
 this file only says when to call it and what to do with the results.
 
-Commands print one JSON object on stdout, except `init`, which prints a
-report for the person running it, and `skill` and `log`, which print
+Commands print one JSON object on stdout, except `init` and `doctor`,
+which print reports for a person to read, and `skill` and `log`, which print
 Markdown, and use these exit codes: 0 ok,
 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out; 3 and 7 are
 retired. Bodies travel through
@@ -63,7 +63,7 @@ It is a plain command, `! sideband log`, not a skill argument.
    are informational entries to show once; `outgoing` is described below.
 
 3. Find out how entries will reach this conversation: run `sideband doctor`
-   and read `clients.inbound.state`. The executable makes the same check
+   and read the state on its `claude inbound` line. The executable makes the same check
    from the same files every time it appends an entry for Claude, so the
    two sides agree as long as the user's settings do not change under a
    running session; if they do, the user re-runs `/sideband`.
