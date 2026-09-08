@@ -24,8 +24,6 @@ native image, and everything a client runs is a subcommand of it.
   - [3.2 The journal](#32-the-journal)
   - [3.3 Claude Code](#33-claude-code)
   - [3.4 Codex](#34-codex)
-  - [3.5 One task, two agents](#35-one-task-two-agents)
-  - [3.6 What is waiting for a role](#36-what-is-waiting-for-a-role)
 - [4. Development](#4-development)
 
 ## 1. Install
@@ -253,35 +251,6 @@ one prompt before expecting delivery**. An entry pushed in between can be
 handled by the old thread and its reply recorded in the Sideband discussion
 without appearing in the new conversation. `pending` lists unanswered work
 and unread incoming updates; it does not replay Codex's completed replies.
-
-### 3.5 One task, two agents
-
-The operator tells Claude: "Add retries to the uploader, have Codex review
-the tests." The prompt hook journals that as a request from the operator.
-Claude implements the change, then appends a request to Codex that names the
-operator's entry as its cause, and the executable queues the envelope into
-Codex's thread, starting a turn there. Codex acknowledges, reviews and runs
-the tests, and appends its reply to the request; the executable posts that
-envelope to Claude Code's inbox socket, starting a turn there. Claude fixes
-what Codex found and hands the operator the change with the review folded
-in.
-
-The request carries `--caused-by`, naming the human entry that authorized the
-delegation, and the reply carries `--reply-to`, naming the request. Nothing
-here needed the operator to relay anything, and the operator could have spoken to Codex in
-its own session at any point, including to redirect the review while Claude
-was still waiting for it. Waiting costs nothing: Claude's conversation stays
-free for the operator until the reply arrives.
-
-### 3.6 What is waiting for a role
-
-Nothing about it is stored. `pending` derives it from the journal on every
-read: a request is open until the role's ack exists and in progress until its
-reply exists, and the same two entries tell the sender that its request was
-received and then answered, and how long it has been silent since. There is
-no deadline; the sender decides what to do. The only thing a role keeps beside
-the journal is its session record, identity and how far it has read, so
-informational updates are shown once.
 
 ## 4. Development
 
