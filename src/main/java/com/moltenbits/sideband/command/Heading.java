@@ -1,4 +1,4 @@
-package com.moltenbits.sideband.journal;
+package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.ParticipantId;
@@ -6,14 +6,14 @@ import com.moltenbits.sideband.protocol.ParticipantId;
 import java.util.stream.Collectors;
 
 /** The Markdown heading {@code sideband log} prints for an entry: presentation only, never authoritative. */
-public final class Heading {
+final class Heading {
 
     static final String PREFIX = "## ";
 
     private Heading() {
     }
 
-    public static String of(EntryMetadata metadata) {
+    static String of(EntryMetadata metadata) {
         String recipients = metadata.to().stream()
                 .map(ParticipantId::displayName)
                 .collect(Collectors.joining(" + "));

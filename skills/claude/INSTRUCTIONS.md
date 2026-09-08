@@ -25,6 +25,10 @@ described below.
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
 
+To read what has been said, `sideband log` prints the discussion as Markdown,
+oldest first, with `--after <position>` and `--limit <n>` to select a range.
+It is a plain command, `! sideband log`, not a skill argument.
+
 ## Activate
 
 1. Join. The executable recognizes Claude Code from its shell environment

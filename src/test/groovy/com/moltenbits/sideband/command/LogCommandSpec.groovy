@@ -82,11 +82,14 @@ done
         !stdout.toString().contains("entry 4")
     }
 
-    void "a repository without a discussion prints nothing and succeeds"() {
+    void "a repository without a discussion prints nothing, succeeds, and creates no database"() {
+        given:
+        Path empty = TempRepo.init()
+
         expect:
-        run("log", "--repo", TempRepo.init().toString()) == ExitCode.OK
+        run("log", "--repo", empty.toString()) == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(TempRepo.init().resolve(".git/sideband/sideband.db"))
+        !Files.exists(empty.resolve(".git/sideband/sideband.db"))
     }
 
     void "negative ranges are invalid input"() {
