@@ -18,7 +18,7 @@ native image, and everything a client runs is a subcommand of it.
 - [2. Use](#2-use)
   - [2.1 Claude Code](#21-claude-code)
   - [2.2 Codex](#22-codex)
-  - [2.3 Either client](#23-either-client)
+  - [2.3 Talk](#23-talk)
 - [3. What it does](#3-what-it-does)
 - [4. How the pieces fit](#4-how-the-pieces-fit)
   - [4.1 The journal](#41-the-journal)
@@ -95,61 +95,32 @@ refreshes it. The skill is already installed under
 
 ### 2.1 Claude Code
 
-`/sideband` joins the discussion and resumes where Claude left off. Once
-joined, every prompt you type is journaled as your own words, and `@codex`,
-`@claude`, or `@all` at the start of a prompt routes it, with or without the
-skill name in front:
+In the Claude Code session working on the repository, join:
 
 ```text
-/sideband                     # join, and pick up where Claude left off
-/sideband @codex <message>    # send Codex a request; @claude and @all route the same way
-/sideband status              # summarize doctor: sessions, pending counts, database, clients
-/sideband pending             # what is open, in progress, and unanswered for Claude
-/sideband off                 # stop the listener if one is running; the bookmark stays
+/sideband
 ```
 
 ### 2.2 Codex
 
-`$sideband` does the same in Codex. Codex runs nothing in the background:
-entries are pushed to it by whoever writes them, and the prompt hook keeps
-the delivery address current; `$sideband pending` is the explicit check for
-waiting work:
+In the Codex session working on the same repository, join:
 
 ```text
-$sideband                     # join, and pick up where Codex left off
-$sideband @claude <message>   # send Claude a request; @codex and @all route the same way
-$sideband status              # summarize doctor: sessions, pending counts, database, clients
-$sideband pending             # what is open, in progress, and unanswered for Codex
-$sideband off                 # explains that there is no listener to stop
+$sideband
 ```
 
-### 2.3 Either client
+### 2.3 Talk
 
-Any command runs directly from the prompt with no model turn:
+Once both have joined, address either agent from either session by starting
+a prompt with its name. The prompt is journaled as your words and the agent
+it names is woken in its own session; from there the two delegate to each
+other and reply on their own, and `sideband log` shows the whole discussion:
 
 ```text
-! sideband log                # the discussion as Markdown, oldest first
-! sideband pending            # this client's pending report as JSON
-! sideband doctor             # the installation report
+@codex review the change Claude just made
+@claude explain the design Codex is asking about
+@all read the requirements before we start
 ```
-
-The installed skills are stubs that read their instructions from the
-executable, so a new release updates both. To edit the instructions yourself,
-eject them inside the client; that writes them into the client's `SKILL.md`,
-which is then yours and stops updating with the executable. Ejecting again
-is refused so your edits survive, unless you pass `--force`; delete the file
-and rerun `sideband init` to go back:
-
-```bash
-sideband skill --eject
-```
-
-Commands print one JSON object, except that `init` and `doctor` print
-reports for a person to read, `skill` and `log` print Markdown, `--help`
-prints text, the hook follows its host's contract and may print nothing, and
-the streaming `pending --wait --stream` prints one report per line. Exit
-codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
-6 timed out. Codes 3 and 7 are retired.
 
 ## 3. What it does
 
@@ -342,6 +313,24 @@ your first prompt there, and that conversation opens with a note saying
 Sideband is live there and how many entries addressed to it need attention,
 acknowledged ones included. In Codex, type that first prompt before you
 expect anything to be delivered to the new thread.
+
+The installed skills are stubs that read their instructions from the
+executable, so a new release updates both. To edit the instructions yourself,
+eject them inside the client; that writes them into the client's `SKILL.md`,
+which is then yours and stops updating with the executable. Ejecting again
+is refused so your edits survive, unless you pass `--force`; delete the file
+and rerun `sideband init` to go back:
+
+```bash
+sideband skill --eject
+```
+
+Commands print one JSON object, except that `init` and `doctor` print
+reports for a person to read, `skill` and `log` print Markdown, `--help`
+prints text, the hook follows its host's contract and may print nothing, and
+the streaming `pending --wait --stream` prints one report per line. Exit
+codes are stable: 0 ok, 2 invalid input, 4 lock contention, 5 I/O failure,
+6 timed out. Codes 3 and 7 are retired.
 
 ### 4.4 One task, two agents
 
