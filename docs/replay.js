@@ -48,40 +48,40 @@
 
     ['ch', 1],
     ['C', 'g', '', 0],
-    ['C', 'h', 'Fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.', 500],
+    ['C', 'h', 'Fix #42, the upload retry loop. Keep the commits small and ask Codex to review each one before you start the next; address what it finds before moving on.', 500, '12'],
     ['J', ['12', 'operator', 'claude', 'request', 'Fix #42, the upload retry loop. Keep the commits small…'], 700],
     ['C', 'l', '<span class="c">⏺</span> The loop retries every failure, 4xx included. First commit: retry only transient errors.', 600],
     ['C', 'l', '<span class="c">⏺</span> Bash(git commit -am "Retry uploads only on transient errors")', 300],
     ['C', 'l', '  <span class="dim">⎿</span>  [main 4f1c2e0] Retry uploads only on transient errors', 500],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by 9286e79b --body-file review.md)', 300],
+    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by 9286e79b --body-file review.md)', 300, '13'],
     ['C', 'l', '  <span class="dim">⎿</span>  "pushes":[{"role":"codex","outcome":"pushed"}]', 400],
     ['J', ['13', 'claude', 'codex', 'request', 'Review 4f1c2e0: retry uploads only on transient errors.'], 300],
     ['C', 'l', '<span class="c">⏺</span> Asked Codex to review 4f1c2e0. Its reply will be pushed here.', 900],
 
     ['ch', 2],
     ['X', 'g', '', 0],
-    ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 16a4e14e · expects a reply</span>\nReview 4f1c2e0 on main: the upload retry loop now retries only transient errors (network failures and 5xx). Findings before I start the next commit, please.', 900],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 16a4e14e</b>', 300],
+    ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 16a4e14e · expects a reply</span>\nReview 4f1c2e0 on main: the upload retry loop now retries only transient errors (network failures and 5xx). Findings before I start the next commit, please.', 900, '13'],
+    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 16a4e14e</b>', 300, '14'],
     ['J', ['14', 'codex', 'claude', 'ack', ''], 500],
     ['X', 'l', '<span class="x">•</span> One finding in 4f1c2e0. The transient check is <b>status >= 500</b>, so 429 is treated as permanent and a rate-limited upload fails on the first try. The new test covers 503 only.', 800],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 16a4e14e --body-file reply.md</b>', 300],
+    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 16a4e14e --body-file reply.md</b>', 300, '15'],
     ['J', ['15', 'codex', 'claude', 'reply', 'One finding: 429 is excluded by the status >= 500 check.'], 900],
 
     ['ch', 3],
     ['C', 'g', '', 0],
-    ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 16a4e14e</span>\nOne finding in 4f1c2e0. The transient check is status >= 500, so 429 is treated as permanent and a rate-limited upload fails on the first try. The new test covers 503 only.', 800],
+    ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 16a4e14e</span>\nOne finding in 4f1c2e0. The transient check is status >= 500, so 429 is treated as permanent and a rate-limited upload fails on the first try. The new test covers 503 only.', 800, '15'],
     ['C', 'l', '<span class="c">⏺</span> Bash(git commit -am "Treat 429 as transient")', 300],
     ['C', 'l', '  <span class="dim">⎿</span>  [main 8d02b7a] Treat 429 as transient', 400],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by a30e81c0 --body-file review.md)', 300],
+    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by a30e81c0 --body-file review.md)', 300, '16'],
     ['J', ['16', 'claude', 'codex', 'request', 'Review 8d02b7a: treat 429 as transient.'], 600],
-    ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 2c9d41f7 · expects a reply</span>\nReview 8d02b7a: 429 now counts as transient, with a test for it.', 700],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 2c9d41f7</b>', 300],
+    ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 2c9d41f7 · expects a reply</span>\nReview 8d02b7a: 429 now counts as transient, with a test for it.', 700, '16'],
+    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 2c9d41f7</b>', 300, '17'],
     ['J', ['17', 'codex', 'claude', 'ack', ''], 400],
     ['X', 'l', '<span class="x">•</span> No findings in 8d02b7a. The check now reads status >= 500 || status === 429, and the test exercises both.', 500],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 2c9d41f7 --body-file reply.md</b>', 300],
+    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 2c9d41f7 --body-file reply.md</b>', 300, '18'],
     ['J', ['18', 'codex', 'claude', 'reply', 'No findings in 8d02b7a.'], 700],
-    ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 2c9d41f7</span>\nNo findings in 8d02b7a. The check now reads status >= 500 || status === 429, and the test exercises both.', 700],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to operator --type reply --reply-to 9286e79b --body-file done.md)', 300],
+    ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 2c9d41f7</span>\nNo findings in 8d02b7a. The check now reads status >= 500 || status === 429, and the test exercises both.', 700, '18'],
+    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to operator --type reply --reply-to 9286e79b --body-file done.md)', 300, '19'],
     ['J', ['19', 'claude', 'operator', 'reply', 'Fixed #42 in two commits, each reviewed by Codex.'], 400],
     ['C', 'l', '<span class="c">⏺</span> Fixed #42 in two commits, each reviewed by Codex before the next: 4f1c2e0 retries only transient errors, and 8d02b7a treats 429 as transient after Codex caught that it was excluded.', 2500]
   ];
@@ -99,7 +99,9 @@
     else if (kind === 'h') dur = plain(content).length * TYPE_MS;
     else if (kind === 'g') dur = 0;
     else dur = LINE_MS;
-    steps.push({ pane: pane, kind: kind, content: content, start: t, dur: dur });
+    var entry = pane === 'J' ? content[0] : s[4] || null;
+    var from = pane === 'J' ? content[1] : null;
+    steps.push({ pane: pane, kind: kind, content: content, start: t, dur: dur, entry: entry, from: from });
     t += dur + wait;
   });
   var TOTAL = t;
@@ -114,6 +116,8 @@
     var pos = e[0], from = e[1], to = e[2], type = e[3], sum = e[4];
     var div = document.createElement('div');
     div.className = 'entry';
+    div.setAttribute('data-entry', pos);
+    div.setAttribute('data-from', from);
     var whoHtml = '<span class="who"><span class="pos">' + pos + '</span>  ' + tag(from) + ' → ' + tag(to) + '  <span class="kind">' + type + '</span></span>';
     div.innerHTML = whoHtml + (sum ? '<span class="sum">' + sum + '</span>' : '');
     return div;
@@ -138,6 +142,7 @@
       }
       var p = document.createElement('p');
       p.className = 'line';
+      if (s.entry) p.setAttribute('data-entry', s.entry);
       if (s.kind === 'g') { p.className += ' gap'; }
       else if (s.kind === 'h') {
         p.className += ' human';
@@ -150,6 +155,12 @@
         p.innerHTML = s.content;
       } else {
         p.innerHTML = s.content;
+      }
+      if (s.entry && !(s.kind === 'h' && typing)) {
+        var tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = s.entry;
+        p.appendChild(tag);
       }
       frag[s.pane].push(p);
       key.push(i);
@@ -170,7 +181,54 @@
     var ch = 0;
     chapterStarts.forEach(function (start, i) { if (T >= start) ch = i; });
     chapterEls.forEach(function (el, i) { el.className = i === ch ? 'on' : ''; });
+    drawLinks();
   }
+
+  // Connectors: for every journal entry on screen, a line to the terminal
+  // line it was written from or delivered to, redrawn from live geometry
+  // on every render so they follow the content as it scrolls.
+  var stageEl = document.querySelector('.stage');
+  var svg = document.getElementById('links');
+  var colors = { claude: '#B5711C', codex: '#1F8C82', operator: '#4A5867' };
+  function visibleIn(rect, box) {
+    return rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
+  }
+  function drawLinks() {
+    if (!svg || !window.matchMedia('(min-width: 901px)').matches) return;
+    var sr = stageEl.getBoundingClientRect();
+    svg.setAttribute('viewBox', '0 0 ' + sr.width + ' ' + sr.height);
+    var d = [];
+    var entries = panes.J.querySelectorAll('.entry');
+    var ledgerBox = panes.J.getBoundingClientRect();
+    var scrollC = panes.C.getBoundingClientRect(), scrollX = panes.X.getBoundingClientRect();
+    var newest = entries.length ? entries[entries.length - 1].getAttribute('data-entry') : null;
+    entries.forEach(function (en) {
+      var id = en.getAttribute('data-entry');
+      var er = en.getBoundingClientRect();
+      if (!visibleIn(er, ledgerBox)) return;
+      var color = colors[en.getAttribute('data-from')] || colors.operator;
+      var strong = id === newest;
+      en.classList.toggle('now', strong);
+      [['C', scrollC], ['X', scrollX]].forEach(function (side) {
+        var line = panes[side[0]].querySelector('.line[data-entry="' + id + '"]');
+        if (!line) return;
+        var lr = line.getBoundingClientRect();
+        line.classList.toggle('now', strong);
+        if (!visibleIn(lr, side[1])) return;
+        var tag = line.querySelector('.tag');
+        var tr = tag ? tag.getBoundingClientRect() : lr;
+        var y1 = tr.top + tr.height / 2 - sr.top;
+        var y2 = er.top + er.height / 2 - sr.top;
+        var x1 = (side[0] === 'C' ? tr.right : tr.left) - sr.left;
+        var x2 = (side[0] === 'C' ? er.left : er.right) - sr.left;
+        var mx = (x1 + x2) / 2;
+        d.push('<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 +
+          '" stroke="' + color + '" stroke-width="' + (strong ? 1.6 : 1) + '" opacity="' + (strong ? 0.95 : 0.55) + '" fill="none"/>');
+      });
+    });
+    svg.innerHTML = d.join('');
+  }
+  window.addEventListener('resize', function () { lastKey = null; });
 
   // Scroll drives the replay: the stage stays pinned while the track
   // scrolls past, and the fraction scrolled is the fraction played, so

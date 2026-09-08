@@ -85,6 +85,7 @@
   .replay-track { height: 420vh; margin-top: 1rem; }
   .replay { position: sticky; top: max(1rem, calc(50vh - 18.5rem)); width: min(100vw - 2.5rem, 1320px); margin-inline: calc(50% - min(50vw - 1.25rem, 660px)); }
   .stage {
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1fr) 13.5rem minmax(0, 1fr);
     gap: 0;
@@ -119,6 +120,18 @@
     border-left: 2px solid var(--codex); padding-left: 0.6rem; margin-left: 0.1rem;
   }
   .pane.codex .arrive { border-left-color: var(--claude); }
+  .links { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+  .line .tag {
+    float: right; margin-left: 0.6rem; margin-top: 0.15em;
+    font-size: 0.66rem; line-height: 1.3; padding: 0 0.3rem; border-radius: 3px;
+    color: var(--term-dim); border: 1px solid var(--term-edge);
+  }
+  .pane.codex .line .tag { float: left; margin: 0.15em 0.6rem 0 0; }
+  .line.now .tag { color: var(--term-text); border-color: var(--term-dim); }
+  .line.now { background: rgba(255,255,255,0.045); box-shadow: 0 0 0 4px rgba(255,255,255,0.045); border-radius: 2px; }
+  .entry.now { border-color: var(--ink-soft); }
+  .entry .pos { color: var(--ledger); }
+  .entry.now .pos { color: var(--ink); }
   .pane .cursor::after { content: '▍'; color: var(--term-text); animation: blink 1s steps(1) infinite; }
   @keyframes blink { 50% { opacity: 0; } }
 
@@ -135,7 +148,7 @@
   }
   .ledger::after {
     content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2.4rem;
-    background: linear-gradient(var(--ground) 65%, transparent);
+    background: linear-gradient(var(--ground) 80%, transparent);
   }
   .ledger .title {
     position: absolute; top: 0.55rem; left: 0; right: 0; text-align: center;
@@ -147,7 +160,6 @@
     padding: 0.35rem 0.5rem; margin: 0.25rem 0;
     border: 1px solid var(--rule); border-radius: 4px;
   }
-  .entry .pos { color: var(--ledger); }
   .entry .who { display: block; }
   .entry .who .c { color: #B5711C; }
   .entry .who .x { color: #1F8C82; }
@@ -207,7 +219,7 @@
     .stage { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
     .pane { height: 22rem; min-height: 22rem; }
     .ledger { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; padding: 1.6rem 0 0; overflow: visible; height: auto; }
-    .ledger::before, .ledger::after { display: none; }
+    .ledger::before, .ledger::after, .links { display: none; }
     .ledger .title { left: 0; margin: 0; text-align: left; padding: 0; top: 0; }
     .entry { margin: 0; flex: 1 1 10rem; }
     .pane.codex { order: 3; }
@@ -242,6 +254,7 @@
   <div class="replay-track" id="replay-track">
   <div class="replay" id="replay">
     <div class="stage">
+      <svg class="links" id="links" aria-hidden="true"></svg>
       <div class="pane claude">
         <div class="bar"><span><b>Claude Code</b> · Fable 5.1</span><span>~/Projects/shop</span></div>
         <div class="scroll" id="pane-claude"></div>
