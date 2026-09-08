@@ -111,8 +111,9 @@ skill name in front:
 ### 2.2 Codex
 
 `$sideband` does the same in Codex. Codex runs nothing in the background:
-entries are pushed to it by whoever writes them, and the prompt hook reads
-what is waiting at each prompt:
+entries are pushed to it by whoever writes them, and the prompt hook keeps
+the delivery address current; `$sideband pending` is the explicit check for
+waiting work:
 
 ```text
 $sideband                     # join, and pick up where Codex left off
