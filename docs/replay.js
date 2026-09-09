@@ -131,8 +131,9 @@
     return '<span>' + who + '</span>';
   }
 
-  var lastKey = null;
+  var lastKey = null, lastT = 0;
   function render(T) {
+    lastT = T;
     var key = [];
     var frag = { C: [], X: [], J: [] };
     var typing = null;
@@ -197,7 +198,8 @@
     return rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
   }
   function drawLinks() {
-    if (!svg || !window.matchMedia('(min-width: 901px)').matches) return;
+    var wide = svg && window.matchMedia('(min-width: 901px)').matches;
+    if (!wide) { applyFocus(); return; }
     var sr = stageEl.getBoundingClientRect();
     svg.setAttribute('viewBox', '0 0 ' + sr.width + ' ' + sr.height);
     var d = [];
@@ -211,12 +213,15 @@
       if (!visibleIn(er, ledgerBox)) return;
       var color = colors[en.getAttribute('data-from')] || colors.operator;
       var strong = id === newest;
+      var focused = id === focusId;
       en.classList.toggle('now', strong);
+      en.classList.toggle('focus', focused);
       [['C', scrollC], ['X', scrollX]].forEach(function (side) {
         var line = panes[side[0]].querySelector('.line[data-entry="' + id + '"]');
         if (!line) return;
         var lr = line.getBoundingClientRect();
         line.classList.toggle('now', strong);
+        line.classList.toggle('focus', focused);
         if (!visibleIn(lr, side[1])) return;
         var tag = line.querySelector('.tag');
         var tr = tag ? tag.getBoundingClientRect() : lr;
@@ -226,11 +231,46 @@
         var x2 = (side[0] === 'C' ? er.left : er.right) - sr.left;
         var mx = (x1 + x2) / 2;
         d.push('<path d="M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2 +
-          '" stroke="' + color + '" stroke-width="' + (strong ? 1.6 : 1) + '" opacity="' + (strong ? 0.95 : 0.55) + '" fill="none"/>');
+          '" stroke="' + color + '" stroke-width="' + (focused ? 2.2 : strong ? 1.6 : 1) + '" opacity="' + (focused || strong ? 0.95 : (focusId ? 0.2 : 0.55)) + '" fill="none"/>');
       });
     });
     svg.innerHTML = d.join('');
   }
+  // Hover or tap a journal entry (or a tagged terminal line) to light up
+  // everything linked to it. This is the tie on narrow screens, where the
+  // connectors are not drawn, and a stronger cue on wide ones.
+  var focusId = null;
+  function applyFocus() {
+    stageEl.querySelectorAll('.entry, .line[data-entry]').forEach(function (el) {
+      el.classList.toggle('focus', focusId !== null && el.getAttribute('data-entry') === focusId);
+    });
+    stageEl.classList.toggle('focusing', focusId !== null);
+  }
+  function setFocus(id) {
+    if (id === focusId) return;
+    focusId = id;
+    lastKey = null;      // force a redraw so connector weights follow
+    render(lastT);
+  }
+  function linkedTarget(ev) {
+    var el = ev.target.closest ? ev.target.closest('.entry, .line[data-entry]') : null;
+    return el && stageEl.contains(el) ? el : null;
+  }
+  stageEl.addEventListener('mouseover', function (ev) {
+    var el = linkedTarget(ev);
+    if (el) setFocus(el.getAttribute('data-entry'));
+  });
+  stageEl.addEventListener('mouseout', function (ev) {
+    var el = linkedTarget(ev);
+    if (el && !(ev.relatedTarget && el.contains(ev.relatedTarget))) setFocus(pinnedFocus);
+  });
+  var pinnedFocus = null;   // a tap pins the focus until the next tap
+  stageEl.addEventListener('click', function (ev) {
+    var el = linkedTarget(ev);
+    var id = el ? el.getAttribute('data-entry') : null;
+    pinnedFocus = id === pinnedFocus ? null : id;
+    setFocus(pinnedFocus);
+  });
   window.addEventListener('resize', function () { lastKey = null; });
 
   // Scroll drives the replay: the stage stays pinned while the track

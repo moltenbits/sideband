@@ -129,7 +129,13 @@
   .pane.codex .line .tag { float: left; margin: 0.15em 0.6rem 0 0; }
   .line.now .tag { color: var(--term-text); border-color: var(--term-dim); }
   .line.now { background: rgba(255,255,255,0.045); box-shadow: 0 0 0 4px rgba(255,255,255,0.045); border-radius: 2px; }
+  .entry { cursor: pointer; }
+  .line[data-entry] { cursor: pointer; }
   .entry.now { border-color: var(--ink-soft); }
+  .stage.focusing .entry:not(.focus) { opacity: 0.45; }
+  .entry.focus { border-color: var(--ink); background: #F4F6F8; opacity: 1; }
+  .line.focus { background: rgba(255,255,255,0.11); box-shadow: 0 0 0 4px rgba(255,255,255,0.11); border-radius: 2px; }
+  .line.focus .tag { color: var(--term); background: var(--term-text); border-color: var(--term-text); }
   .entry .pos { color: var(--ledger); }
   .entry.now .pos { color: var(--ink); }
   .pane .cursor::after { content: '▍'; color: var(--term-text); animation: blink 1s steps(1) infinite; }
