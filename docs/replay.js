@@ -160,7 +160,7 @@
         var tag = document.createElement('span');
         tag.className = 'tag';
         tag.textContent = s.entry;
-        p.appendChild(tag);
+        if (s.pane === 'X') p.insertBefore(tag, p.firstChild); else p.appendChild(tag);
       }
       frag[s.pane].push(p);
       key.push(i);
