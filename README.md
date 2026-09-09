@@ -24,6 +24,7 @@ native image, and everything a client runs is a subcommand of it.
   - [3.2 Claude Code](#32-claude-code)
   - [3.3 Codex](#33-codex)
 - [4. Development](#4-development)
+- [5. License](#5-license)
 
 ## 1. Install
 
@@ -270,3 +271,7 @@ just test             # Spock suite on the JVM
 just check            # tests plus the native build, the pre-commit gate
 just run doctor       # run any command on the JVM without a native build
 ```
+
+## 5. License
+
+[MIT](LICENSE).
