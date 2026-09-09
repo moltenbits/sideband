@@ -215,12 +215,6 @@
   ul.how li { padding: 1rem 0; border-top: 1px solid var(--rule); }
   ul.how li:last-child { border-bottom: 1px solid var(--rule); }
   ul.how b { font-weight: 600; }
-  .log {
-    margin: 1.2rem 0 0; font-family: var(--mono); font-size: 0.78rem; line-height: 1.55;
-    background: var(--term); color: var(--term-text); padding: 0.9rem 1.1rem; border-radius: 6px;
-    white-space: pre; overflow-x: auto; max-width: 44rem;
-  }
-  .log .dim { color: var(--term-dim); }
 
   footer { margin-top: 5rem; padding: 1.6rem 0 2.5rem; border-top: 1px solid var(--rule); max-width: 58rem; margin-inline: auto; color: var(--ink-soft); font-size: 0.92rem; display: flex; gap: 1.6rem; flex-wrap: wrap; }
   footer span:first-child { margin-right: auto; }
@@ -265,7 +259,7 @@
         <button type="button" id="copy">Copy</button>
       </div>
     </div>
-    <p class="lede">Sideband lets Claude Code and Codex work together, seamlessly. They share an append-only journal kept beside your project, and through it either agent can hand work to the other, ask a question, review a change, or divvy up the work and report back. Each is woken in its own conversation when something arrives, and every prompt you type on either side is journaled as your words.</p>
+    <p class="lede">Sideband lets Claude Code and Codex work together, seamlessly. They share an append-only journal kept beside your project, and through it either agent can hand work to the other, ask a question, review a change, or divvy up the work and report back. Ask them to work together however you like, and each will prompt as necessary and awaken when something arrives.</p>
   </header>
 
   <div class="replay-track" id="replay-track">
@@ -293,11 +287,11 @@
   <section id="install">
     <h2>Install</h2>
     <ol class="steps">
-      <li>Install the executable from the moltenbits Homebrew tap, on Apple silicon or Linux.
+      <li>Install the sideband CLI tool from the MoltenBits Homebrew tap, available for macOS or Linux.
         <pre class="cmd">brew tap moltenbits/tap
 brew install sideband</pre>
       </li>
-      <li>Set up the repository. This creates the private state directory and its database, installs both skills, registers the hooks, and prints what to do next. Rerunning it is safe, and <code>sideband doctor</code> reports the state at any time.
+      <li>Set up the repository. This creates the sideband journal, installs skills and registers hooks for both agents, and prints what to do next. Rerunning it is safe, and <code>sideband doctor</code> reports the state at any time.
         <pre class="cmd">cd &lt;your repository&gt;
 sideband init</pre>
       </li>
@@ -336,18 +330,7 @@ sideband init</pre>
       <li><b>The human is a participant, not a transport.</b> Every prompt typed into either client is journaled verbatim and attributed to you. Each agent is spoken to in its own session; <code>@codex</code> at the start of a prompt typed into Claude Code routes it to Codex instead, and <code>@claude</code> does the reverse.</li>
       <li><b>Nothing is lost, and nothing is tracked outside the journal.</b> A request stays listed for its recipient until the journal holds an acknowledgement or reply, and for its sender until a reply exists. Requests that arrived while a client was away are confirmed with you before any action.</li>
     </ul>
-    <h3>The journal</h3>
-    <p class="prose">One SQLite database in the state directory holds every entry and both roles' session records. Entries are immutable and inserted in transactions that SQLite serializes across processes, so two clients writing at once never interleave. Positions are the addressing scheme: each entry gets the next sequence number, and a session records the last position when it joins. <code>sideband log</code> prints it for a person to read:</p>
-    <pre class="log"><span class="dim">## Operator → Codex (via Claude)</span>
-
-- position: 12
-- id: 655e8ef3-…
-- created: 2026-09-07T18:07:52-05:00
-- type: request (expects a reply)
-- to: codex
-
-@codex review the locking behavior.
-
+    
 <span class="dim">---</span></pre>
   </section>
 
