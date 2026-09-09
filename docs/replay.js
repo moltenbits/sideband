@@ -33,6 +33,7 @@
   //   kind 'h'   a line the human typed, shown character by character
   //   kind 'l'   a line the client printed
   //   kind 'a'   an entry arriving from the other agent (rendered as a block)
+  //   kind 's'   an entry this agent sends (same block, its own colour)
   //   kind 'g'   a blank line
   //   kind 'ch'  chapter marker (content is the chapter index)
   //   pane 'J'   a ledger entry: [position, from, to, type, summary]
@@ -54,18 +55,17 @@
     ['C', 'l', '<span class="c">⏺</span> The loop retries every failure, 4xx included. First commit: retry only transient errors.', 600],
     ['C', 'l', '<span class="c">⏺</span> Bash(git commit -am "Retry uploads only on transient errors")', 300],
     ['C', 'l', '  <span class="dim">⎿</span>  [main 4f1c2e0] Retry uploads only on transient errors', 500],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by 9286e79b --body-file review.md)', 300, '13'],
-    ['C', 'l', '  <span class="dim">⎿</span>  "pushes":[{"role":"codex","outcome":"pushed"}]', 400],
+    ['C', 's', '<span class="dim">[Sideband message] to Codex · request 16a4e14e · expects a reply</span>\nReview 4f1c2e0 on main: the upload retry loop now retries only transient errors (network failures and 5xx). Findings before I start the next commit, please.', 700, '13'],
     ['J', ['13', 'claude', 'codex', 'request', 'Review 4f1c2e0: retry uploads only on transient errors.'], 300],
     ['C', 'l', '<span class="c">⏺</span> Asked Codex to review 4f1c2e0. Its reply will be pushed here.', 900],
 
     ['ch', 2],
     ['X', 'g', '', 0],
     ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 16a4e14e · expects a reply</span>\nReview 4f1c2e0 on main: the upload retry loop now retries only transient errors (network failures and 5xx). Findings before I start the next commit, please.', 900, '13'],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 16a4e14e</b>', 300, '14'],
+    ['X', 's', '<span class="dim">[Sideband message] to Claude · ack 16a4e14e</span>', 300, '14'],
     ['J', ['14', 'codex', 'claude', 'ack', ''], 500],
     ['X', 'l', '<span class="x">•</span> One finding in 4f1c2e0. The transient check is <b>status >= 500</b>, so 429 is treated as permanent and a rate-limited upload fails on the first try. The new test covers 503 only.', 800],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 16a4e14e --body-file reply.md</b>', 300, '15'],
+    ['X', 's', '<span class="dim">[Sideband message] to Claude · reply to 16a4e14e</span>\nOne finding in 4f1c2e0: 429 is excluded by the status >= 500 check, so a rate-limited upload fails on the first try.', 300, '15'],
     ['J', ['15', 'codex', 'claude', 'reply', 'One finding: 429 is excluded by the status >= 500 check.'], 900],
 
     ['ch', 3],
@@ -73,16 +73,16 @@
     ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 16a4e14e</span>\nOne finding in 4f1c2e0. The transient check is status >= 500, so 429 is treated as permanent and a rate-limited upload fails on the first try. The new test covers 503 only.', 800, '15'],
     ['C', 'l', '<span class="c">⏺</span> Bash(git commit -am "Treat 429 as transient")', 300],
     ['C', 'l', '  <span class="dim">⎿</span>  [main 8d02b7a] Treat 429 as transient', 400],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to codex --type request --caused-by a30e81c0 --body-file review.md)', 300, '16'],
+    ['C', 's', '<span class="dim">[Sideband message] to Codex · request 2c9d41f7 · expects a reply</span>\nReview 8d02b7a: 429 now counts as transient, with a test for it.', 300, '16'],
     ['J', ['16', 'claude', 'codex', 'request', 'Review 8d02b7a: treat 429 as transient.'], 600],
     ['X', 'a', '<span class="dim">[Sideband message] from Claude · request 2c9d41f7 · expects a reply</span>\nReview 8d02b7a: 429 now counts as transient, with a test for it.', 700, '16'],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type ack --reply-to 2c9d41f7</b>', 300, '17'],
+    ['X', 's', '<span class="dim">[Sideband message] to Claude · ack 2c9d41f7</span>', 300, '17'],
     ['J', ['17', 'codex', 'claude', 'ack', ''], 400],
     ['X', 'l', '<span class="x">•</span> No findings in 8d02b7a. The check now reads status >= 500 || status === 429, and the test exercises both.', 500],
-    ['X', 'l', '<span class="x">•</span> Ran <b>sideband append --type reply --reply-to 2c9d41f7 --body-file reply.md</b>', 300, '18'],
+    ['X', 's', '<span class="dim">[Sideband message] to Claude · reply to 2c9d41f7</span>\nNo findings in 8d02b7a.', 300, '18'],
     ['J', ['18', 'codex', 'claude', 'reply', 'No findings in 8d02b7a.'], 700],
     ['C', 'a', '<span class="dim">[Sideband message] from Codex · reply to 2c9d41f7</span>\nNo findings in 8d02b7a. The check now reads status >= 500 || status === 429, and the test exercises both.', 700, '18'],
-    ['C', 'l', '<span class="c">⏺</span> Bash(sideband append --to operator --type reply --reply-to 9286e79b --body-file done.md)', 300, '19'],
+    ['C', 's', '<span class="dim">[Sideband message] to operator · reply to 9286e79b</span>\nFixed #42 in two commits, each reviewed by Codex.', 300, '19'],
     ['J', ['19', 'claude', 'operator', 'reply', 'Fixed #42 in two commits, each reviewed by Codex.'], 400],
     ['C', 'l', '<span class="c">⏺</span> Fixed #42 in two commits, each reviewed by Codex before the next: 4f1c2e0 retries only transient errors, and 8d02b7a treats 429 as transient after Codex caught that it was excluded.', 2500]
   ];
@@ -154,8 +154,8 @@
         var n = T >= s.start + s.dur ? text.length : Math.floor((T - s.start) / TYPE_MS);
         p.textContent = text.slice(0, n);
         if (n < text.length) { p.className += ' cursor'; typing = i + ':' + n; }
-      } else if (s.kind === 'a') {
-        p.className += ' arrive';
+      } else if (s.kind === 'a' || s.kind === 's') {
+        p.className += s.kind === 'a' ? ' arrive' : ' send';
         p.innerHTML = s.content;
       } else {
         p.innerHTML = s.content;
