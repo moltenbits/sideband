@@ -131,8 +131,9 @@
     return '<span>' + who + '</span>';
   }
 
-  var lastKey = null, lastT = 0;
+  var lastKey = null, lastT = 0, timelineMoved = true;
   function render(T) {
+    timelineMoved = T !== lastT;
     lastT = T;
     var key = [];
     var frag = { C: [], X: [], J: [] };
@@ -216,7 +217,7 @@
       if (any) shown.push(en);
     });
     var J = panes.J;
-    if (getComputedStyle(J).flexDirection === 'row') J.scrollLeft = J.scrollWidth;
+    if (timelineMoved && getComputedStyle(J).flexDirection === 'row') J.scrollLeft = J.scrollWidth;
     return shown;
   }
   function drawLinks() {

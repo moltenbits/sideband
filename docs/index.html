@@ -220,19 +220,20 @@
   footer span:first-child { margin-right: auto; }
 
   @media (max-width: 900px) {
-    .replay { top: 4.4rem; }
-    .stage { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
-    .pane { height: calc((100vh - 13.5rem) / 2); min-height: 11rem; }
+    .replay { top: 4.4rem; height: calc(100vh - 5.2rem); display: flex; flex-direction: column; }
+    .stage { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 0.6rem; }
+    .pane { flex: 1 1 0; height: auto; min-height: 0; }
     .pane.codex { order: 3; }
     .ledger {
-      order: 2; height: auto; flex-direction: row; justify-content: flex-start; gap: 0.5rem;
+      order: 2; flex: none; height: auto; flex-direction: row; justify-content: flex-start; gap: 0.5rem;
       padding: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
     }
     .ledger::-webkit-scrollbar { display: none; }
     .ledger::before, .ledger::after, .ledger .title, .links { display: none; }
     .entry { flex: 0 0 calc((100% - 1rem) / 3); margin: 0; }
     .entry:first-of-type { margin-left: auto; }
-    .controls { margin-top: 0.6rem; }
+    .entry .sum { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+    .controls { flex: none; margin-top: 0.5rem; }
   }
   @media (prefers-reduced-motion: reduce) {
     .pane .cursor::after { animation: none; }
@@ -282,7 +283,6 @@
     </div>
   </div>
   </div>
-  </div>
 
   <section id="install">
     <h2>Install</h2>
@@ -328,7 +328,7 @@ sideband init</pre>
       <li><b>Every actionable chain traces to the human.</b> An agent's request must link, through the requests and replies before it, to something the human asked, and the executable refuses one that does not. Within that, one agent may direct the other's work for as long as the human's request stands.</li>
       <li><b>Delivery wakes the idle recipient</b> in its existing conversation, without any model tokens spent waiting. Claude Code is reached over the inbox socket its own cross-session messaging uses; Codex is reached with <code>codex queue</code> into the thread it recorded when it joined.</li>
       <li><b>The human is a participant, not a transport.</b> Every prompt typed into either client is journaled verbatim and attributed to you. Each agent is spoken to in its own session; <code>@codex</code> at the start of a prompt typed into Claude Code routes it to Codex instead, and <code>@claude</code> does the reverse.</li>
-      <li><b>Nothing is lost, and nothing is tracked outside the journal.</b> A request stays listed for its recipient until the journal holds an acknowledgement or reply, and for its sender until a reply exists. Requests that arrived while a client was away are confirmed with you before any action.</li>
+      <li><b>Nothing is lost, and nothing is tracked outside the journal.</b> A request stays listed for its recipient until it has been answered, and for its sender until the reply exists; an acknowledgement only marks it as taken up. If several requests piled up while a client was away, it asks you which to take up rather than choosing one itself.</li>
     </ul>
 
   </section>
