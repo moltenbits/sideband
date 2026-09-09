@@ -38,11 +38,12 @@
   //   pane 'J'   a ledger entry: [position, from, to, type, summary]
   var SCRIPT = [
     ['ch', 0],
-    ['C', 'h', '/sideband', 500],
+    ['C', 'h', '/sideband', 500, 'join'],
     ['C', 'l', '<span class="c">⏺</span> Bash(sideband join --resume)', 300],
     ['C', 'l', '  <span class="dim">⎿</span>  {"session":{"resumed":true},"open":[],"in_progress":[],"updates":[],"outgoing":[]}', 500],
     ['C', 'l', '<span class="c">⏺</span> Joined as Claude. Nothing is waiting; entries for Claude are pushed straight into this session.', 900],
-    ['X', 'h', '$sideband', 500],
+    ['J', ['join', 'operator', 'both', 'session', 'Claude Code and Codex each join from their own session.'], 400],
+    ['X', 'h', '$sideband', 500, 'join'],
     ['X', 'l', '<span class="x">•</span> Ran <b>sideband join --resume</b>', 400],
     ['X', 'l', '<span class="x">•</span> Joined as Codex. This thread is recorded as the delivery address; nothing is pending.', 1200],
 
@@ -118,7 +119,9 @@
     div.className = 'entry';
     div.setAttribute('data-entry', pos);
     div.setAttribute('data-from', from);
-    var whoHtml = '<span class="who"><span class="pos">' + pos + '</span>  ' + tag(from) + ' → ' + tag(to) + '  <span class="kind">' + type + '</span></span>';
+    var whoHtml = type === 'session'
+      ? '<span class="who"><span class="pos">' + pos + '</span>  ' + tag('claude') + ' · ' + tag('codex') + '  <span class="kind">' + type + '</span></span>'
+      : '<span class="who"><span class="pos">' + pos + '</span>  ' + tag(from) + ' → ' + tag(to) + '  <span class="kind">' + type + '</span></span>';
     div.innerHTML = whoHtml + (sum ? '<span class="sum">' + sum + '</span>' : '');
     return div;
   }
