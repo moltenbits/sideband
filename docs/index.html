@@ -30,7 +30,7 @@
   * { box-sizing: border-box; }
   html { background: var(--ground); color: var(--ink); }
   body {
-    margin: 0;
+    margin: 0; padding-top: 3.6rem;
     font-family: var(--serif);
     font-optical-sizing: auto;
     font-size: 19px;
@@ -48,16 +48,16 @@
 
   /* nav */
   nav {
-    display: flex; align-items: baseline; gap: 1.6rem; padding: 1.1rem 0 0.9rem; flex-wrap: wrap;
-    position: sticky; top: 0; z-index: 10; background: var(--ground);
-    box-shadow: 0 0.6rem 0.6rem -0.4rem var(--ground);
+    position: fixed; top: 0; left: 0; right: 0; z-index: 10; height: 3.6rem;
+    background: var(--ground); border-bottom: 1px solid var(--rule);
   }
+  nav .wrap { display: flex; align-items: center; gap: 1.6rem; height: 100%; flex-wrap: wrap; }
   nav .brand { font-size: 1.2rem; font-weight: 600; margin-right: auto; text-decoration: none; }
   nav a:not(.brand) { font-size: 0.95rem; color: var(--ink-soft); text-decoration: none; }
   nav a:not(.brand):hover { color: var(--ink); text-decoration: underline; }
 
   /* hero */
-  header.hero { padding: 3.6rem 0 2.5rem; }
+  header.hero { padding: 3.2rem 0 2.5rem; }
   .hero-top { display: flex; justify-content: space-between; align-items: center; gap: 2rem; flex-wrap: wrap; margin-bottom: 1.6rem; }
   h1 {
     font-size: clamp(2.6rem, 5.6vw, 3.9rem);
@@ -87,7 +87,7 @@
 
   /* replay */
   .replay-track { height: 420vh; margin-top: 1rem; }
-  .replay { position: sticky; top: max(4.2rem, calc(50vh - 18.5rem)); width: min(100vw - 2.5rem, 1320px); margin-inline: calc(50% - min(50vw - 1.25rem, 660px)); }
+  .replay { position: sticky; top: max(4.6rem, calc(50vh - 18.5rem)); width: min(100vw - 2.5rem, 1320px); margin-inline: calc(50% - min(50vw - 1.25rem, 660px)); }
   .stage {
     position: relative;
     display: grid;
@@ -189,7 +189,7 @@
   .chapters span.on { opacity: 1; }
 
   /* sections */
-  section { padding: 4.5rem 0 0; max-width: 58rem; margin-inline: auto; }
+  section { padding: 4.5rem 0 0; max-width: 58rem; margin-inline: auto; scroll-margin-top: 4rem; }
   h2 { font-size: 2.1rem; font-weight: 400; line-height: 1.15; margin: 0 0 1.4rem; letter-spacing: -0.01em; }
   h3 { font-size: 1.15rem; font-weight: 600; margin: 1.8rem 0 0.5rem; }
   ol.steps { padding-left: 1.6rem; max-width: var(--measure); margin: 0; }
@@ -226,7 +226,7 @@
   footer span:first-child { margin-right: auto; }
 
   @media (max-width: 900px) {
-    .replay { top: 4rem; }
+    .replay { top: 4.4rem; }
     .stage { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
     .pane { height: calc((100vh - 13.5rem) / 2); min-height: 11rem; }
     .pane.codex { order: 3; }
@@ -246,14 +246,16 @@
 </style>
 </head>
 <body>
-<div class="wrap">
-  <nav>
+<nav>
+  <div class="wrap">
     <a class="brand" href="#">sideband</a>
     <a href="#install">Install</a>
     <a href="#use">Use</a>
     <a href="#how">How it works</a>
     <a href="https://github.com/moltenbits/sideband">GitHub</a>
-  </nav>
+  </div>
+</nav>
+<div class="wrap">
 
   <header class="hero">
     <div class="hero-top">
