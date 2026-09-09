@@ -197,13 +197,35 @@
   function visibleIn(rect, box) {
     return rect.top >= box.top - 1 && rect.bottom <= box.bottom + 1;
   }
+  function overlaps(rect, box) {
+    return rect.bottom > box.top + 1 && rect.top < box.bottom - 1;
+  }
+  // Hide every journal entry whose terminal lines have all scrolled out of
+  // their panes, so the column only ever lists what the terminals show.
+  function prune() {
+    var boxes = { C: panes.C.getBoundingClientRect(), X: panes.X.getBoundingClientRect() };
+    var shown = [];
+    panes.J.querySelectorAll('.entry').forEach(function (en) {
+      var id = en.getAttribute('data-entry');
+      var any = false;
+      ['C', 'X'].forEach(function (side) {
+        var line = panes[side].querySelector('.line[data-entry="' + id + '"]');
+        if (line && overlaps(line.getBoundingClientRect(), boxes[side])) any = true;
+      });
+      en.hidden = !any;
+      if (any) shown.push(en);
+    });
+    var J = panes.J;
+    if (getComputedStyle(J).flexDirection === 'row') J.scrollLeft = J.scrollWidth;
+    return shown;
+  }
   function drawLinks() {
+    var entries = prune();
     var wide = svg && window.matchMedia('(min-width: 901px)').matches;
     if (!wide) { applyFocus(); return; }
     var sr = stageEl.getBoundingClientRect();
     svg.setAttribute('viewBox', '0 0 ' + sr.width + ' ' + sr.height);
     var d = [];
-    var entries = panes.J.querySelectorAll('.entry');
     var ledgerBox = panes.J.getBoundingClientRect();
     var scrollC = panes.C.getBoundingClientRect(), scrollX = panes.X.getBoundingClientRect();
     var newest = entries.length ? entries[entries.length - 1].getAttribute('data-entry') : null;
@@ -277,7 +299,6 @@
   // scrolls past, and the fraction scrolled is the fraction played, so
   // scrolling back up rewinds.
   var reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var pinned = window.matchMedia && window.matchMedia('(min-width: 901px)').matches;
   // The stage pins at its sticky offset and stays pinned until the track
   // runs out, so the pinned span is the play span.
   var stage = document.getElementById('replay');
@@ -292,7 +313,7 @@
     render(p * TOTAL);
     bar.style.width = (p * 100) + '%';
   }
-  if (reduced || !pinned || location.hash === '#end') {
+  if (reduced || location.hash === '#end') {
     show(1);
   } else {
     var ticking = false;

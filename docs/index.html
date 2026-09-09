@@ -220,16 +220,19 @@
   footer span:first-child { margin-right: auto; }
 
   @media (max-width: 900px) {
-    .replay-track { height: auto; }
-    .replay { position: static; }
-    .stage { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
-    .pane { height: 22rem; min-height: 22rem; }
-    .ledger { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; gap: 0.5rem; padding: 1.6rem 0 0; overflow: visible; height: auto; }
-    .ledger::before, .ledger::after, .links { display: none; }
-    .ledger .title { left: 0; margin: 0; text-align: left; padding: 0; top: 0; }
-    .entry { margin: 0; flex: 1 1 10rem; }
+    .replay { top: 0.75rem; }
+    .stage { grid-template-columns: minmax(0, 1fr); gap: 0.75rem; }
+    .pane { height: calc((100vh - 10.5rem) / 2); min-height: 11rem; }
     .pane.codex { order: 3; }
-    .ledger { order: 2; }
+    .ledger {
+      order: 2; height: auto; flex-direction: row; justify-content: flex-start; gap: 0.5rem;
+      padding: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    }
+    .ledger::-webkit-scrollbar { display: none; }
+    .ledger::before, .ledger::after, .ledger .title, .links { display: none; }
+    .entry { flex: 0 0 calc((100% - 1rem) / 3); margin: 0; }
+    .entry:first-of-type { margin-left: auto; }
+    .controls { margin-top: 0.6rem; }
   }
   @media (prefers-reduced-motion: reduce) {
     .pane .cursor::after { animation: none; }
