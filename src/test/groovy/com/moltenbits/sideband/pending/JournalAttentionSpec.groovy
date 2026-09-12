@@ -241,4 +241,34 @@ class JournalAttentionSpec extends Specification {
         expect:
         !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
     }
+
+    void "the operator's client rings once for done: on the turn that handled the completing reply, not on context that follows"() {
+        given: "typed into Codex; Codex asks Claude, Claude answers, Codex reports to the operator"
+        Entry h = human("get Claude to review", Role.CODEX)
+        Entry ask = agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        expect: "the turn that handled Claude's reply"
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when:
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        then:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "Claude sends a status afterwards; Codex reads it and writes nothing"
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.STATUS)
+
+        then:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, Role.CODEX).reason().contains("context from Claude")
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+
+        when: "Codex says something itself"
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.STATUS)
+
+        then:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+    }
 }

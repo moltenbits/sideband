@@ -22,9 +22,11 @@ import java.util.Map;
  * agent's next actionable request to the same client (9.6, 9.7); and the operator's own latest prompt,
  * when it asked the other client something that has not been answered. The other client's
  * turn ends are the middle of the work: its reply wakes the first client, whose next turn
- * end is the moment. A word to the operator counts only while nothing has since arrived
- * for its author: a wake that brings context and no new word must not ring again for the
- * word that already did. Acknowledgements are receipts and never count as a word to anyone.
+ * end is the moment. Done rings once, on either side: a word to the operator counts only
+ * while nothing has since arrived for its author, and the operator's client is done only
+ * when the last thing to reach it was a completing reply or nothing at all, so a wake that
+ * brings context and draws no new word never rings again for what already did.
+ * Acknowledgements are receipts and never count as a word to anyone.
  */
 @Singleton
 class JournalAttention implements Attention {
@@ -49,7 +51,7 @@ class JournalAttention implements Attention {
         }
         ParticipantId self = ParticipantId.of(role);
         Entry latest = null;
-        long heard = 0; // the last entry that reached this client: a word to the operator before it has already rung
+        Entry heard = null; // the last entry that reached this client, acks aside
         for (Entry entry : entries) {
             EntryMetadata m = entry.metadata();
             if (entry.seq() <= prompt.seq() || m.type() == MessageType.ACK) {
@@ -58,10 +60,11 @@ class JournalAttention implements Attention {
             if (m.from().equals(self)) {
                 latest = entry;
             } else if (m.addresses(self)) {
-                heard = entry.seq();
+                heard = entry;
             }
         }
-        if (latest != null && latest.seq() > heard && operatorAlone(latest.metadata())) {
+        long heardAt = heard == null ? 0 : heard.seq();
+        if (latest != null && latest.seq() > heardAt && operatorAlone(latest.metadata())) {
             return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
         Role via = prompt.metadata().via();
@@ -85,7 +88,18 @@ class JournalAttention implements Attention {
         if (open > 0) {
             return new Verdict(false, open + (open == 1 ? " open request" : " open requests") + " to a client");
         }
+        // Done rings once: on the turn that handled the peer's completing reply, or on the client's own
+        // work. Context that arrives afterwards and closes nothing starts a turn that must stay quiet.
+        if (heard != null && (latest == null || latest.seq() < heard.seq()) && !closes(heard.metadata())) {
+            return new Verdict(false, "nothing is open, but the last thing to reach " + role.displayName()
+                    + " was context from " + heard.metadata().from().displayName() + ", which already rang");
+        }
         return new Verdict(true, "nothing is open");
+    }
+
+    /** A reply that answers: the entry that ends a delegation, whose arrival is the moment to ring. */
+    private static boolean closes(EntryMetadata metadata) {
+        return metadata.type() == MessageType.REPLY && !metadata.expectsReply();
     }
 
     /** Addressed to the operator and to no client: the author wants the operator, not a peer. */
