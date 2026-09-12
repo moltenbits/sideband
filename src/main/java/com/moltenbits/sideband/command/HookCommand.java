@@ -521,15 +521,28 @@ public class HookCommand {
                 Process process = new ProcessBuilder("/bin/sh", "-c", run)
                         .redirectError(ProcessBuilder.Redirect.INHERIT)
                         .start();
+                // The child's stdout is drained as it comes, on its own thread, while the payload is
+                // written: a notifier that speaks before it reads would otherwise fill one pipe
+                // while this hook blocks filling the other, and neither would ever finish.
+                PrintWriter err = err();
+                Thread drain = Thread.ofPlatform().daemon(true).name("sideband-notifier-stdout").start(() -> {
+                    try (var stdout = process.getInputStream()) {
+                        byte[] chunk = new byte[8192];
+                        for (int n = stdout.read(chunk); n >= 0; n = stdout.read(chunk)) {
+                            err.write(new String(chunk, 0, n, UTF_8));
+                            err.flush();
+                        }
+                    } catch (IOException e) {
+                        err.println("sideband hook: lost the notifier's output: " + e.getMessage());
+                    }
+                });
                 try (var stdin = process.getOutputStream()) {
                     stdin.write(payload);
-                }
-                String output = new String(process.getInputStream().readAllBytes(), UTF_8);
-                if (!output.isEmpty()) {
-                    err().print(output);
-                    err().flush();
+                } catch (IOException e) {
+                    // the notifier closed its stdin early, which is its business; the rest of the payload was not wanted
                 }
                 int exit = process.waitFor();
+                drain.join();
                 if (exit != 0) {
                     err().println("sideband hook: notifier exited " + exit + ": " + run);
                 }

@@ -215,6 +215,23 @@ class NotifyHookSpec extends CommandSpec {
         "<task-notification>\n<task-id>b1</task-id>\n</task-notification>"                                 | false
     }
 
+    @spock.lang.Timeout(20)
+    void "a notifier that speaks a lot before it reads, given a large payload, still finishes"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        human()
+        String large = "x" * (1024 * 1024)
+        String talkative = "head -c 1048576 /dev/zero | tr '\\0' y; cat > '" + received + "'"
+
+        when:
+        int code = hook(stop() + [last_assistant_message: large], ["--run", talkative])
+
+        then:
+        code == ExitCode.OK
+        stderr.toString().count("y") == 1024 * 1024
+        Files.readString(received).contains(large)
+    }
+
     void "a notifier that fails never fails the hook"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
