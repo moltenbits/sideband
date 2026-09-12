@@ -1,9 +1,7 @@
 # Runs when a version tag is pushed. Builds the native executable for Apple
 # silicon and for Linux on x86_64 and arm64 (there is no Intel Mac build),
 # publishes them all on one GitHub release, then writes the Homebrew formula
-# in moltenbits/homebrew-tap so `brew upgrade` sees it. Native compilation
-# is memory-hungry, so the Linux builds run on the 16-core, 64 GB larger
-# runners and the Mac build on the self-hosted Apple silicon runners.
+# in moltenbits/homebrew-tap so `brew upgrade` sees it.
 # A tag with a hyphen (v1.1.0-rc1) is a pre-release and leaves the tap alone.
 name: Release
 
@@ -24,11 +22,11 @@ jobs:
       matrix:
         include:
           - target: macos-arm64
-            runner: [self-hosted, macOS]
+            runner: macos-15
           - target: linux-x86_64
-            runner: x86_linux_16c_64gb
+            runner: ubuntu-24.04
           - target: linux-arm64
-            runner: arm_linux_16c_64gb
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
