@@ -116,7 +116,7 @@ class JournalPending implements Pending {
      * question) and is addressed to whoever asked: a reply sent to the operator alone about
      * an agent's request leaves that agent's request open, since the agent never sees it.
      */
-    private static boolean answers(EntryMetadata response, EntryMetadata request) {
+    static boolean answers(EntryMetadata response, EntryMetadata request) {
         return response.type() == MessageType.REPLY && !response.expectsReply() && response.addresses(request.from());
     }
 
