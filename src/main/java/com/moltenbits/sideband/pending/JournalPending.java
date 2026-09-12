@@ -121,10 +121,11 @@ class JournalPending implements Pending {
     }
 
     /**
-     * An agent's request to a client is superseded by that agent's next request to the same
-     * client: an agent delegates one thing at a time, so a later request is the current one
-     * and the earlier is dismissed, listed nowhere and awaited by nobody, however it was
-     * left. A human's prompts are never superseded; the operator may stack instructions.
+     * An agent's request to a client is superseded by that agent's next actionable request
+     * to the same client: an agent delegates one thing at a time, so a later request is the
+     * current one and the earlier is dismissed, listed nowhere and awaited by nobody,
+     * however it was left. A request that expects nothing back is context and replaces no
+     * work. A human's prompts are never superseded; the operator may stack instructions.
      */
     static boolean superseded(Entry request, Role recipient, List<Entry> entries) {
         EntryMetadata m = request.metadata();
@@ -133,7 +134,7 @@ class JournalPending implements Pending {
         }
         ParticipantId to = ParticipantId.of(recipient);
         return entries.stream().anyMatch(e -> e.seq() > request.seq()
-                && e.metadata().type() == MessageType.REQUEST
+                && e.metadata().type() == MessageType.REQUEST && e.metadata().expectsReply()
                 && e.metadata().from().equals(m.from())
                 && e.metadata().addresses(to));
     }

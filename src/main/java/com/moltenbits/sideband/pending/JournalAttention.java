@@ -19,10 +19,12 @@ import java.util.Map;
  * whose turn end can mean "done", and it is done when no request to a client is still open:
  * any agent's request, however old, since the operator's later prompts are follow-ups to
  * the same work, not its end, and an agent's request is closed by an answer or by that
- * agent's next request to the same client (9.6, 9.7); and the operator's own latest prompt,
+ * agent's next actionable request to the same client (9.6, 9.7); and the operator's own latest prompt,
  * when it asked the other client something that has not been answered. The other client's
  * turn ends are the middle of the work: its reply wakes the first client, whose next turn
- * end is the moment. Acknowledgements are receipts and never count as a word to anyone.
+ * end is the moment. A word to the operator counts only while nothing has since arrived
+ * for its author: a wake that brings context and no new word must not ring again for the
+ * word that already did. Acknowledgements are receipts and never count as a word to anyone.
  */
 @Singleton
 class JournalAttention implements Attention {
@@ -47,12 +49,19 @@ class JournalAttention implements Attention {
         }
         ParticipantId self = ParticipantId.of(role);
         Entry latest = null;
+        long heard = 0; // the last entry that reached this client: a word to the operator before it has already rung
         for (Entry entry : entries) {
-            if (entry.seq() > prompt.seq() && entry.metadata().from().equals(self) && entry.metadata().type() != MessageType.ACK) {
+            EntryMetadata m = entry.metadata();
+            if (entry.seq() <= prompt.seq() || m.type() == MessageType.ACK) {
+                continue;
+            }
+            if (m.from().equals(self)) {
                 latest = entry;
+            } else if (m.addresses(self)) {
+                heard = entry.seq();
             }
         }
-        if (latest != null && operatorAlone(latest.metadata())) {
+        if (latest != null && latest.seq() > heard && operatorAlone(latest.metadata())) {
             return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
         Role via = prompt.metadata().via();

@@ -208,4 +208,37 @@ class JournalAttentionSpec extends Specification {
         then:
         attention.atTurnEnd(dir, Role.CLAUDE).wanted()
     }
+
+    void "context arriving after a client's word to the operator does not ring again on the turn it starts"() {
+        given: "Codex answered Claude and recorded its reply to the operator: that turn end rings"
+        Entry h = human("get a review", Role.CLAUDE)
+        Entry ask = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: ask.metadata().id()])
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        expect:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "Claude sends Codex a status, which Codex reads and answers with nothing"
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.STATUS)
+
+        then:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "Codex speaks to the operator again"
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.STATUS)
+
+        then:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+    }
+
+    void "a request that expects nothing back is context and supersedes no work"() {
+        given:
+        Entry h = human("get a review", Role.CLAUDE)
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id(), expectsReply: false])
+
+        expect:
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
 }
