@@ -9,6 +9,7 @@ import com.moltenbits.sideband.protocol.Role;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -67,12 +68,12 @@ class JournalAttention implements Attention {
         if (latest != null && latest.seq() > heardAt && operatorAlone(latest.metadata())) {
             return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
+        Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
         Role via = prompt.metadata().via();
         if (via != role) {
             return new Verdict(false, "the operator's last prompt was typed into "
                     + (via == null ? "no client" : via.displayName()) + ", not " + role.displayName());
         }
-        Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
         long open = 0;
         for (Entry entry : entries) {
             if (!entry.metadata().isAgentAuthored() && entry.seq() < prompt.seq()) {
@@ -90,16 +91,41 @@ class JournalAttention implements Attention {
         }
         // Done rings once: on the turn that handled the peer's completing reply, or on the client's own
         // work. Context that arrives afterwards and closes nothing starts a turn that must stay quiet.
-        if (heard != null && (latest == null || latest.seq() < heard.seq()) && !closes(heard.metadata())) {
+        if (heard != null && (latest == null || latest.seq() < heard.seq()) && !completes(heard, entries, responses)) {
             return new Verdict(false, "nothing is open, but the last thing to reach " + role.displayName()
                     + " was context from " + heard.metadata().from().displayName() + ", which already rang");
         }
         return new Verdict(true, "nothing is open");
     }
 
-    /** A reply that answers: the entry that ends a delegation, whose arrival is the moment to ring. */
-    private static boolean closes(EntryMetadata metadata) {
-        return metadata.type() == MessageType.REPLY && !metadata.expectsReply();
+    /**
+     * A reply that ended a delegation: it answers, by the closure rule, a request that was
+     * still open when it arrived, neither answered before nor superseded. A reply to context,
+     * or a late reply to a request already closed, completes nothing and is context itself.
+     */
+    private static boolean completes(Entry reply, List<Entry> entries, Map<String, List<EntryMetadata>> responses) {
+        EntryMetadata m = reply.metadata();
+        if (m.type() != MessageType.REPLY || m.expectsReply()) {
+            return false;
+        }
+        Map<String, Entry> byId = new HashMap<>();
+        for (Entry entry : entries) {
+            byId.put(entry.metadata().id(), entry);
+        }
+        List<Entry> before = entries.stream().filter(e -> e.seq() < reply.seq()).toList();
+        for (Map.Entry<String, List<EntryMetadata>> answered : responses.entrySet()) {
+            Entry request = byId.get(answered.getKey());
+            if (request == null || answered.getValue().stream().noneMatch(r -> r.id().equals(m.id()))
+                    || !JournalPending.answers(m, request.metadata())) {
+                continue;
+            }
+            boolean answeredBefore = answered.getValue().stream().anyMatch(r -> !r.id().equals(m.id())
+                    && byId.containsKey(r.id()) && byId.get(r.id()).seq() < reply.seq() && JournalPending.answers(r, request.metadata()));
+            if (!answeredBefore && !JournalPending.supersededForAnyRecipient(request, before)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Addressed to the operator and to no client: the author wants the operator, not a peer. */

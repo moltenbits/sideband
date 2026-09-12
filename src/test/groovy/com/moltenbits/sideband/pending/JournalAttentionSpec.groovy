@@ -271,4 +271,45 @@ class JournalAttentionSpec extends Specification {
         then:
         attention.atTurnEnd(dir, Role.CODEX).wanted()
     }
+
+    void "a reply to context, or a late reply to a request already closed, completes nothing and rings nothing"() {
+        given: "typed into Codex; Codex delegates, Claude answers, Codex tells Claude and the operator"
+        Entry h = human("get Claude to review", Role.CODEX)
+        Entry ask = agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: ask.metadata().id()])
+        Entry status = agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.STATUS)
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        expect:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "Claude replies to the status"
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: status.metadata().id()])
+
+        then:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "and then replies to the review request a second time"
+        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        then:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+    }
+
+    void "a reply that closes a request superseded meanwhile completes nothing either"() {
+        given:
+        Entry h = human("get a review", Role.CLAUDE)
+        Entry first = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        Entry second = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: second.metadata().id()])
+
+        expect:
+        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+
+        when: "Codex answers the superseded one late"
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: first.metadata().id()])
+
+        then:
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
 }
