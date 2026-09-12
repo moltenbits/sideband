@@ -15,6 +15,7 @@ native image, and everything a client runs is a subcommand of it.
   - [1.1 Sideband](#11-sideband)
   - [1.2 Claude Code](#12-claude-code)
   - [1.3 Codex](#13-codex)
+  - [1.4 Notifications](#14-notifications)
 - [2. Use](#2-use)
   - [2.1 Claude Code](#21-claude-code)
   - [2.2 Codex](#22-codex)
@@ -89,6 +90,40 @@ Then `$sideband` joins and records this thread as Codex's delivery
 address (section 2.2); after a later trust or a clear, an ordinary prompt
 refreshes it. The skill is already installed under
 `~/.agents/skills/sideband`.
+
+### 1.4 Notifications
+
+Optional. If a hook in either client raises a desktop notification when a
+turn ends, for example [growlrrr](https://github.com/moltenbits/growlrrr)'s
+`grrr hook notify`, Sideband will make it ring at the end of every exchange
+between the two agents, because a delivered envelope starts a turn exactly
+as a typed prompt does. growlrrr can consult a gate before it rings, and
+`sideband hook notify` is that gate: it reads the hook payload and exits 0
+to let the notification through or 1 to hold it. Generate the hooks with
+the gate on them and merge the output into each client's settings as
+growlrrr's own instructions say:
+
+```bash
+grrr init --format claude --appId Sideband --gate "sideband hook notify"
+grrr init --format codex  --appId Sideband --gate "sideband hook notify"
+```
+
+The gate decides from the journal. The client you last typed into is done
+when no request to a client is still waiting for an answer: while Claude
+waits on Codex's review, neither turn end rings, and a follow-up question
+you type meanwhile changes nothing; when Codex's reply wakes Claude and
+Claude's turn then ends with nothing open, it rings once, and clicking the
+notification lands in Claude's terminal. An agent's request is closed by an
+answer or by that agent's next request to the same client, so an abandoned
+one never holds a notification back. A client whose latest word went to you
+alone, a question or a result in its own terminal, rings whichever client
+you typed into. Permission prompts always ring, the idle reminder that
+repeats a turn end never does, and on the dismiss hook a delivered envelope
+never clears a notification you have not seen.
+
+Used alone, either client behaves as it did before: a session that has not
+joined Sideband, a repository without it, or an event the gate does not
+know all pass straight through to the notifier.
 
 ## 2. Use
 

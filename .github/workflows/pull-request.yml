@@ -1,5 +1,7 @@
 # Runs on every pull request against main, never on plain pushes: main only
-# changes through pull requests, and this is the check that gates them.
+# changes through pull requests, and this is the check that gates them. The
+# native executable is built for every target the release builds, on the same
+# runners, so a platform problem shows up here rather than at the tag.
 name: Pull request
 
 on:
@@ -32,8 +34,18 @@ jobs:
           if-no-files-found: ignore
 
   native:
-    name: Native executable
-    runs-on: ubuntu-latest
+    name: Native executable (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            runner: macos-26
+          - target: linux-x86_64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
