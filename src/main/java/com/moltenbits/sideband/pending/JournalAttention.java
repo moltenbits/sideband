@@ -119,9 +119,13 @@ class JournalAttention implements Attention {
                     || !JournalPending.answers(m, request.metadata())) {
                 continue;
             }
+            // Each recipient answers for itself, as pending judges it: another recipient's earlier
+            // answer to the same request, a broadcast's, leaves this one's work open until now.
             boolean answeredBefore = answered.getValue().stream().anyMatch(r -> !r.id().equals(m.id())
-                    && byId.containsKey(r.id()) && byId.get(r.id()).seq() < reply.seq() && JournalPending.answers(r, request.metadata()));
-            if (!answeredBefore && !JournalPending.supersededForAnyRecipient(request, before)) {
+                    && r.from().equals(m.from()) && byId.containsKey(r.id()) && byId.get(r.id()).seq() < reply.seq()
+                    && JournalPending.answers(r, request.metadata()));
+            boolean superseded = m.from().role().map(recipient -> JournalPending.superseded(request, recipient, before)).orElse(false);
+            if (!answeredBefore && !superseded) {
                 return true;
             }
         }

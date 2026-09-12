@@ -312,4 +312,19 @@ class JournalAttentionSpec extends Specification {
         then:
         !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
     }
+
+    void "a broadcast is answered once per recipient: the second answer completes it, whoever answered first"() {
+        given: "typed into Codex, addressed to both"
+        Entry h = journal.append(dir, Fixtures.humanDraft("@all review independently", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
+        agent(Role.CODEX, [Fixtures.OPERATOR, Fixtures.CLAUDE], MessageType.REPLY, [replyTo: h.metadata().id()])
+
+        expect: "Claude has not answered yet"
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when:
+        agent(Role.CLAUDE, [Fixtures.OPERATOR, Fixtures.CODEX], MessageType.REPLY, [replyTo: h.metadata().id()])
+
+        then:
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+    }
 }
