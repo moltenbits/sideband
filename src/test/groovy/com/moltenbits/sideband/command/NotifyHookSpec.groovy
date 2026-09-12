@@ -232,6 +232,17 @@ class NotifyHookSpec extends CommandSpec {
         Files.readString(received).contains(large)
     }
 
+    void "a character the notifier splits across two writes reaches stderr whole"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        human()
+
+        expect:
+        hook(stop(), ["--run", "cat > /dev/null; printf '\\303'; sleep 0.2; printf '\\251'"]) == ExitCode.OK
+        stderr.toString().contains("\u00e9")
+        !stderr.toString().contains("\ufffd")
+    }
+
     void "a notifier that fails never fails the hook"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")

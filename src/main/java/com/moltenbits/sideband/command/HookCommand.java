@@ -23,6 +23,7 @@ import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -526,10 +527,10 @@ public class HookCommand {
                 // while this hook blocks filling the other, and neither would ever finish.
                 PrintWriter err = err();
                 Thread drain = Thread.ofPlatform().daemon(true).name("sideband-notifier-stdout").start(() -> {
-                    try (var stdout = process.getInputStream()) {
-                        byte[] chunk = new byte[8192];
+                    try (var stdout = new InputStreamReader(process.getInputStream(), UTF_8)) {
+                        char[] chunk = new char[8192];
                         for (int n = stdout.read(chunk); n >= 0; n = stdout.read(chunk)) {
-                            err.write(new String(chunk, 0, n, UTF_8));
+                            err.write(chunk, 0, n);
                             err.flush();
                         }
                     } catch (IOException e) {
