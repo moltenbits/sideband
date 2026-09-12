@@ -6,6 +6,7 @@ import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
+import com.moltenbits.sideband.pending.Attention;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.pending.Pending;
@@ -35,7 +36,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /** Entry points a client host calls directly, never a person. */
 @Command(name = "hook", description = "Entry points for client hooks", mixinStandardHelpOptions = true,
-        subcommands = {HookCommand.Prompt.class, HookCommand.SessionStart.class})
+        subcommands = {HookCommand.Prompt.class, HookCommand.SessionStart.class, HookCommand.Notify.class})
 public class HookCommand {
 
     /**
@@ -69,7 +70,7 @@ public class HookCommand {
 
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String hookEventName,
-                   @Nullable String sessionId, @Nullable String source) {
+                   @Nullable String sessionId, @Nullable String source, @Nullable String notificationType) {
     }
 
     @Serdeable
@@ -395,6 +396,140 @@ public class HookCommand {
                     ? "Sideband recorded this prompt as " + id + ". Do not capture it again; cite it as --caused-by when delegating."
                     : "Sideband recorded this prompt as " + id + " and delivered it: " + delivered
                     + ". Do not capture or route it again; cite it as --caused-by when delegating.";
+        }
+    }
+
+    /**
+     * Wraps a host's notifier, the command that turns a hook event into a desktop notification,
+     * so that under Sideband the operator hears about a turn end only when it is theirs: the
+     * host fires its Stop hook at the end of every turn, and a pushed envelope starts a turn
+     * like a typed prompt does, so without this every exchange between the clients rings.
+     * The verdict comes from {@link Attention}. Everything that is not a turn end passes
+     * through, a permission prompt above all. On a prompt event, where the wrapped command is
+     * usually the notifier's dismiss, the operator's own words pass through and a delivered
+     * envelope does not, so an envelope never clears a notification the operator has not
+     * seen. A session Sideband is not joined in, a repository without Sideband, or a payload
+     * that cannot be read all pass through: the client alone behaves as it would without
+     * Sideband. The wrapped command gets the payload on its stdin, byte for byte. Never blocks
+     * the host: the exit code is always 0, whatever the wrapped command did.
+     */
+    @Command(name = "notify", description = "Claude Code/Codex Stop, Notification, PermissionRequest, or UserPromptSubmit hook: run the wrapped notifier only when the turn end is the operator's business", mixinStandardHelpOptions = true)
+    @Prototype
+    public static class Notify implements Callable<Integer> {
+
+        @Spec
+        CommandSpec spec;
+
+        @Option(names = "--agent", description = "The client whose hook this is, claude or codex; without it the payload's session id says which joined role is calling")
+        Role agent;
+
+        @Option(names = "--run", required = true, paramLabel = "<command>",
+                description = "The notifier to wrap, run through the shell with the hook payload on its stdin, for example: grrr hook notify --appId MyProject")
+        String run;
+
+        private final SidebandHome home;
+        private final Sessions sessions;
+        private final Attention attention;
+        private final ObjectMapper json;
+
+        Notify(SidebandHome home, Sessions sessions, Attention attention, ObjectMapper json) {
+            this.home = home;
+            this.sessions = sessions;
+            this.attention = attention;
+            this.json = json;
+        }
+
+        @Override
+        public Integer call() {
+            byte[] raw;
+            try {
+                raw = System.in.readAllBytes();
+            } catch (IOException e) {
+                err().println("sideband hook: notification passed through: unreadable stdin: " + e.getMessage());
+                return forward(new byte[0]);
+            }
+            try {
+                String reason = held(raw);
+                if (reason != null) {
+                    err().println("sideband hook: notification held: " + reason);
+                    return ExitCode.OK;
+                }
+            } catch (RuntimeException e) {
+                err().println("sideband hook: notification passed through: " + e.getMessage());
+            }
+            return forward(raw);
+        }
+
+        /** The reason to hold the notification back, or null to let it through. */
+        private @Nullable String held(byte[] raw) {
+            Payload payload;
+            try {
+                payload = json.readValue(new String(raw, UTF_8), Payload.class);
+            } catch (IOException e) {
+                err().println("sideband hook: notification passed through: unreadable payload: " + e.getMessage());
+                return null;
+            }
+            if (payload == null || payload.hookEventName() == null) {
+                return null;
+            }
+            String event = payload.hookEventName();
+            if (event.equals("UserPromptSubmit")) {
+                String prompt = payload.prompt() == null ? "" : payload.prompt().stripLeading();
+                boolean transport = prompt.startsWith(Handoffs.ENVELOPE_MARKER) || Prompt.isPushedEnvelope(prompt) || Prompt.isHostNotification(prompt);
+                return transport ? "the prompt is a delivered envelope or a host notice, not the operator" : null;
+            }
+            boolean turnEnd = event.equals("Stop") || event.equals("Notification") && "idle_prompt".equals(payload.notificationType());
+            if (!turnEnd) {
+                return null;
+            }
+            Optional<Path> located = stateDirectory(home, payload.cwd());
+            if (located.isEmpty() || !Files.isDirectory(located.get())) {
+                return null;
+            }
+            Role role = agent != null ? agent : joined(located.get(), payload.sessionId()).orElse(null);
+            if (role == null) {
+                err().println("sideband hook: notification passed through: Sideband is not in use in session " + payload.sessionId());
+                return null;
+            }
+            Attention.Verdict verdict = attention.atTurnEnd(located.get(), role);
+            return verdict.wanted() ? null : verdict.reason();
+        }
+
+        /** The role whose recorded session is the calling one; empty when Sideband is not joined there. */
+        private Optional<Role> joined(Path stateDirectory, @Nullable String sessionId) {
+            if (sessionId == null || sessionId.isBlank()) {
+                return Optional.empty();
+            }
+            return Arrays.stream(Role.values())
+                    .filter(role -> sessions.load(stateDirectory, role).map(s -> sessionId.equals(s.id())).orElse(false))
+                    .findFirst();
+        }
+
+        /** Runs the wrapped command with the payload on its stdin; its output goes wherever this hook's would. */
+        private int forward(byte[] payload) {
+            try {
+                Process process = new ProcessBuilder("/bin/sh", "-c", run)
+                        .redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                        .redirectError(ProcessBuilder.Redirect.INHERIT)
+                        .start();
+                try (var stdin = process.getOutputStream()) {
+                    stdin.write(payload);
+                }
+                int exit = process.waitFor();
+                if (exit != 0) {
+                    err().println("sideband hook: notifier exited " + exit + ": " + run);
+                }
+            } catch (IOException e) {
+                err().println("sideband hook: could not run the notifier: " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                err().println("sideband hook: interrupted while the notifier ran");
+            }
+            return ExitCode.OK;
+        }
+
+        private PrintWriter err() {
+            return spec.commandLine().getErr();
         }
     }
 }
