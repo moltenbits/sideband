@@ -186,4 +186,31 @@ class JournalPendingSpec extends Specification {
         pending.report(dir, Role.CODEX).inProgress().isEmpty()
     }
 
+    void "an agent's later request to the same client supersedes its earlier one for both sides; the operator's prompts stack"() {
+        given:
+        Entry h = human("@claude ask codex", Role.CLAUDE, Role.CLAUDE)
+        Entry first = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: first.metadata().id()])
+
+        expect:
+        pending.report(dir, Role.CODEX).inProgress()*.entry()*.metadata()*.id() == [first.metadata().id()]
+        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [first.metadata().id()]
+
+        when: "Claude asks Codex something else before Codex has answered"
+        Entry second = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
+
+        then: "the first is dismissed on both sides"
+        pending.report(dir, Role.CODEX).inProgress().isEmpty()
+        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [second.metadata().id()]
+        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [second.metadata().id()]
+
+        when: "a request to the other client, or a question in a reply, supersedes nothing"
+        agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: second.metadata().id(), expectsReply: true, to: [Fixtures.OPERATOR]])
+        human("@codex one", Role.CLAUDE, Role.CODEX)
+        human("@codex two", Role.CLAUDE, Role.CODEX)
+
+        then:
+        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [second.metadata().id()]
+        pending.report(dir, Role.CODEX).open()*.entry()*.body() == ["request", "@codex one", "@codex two"]
+    }
 }

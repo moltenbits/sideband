@@ -652,10 +652,19 @@ follow-up neither cancels nor restarts the listener nor creates another waiting
 process.
 
 A late reply remains associated with the message it answers. The parent
-assesses it against the latest human instructions before acting. Existing
-request tracking and backlog rules apply; version one introduces no structured
-revision fields, automatic supersession state, or special backlog grouping.
-Structured amendment and replacement handling is deferred to section 15.
+assesses it against the latest human instructions before acting.
+
+An agent delegates one thing at a time, so an agent's request to a client is
+superseded by that agent's next request to the same client, whatever its
+body says: the earlier request is then dismissed, listed by `pending` for
+neither side and awaited by nobody, however it was left, acknowledged or
+not. Nothing is written to record this; it is read from the order of entries
+(section 9.6's closure rule and this one are the whole of request tracking).
+A request to the other client supersedes nothing, nor does a question asked
+in a reply. The operator's prompts are never superseded: the operator may
+stack instructions, and each stays open until answered. Version one
+introduces no structured revision fields or special backlog grouping;
+structured amendment handling is deferred to section 15.
 
 ### 9.8 Acknowledgement
 

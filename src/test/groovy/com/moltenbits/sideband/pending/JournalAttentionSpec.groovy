@@ -79,7 +79,7 @@ class JournalAttentionSpec extends Specification {
         then:
         !attention.atTurnEnd(dir, Role.CODEX).wanted()
         attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("nothing is open")
+        attention.atTurnEnd(dir, Role.CLAUDE).reason() == "nothing is open"
     }
 
     void "a reply that only asks a question keeps the request open"() {
@@ -118,7 +118,7 @@ class JournalAttentionSpec extends Specification {
 
         then:
         attention.atTurnEnd(dir, Role.CODEX).wanted()
-        attention.atTurnEnd(dir, Role.CODEX).reason().contains("addressed the operator alone")
+        attention.atTurnEnd(dir, Role.CODEX).reason().contains("went to the operator alone")
         !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
 
         when: "and so does the operator's own client when it stops to ask, even with its request to Codex still open"
@@ -128,16 +128,84 @@ class JournalAttentionSpec extends Specification {
         attention.atTurnEnd(dir, Role.CLAUDE).wanted()
     }
 
-    void "only what follows the operator's latest prompt counts, so a stale request from an earlier task never holds a notification back"() {
-        given: "an old delegation nobody ever answered"
-        Entry old = human("old task", Role.CLAUDE)
-        agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: old.metadata().id()])
+    void "a follow-up prompt while a delegation is open is part of the same task: the client stays quiet until the peer answers"() {
+        given:
+        Entry h = human("commit and get a review", Role.CLAUDE)
+        Entry ask = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
 
-        when: "a new prompt, this time typed into Codex"
-        human("new task", Role.CODEX)
+        when: "the operator asks Claude how the review is going"
+        human("how is the review going?", Role.CLAUDE)
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
         !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("1 open request")
+
+        when:
+        agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
+
+        then:
+        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
+
+    void "an acknowledgement to the operator is a receipt, never a word to the operator"() {
+        given: "typed into Claude, addressed to Codex; Codex acks the operator and delegates to Claude"
+        Entry h = human("@codex review this and get Claude to check the tests", Role.CLAUDE, Role.CODEX)
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.ACK, [replyTo: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: h.metadata().id()])
+
+        expect:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
+
+    void "only the client's latest word counts: an earlier reply to the operator alone does not ring for later turns spent asking the peer"() {
+        given:
+        Entry h = human("get two reviews", Role.CLAUDE)
+        Entry first = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: first.metadata().id()])
+        agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: first.metadata().id()])
+
+        expect: "Codex's latest word went to the operator alone"
+        attention.atTurnEnd(dir, Role.CODEX).wanted()
+
+        when: "a second review, and Codex asks Claude something and stops"
+        Entry second = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.ACK, [replyTo: second.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: second.metadata().id()])
+
+        then:
+        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
+
+    void "an agent's later request to the same client supersedes its earlier one, so an abandoned request never holds a notification back"() {
+        given: "a review Codex acknowledged and never answered"
+        Entry h = human("get a review", Role.CLAUDE)
+        Entry stale = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.ACK, [replyTo: stale.metadata().id()])
+
+        when: "Claude asks again, and Codex answers the new request"
+        Entry again = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+
+        then:
+        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("1 open request")
+
+        when:
+        agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: again.metadata().id()])
+
+        then:
+        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+    }
+
+    void "an earlier prompt of the operator's that the other client never answered is not this task's business"() {
+        given:
+        human("@codex hi", Role.CLAUDE, Role.CODEX)
+
+        when:
+        human("fix the build", Role.CLAUDE)
+
+        then:
+        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
     }
 }

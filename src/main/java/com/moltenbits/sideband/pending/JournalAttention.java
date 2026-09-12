@@ -13,13 +13,16 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * The rule: the task is whatever the operator asked for last, and the client the operator
- * typed that into is the one whose turn end means "done", once no request written since
- * then is still waiting for an answer from a client. The other client's turn ends are the
- * middle of the work; its reply wakes the first client, whose turn end is the moment. Either
- * client wanting the operator in its own terminal, by writing to the operator alone, is the
- * one exception. Everything before the operator's latest prompt is another task, so a request
- * from it that was never answered holds nothing back.
+ * The rule. A client whose latest word since the operator's last prompt went to the operator
+ * alone, a question or a result for the operator's own terminal, wants attention, whichever
+ * client the operator typed into. Otherwise the client the operator typed into is the one
+ * whose turn end can mean "done", and it is done when no request to a client is still open:
+ * any agent's request, however old, since the operator's later prompts are follow-ups to
+ * the same work, not its end, and an agent's request is closed by an answer or by that
+ * agent's next request to the same client (9.6, 9.7); and the operator's own latest prompt,
+ * when it asked the other client something that has not been answered. The other client's
+ * turn ends are the middle of the work: its reply wakes the first client, whose next turn
+ * end is the moment. Acknowledgements are receipts and never count as a word to anyone.
  */
 @Singleton
 class JournalAttention implements Attention {
@@ -42,27 +45,38 @@ class JournalAttention implements Attention {
         if (prompt == null) {
             return new Verdict(true, "nothing from the operator in the discussion");
         }
-        long start = prompt.seq();
-        List<Entry> since = entries.stream().filter(e -> e.seq() >= start).toList();
         ParticipantId self = ParticipantId.of(role);
-        if (since.stream().anyMatch(e -> e.metadata().from().equals(self) && operatorAlone(e.metadata()))) {
-            return new Verdict(true, role.displayName() + " addressed the operator alone since the operator's last prompt");
+        Entry latest = null;
+        for (Entry entry : entries) {
+            if (entry.seq() > prompt.seq() && entry.metadata().from().equals(self) && entry.metadata().type() != MessageType.ACK) {
+                latest = entry;
+            }
+        }
+        if (latest != null && operatorAlone(latest.metadata())) {
+            return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
         Role via = prompt.metadata().via();
         if (via != role) {
             return new Verdict(false, "the operator's last prompt was typed into "
                     + (via == null ? "no client" : via.displayName()) + ", not " + role.displayName());
         }
-        long open = 0;
         Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
-        for (Role recipient : Role.values()) {
-            open += since.stream().filter(e -> open(e.metadata(), recipient, responses)).count();
+        long open = 0;
+        for (Entry entry : entries) {
+            if (!entry.metadata().isAgentAuthored() && entry.seq() < prompt.seq()) {
+                continue; // an earlier prompt of the operator's is not this task's open question
+            }
+            for (Role recipient : Role.values()) {
+                if (open(entry, recipient, entries, responses)) {
+                    open++;
+                    break;
+                }
+            }
         }
         if (open > 0) {
-            return new Verdict(false, open + (open == 1 ? " open request" : " open requests")
-                    + " to a client since the operator's last prompt");
+            return new Verdict(false, open + (open == 1 ? " open request" : " open requests") + " to a client");
         }
-        return new Verdict(true, "nothing is open since the operator's last prompt");
+        return new Verdict(true, "nothing is open");
     }
 
     /** Addressed to the operator and to no client: the author wants the operator, not a peer. */
@@ -70,9 +84,13 @@ class JournalAttention implements Attention {
         return !metadata.to().isEmpty() && metadata.to().stream().allMatch(ParticipantId::isHuman);
     }
 
-    /** An actionable entry the recipient must still answer, by the same rule {@code pending} lists it. */
-    private static boolean open(EntryMetadata metadata, Role recipient, Map<String, List<EntryMetadata>> responses) {
+    /** An actionable entry the recipient must still answer, by the rule {@code pending} lists it. */
+    private static boolean open(Entry entry, Role recipient, List<Entry> entries, Map<String, List<EntryMetadata>> responses) {
+        EntryMetadata metadata = entry.metadata();
         if (!Addressing.concerns(metadata, recipient) || metadata.type() == MessageType.ACK || !metadata.expectsReply()) {
+            return false;
+        }
+        if (JournalPending.superseded(entry, recipient, entries)) {
             return false;
         }
         ParticipantId self = ParticipantId.of(recipient);
