@@ -33,7 +33,7 @@ jobs:
 
   native:
     name: Native executable
-    runs-on: ubuntu-latest
+    runs-on: x86_linux_16c_64gb
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-graalvm-from-sdkmanrc
