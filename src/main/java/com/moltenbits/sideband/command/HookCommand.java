@@ -23,7 +23,6 @@ import picocli.CommandLine.Spec;
 import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -401,21 +400,19 @@ public class HookCommand {
     }
 
     /**
-     * Wraps a host's notifier, the command that turns a hook event into a desktop notification,
-     * so that under Sideband the operator hears about a turn end only when it is theirs: the
-     * host fires its Stop hook at the end of every turn, and a pushed envelope starts a turn
-     * like a typed prompt does, so without this every exchange between the clients rings.
-     * The verdict comes from {@link Attention}, and the host's idle reminder, which repeats a
-     * turn end already decided, is held outright. Everything that is not a turn end passes
-     * through, a permission prompt above all. On a prompt event, where the wrapped command is
-     * usually the notifier's dismiss, the operator's own words pass through and a delivered
-     * envelope does not, so an envelope never clears a notification the operator has not
-     * seen. A session Sideband is not joined in, a repository without Sideband, or a payload
-     * that cannot be read all pass through: the client alone behaves as it would without
-     * Sideband. The wrapped command gets the payload on its stdin, byte for byte. Never blocks
-     * the host: the exit code is always 0, whatever the wrapped command did.
+     * The gate a host's notifier consults before it rings: reads the hook payload and exits 0
+     * to let the notification through or 1 to hold it. The host fires its Stop hook at the end
+     * of every turn, and a pushed envelope starts a turn like a typed prompt does, so without
+     * this every exchange between the clients rings. The verdict comes from {@link Attention},
+     * and the host's idle reminder, which repeats a turn end already decided, is held outright.
+     * Everything that is not a turn end passes, a permission prompt above all. On a prompt
+     * event, where the notifier's command is usually its dismiss, the operator's own words
+     * pass and a delivered envelope does not, so an envelope never clears a notification the
+     * operator has not seen. A session Sideband is not joined in, a repository without
+     * Sideband, or a payload that cannot be read all pass: the client alone behaves as it
+     * would without Sideband. Nothing is written to stdout; the reason goes to stderr.
      */
-    @Command(name = "notify", description = "Claude Code/Codex Stop, Notification, PermissionRequest, or UserPromptSubmit hook: run the wrapped notifier only when the turn end is the operator's business", mixinStandardHelpOptions = true)
+    @Command(name = "notify", description = "The gate for a host's notifier, on Stop, Notification, PermissionRequest, or UserPromptSubmit: exit 0 to let it ring, 1 to hold it", mixinStandardHelpOptions = true)
     @Prototype
     public static class Notify implements Callable<Integer> {
 
@@ -424,10 +421,6 @@ public class HookCommand {
 
         @Option(names = "--agent", description = "The client whose hook this is, claude or codex; without it the payload's session id says which joined role is calling")
         Role agent;
-
-        @Option(names = "--run", required = true, paramLabel = "<command>",
-                description = "The notifier to wrap, run through the shell with the hook payload on its stdin, for example: grrr hook notify --appId MyProject")
-        String run;
 
         private final SidebandHome home;
         private final Sessions sessions;
@@ -443,32 +436,27 @@ public class HookCommand {
 
         @Override
         public Integer call() {
-            byte[] raw;
+            String reason;
             try {
-                raw = System.in.readAllBytes();
-            } catch (IOException e) {
-                err().println("sideband hook: notification passed through: unreadable stdin: " + e.getMessage());
-                return forward(new byte[0]);
+                reason = held(new String(System.in.readAllBytes(), UTF_8));
+            } catch (IOException | RuntimeException e) {
+                err().println("sideband hook: notification passed: " + e.getMessage());
+                return ExitCode.OK;
             }
-            try {
-                String reason = held(raw);
-                if (reason != null) {
-                    err().println("sideband hook: notification held: " + reason);
-                    return ExitCode.OK;
-                }
-            } catch (RuntimeException e) {
-                err().println("sideband hook: notification passed through: " + e.getMessage());
+            if (reason == null) {
+                return ExitCode.OK;
             }
-            return forward(raw);
+            err().println("sideband hook: notification held: " + reason);
+            return ExitCode.HELD;
         }
 
-        /** The reason to hold the notification back, or null to let it through. */
-        private @Nullable String held(byte[] raw) {
+        /** The reason to hold the notification, or null to let it through. */
+        private @Nullable String held(String raw) {
             Payload payload;
             try {
-                payload = json.readValue(new String(raw, UTF_8), Payload.class);
+                payload = json.readValue(raw, Payload.class);
             } catch (IOException e) {
-                err().println("sideband hook: notification passed through: unreadable payload: " + e.getMessage());
+                err().println("sideband hook: notification passed: unreadable payload: " + e.getMessage());
                 return null;
             }
             if (payload == null || payload.hookEventName() == null) {
@@ -490,7 +478,7 @@ public class HookCommand {
             }
             Role role = agent != null ? agent : joined(located.get(), payload.sessionId()).orElse(null);
             if (role == null) {
-                err().println("sideband hook: notification passed through: Sideband is not in use in session " + payload.sessionId());
+                err().println("sideband hook: notification passed: Sideband is not in use in session " + payload.sessionId());
                 return null;
             }
             if (idle) {
@@ -499,7 +487,11 @@ public class HookCommand {
                 return "an idle reminder repeats a turn end that has already been decided";
             }
             Attention.Verdict verdict = attention.atTurnEnd(located.get(), role);
-            return verdict.wanted() ? null : verdict.reason();
+            if (verdict.wanted()) {
+                err().println("sideband hook: notification passed: " + verdict.reason());
+                return null;
+            }
+            return verdict.reason();
         }
 
         /** The role whose recorded session is the calling one; empty when Sideband is not joined there. */
@@ -510,50 +502,6 @@ public class HookCommand {
             return Arrays.stream(Role.values())
                     .filter(role -> sessions.load(stateDirectory, role).map(s -> sessionId.equals(s.id())).orElse(false))
                     .findFirst();
-        }
-
-        /**
-         * Runs the wrapped command with the payload on its stdin. Its stdout goes to this hook's
-         * stderr, never its stdout: the host reads a hook's stdout for decisions and context, and
-         * a notifier's chatter must not become one. Its stderr stays stderr.
-         */
-        private int forward(byte[] payload) {
-            try {
-                Process process = new ProcessBuilder("/bin/sh", "-c", run)
-                        .redirectError(ProcessBuilder.Redirect.INHERIT)
-                        .start();
-                // The child's stdout is drained as it comes, on its own thread, while the payload is
-                // written: a notifier that speaks before it reads would otherwise fill one pipe
-                // while this hook blocks filling the other, and neither would ever finish.
-                PrintWriter err = err();
-                Thread drain = Thread.ofPlatform().daemon(true).name("sideband-notifier-stdout").start(() -> {
-                    try (var stdout = new InputStreamReader(process.getInputStream(), UTF_8)) {
-                        char[] chunk = new char[8192];
-                        for (int n = stdout.read(chunk); n >= 0; n = stdout.read(chunk)) {
-                            err.write(chunk, 0, n);
-                            err.flush();
-                        }
-                    } catch (IOException e) {
-                        err.println("sideband hook: lost the notifier's output: " + e.getMessage());
-                    }
-                });
-                try (var stdin = process.getOutputStream()) {
-                    stdin.write(payload);
-                } catch (IOException e) {
-                    // the notifier closed its stdin early, which is its business; the rest of the payload was not wanted
-                }
-                int exit = process.waitFor();
-                drain.join();
-                if (exit != 0) {
-                    err().println("sideband hook: notifier exited " + exit + ": " + run);
-                }
-            } catch (IOException e) {
-                err().println("sideband hook: could not run the notifier: " + e.getMessage());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                err().println("sideband hook: interrupted while the notifier ran");
-            }
-            return ExitCode.OK;
         }
 
         private PrintWriter err() {

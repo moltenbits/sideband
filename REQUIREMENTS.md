@@ -885,6 +885,55 @@ Outcome: both directions are pushes. Codex through `codex queue`, and, since
 the Monitor listener the spike had settled on kept as the fallback for a
 session whose settings would hold pushes.
 
+### 10.7 Operator notification
+
+A host may run a hook that raises a desktop notification when a turn ends,
+and both supported hosts fire that event at the end of every turn, a turn a
+delivered envelope started included. Under Sideband most turns are one client
+answering the other, so such a hook rings on every exchange. The executable
+therefore offers `sideband hook notify` as a gate for the notifier to consult
+before it rings: it reads the hook payload on stdin and exits 0 to let the
+notification through or 1 to hold it, writes nothing to stdout, and says on
+stderr what it decided and why. The notifier owns the registration and the
+gating; Sideband writes nothing into a host's hook settings for this, and
+nothing about the notifier is configured in Sideband. growlrrr's
+`--gate` option is the reference consumer, on its notify and dismiss hooks
+for Claude Code's `Stop`, `Notification`, and `UserPromptSubmit`, and Codex's
+`Stop`, `PermissionRequest`, and `UserPromptSubmit`.
+
+The verdict is derived from the journal alone, so no client has to announce
+that it is finished. A client whose latest word since the operator's last
+prompt, acknowledgements aside, went to the operator and to no client wants
+the operator in its own terminal, a question or a result there, and the
+notification passes. Otherwise only the client the operator's last prompt
+was typed into (`via`) can be done, and it is done when no request to a
+client is still open: any agent's request, however old, since the operator's
+later prompts are follow-ups to the same work and not its end, and an agent's
+request is closed by an answer (9.6) or by that agent's next actionable
+request to the same client (9.7); and the operator's latest prompt itself,
+when it asked the other client something not yet answered. Earlier prompts of
+the operator's are not this task's open questions. The other client's turn
+ends are the middle of the work: its reply wakes the first client, whose next
+turn end is the moment. Done rings once, on either side: a word to the
+operator counts only while nothing has since arrived for its author, and the
+operator's client is done only when the last thing to reach it was a reply
+that closed a request still open for that replier, or nothing at all, so a
+wake that brings context and draws no new word never rings again for what
+already did. Acknowledgements are receipts and count as a word to nobody.
+
+The gate holds only turn ends: `Stop`, and a `Notification` whose
+`notification_type` is `idle_prompt`, which repeats a turn end already
+decided and is held outright under Sideband. Every other event passes,
+permission prompts above all. On `UserPromptSubmit`, where the gated command
+is the notifier's dismiss, the operator's own words pass and a delivered
+envelope or a host notice is held, so an envelope never clears a notification
+the operator has not seen. The calling client is the joined role whose
+recorded session id matches the payload's; `--agent` overrides that. A
+session Sideband is not joined in, a repository without Sideband, or a
+payload that cannot be read all pass, so a client used alone behaves as it
+would without Sideband. Exit code 1 is this command's alone: it is the gate's
+answer, not a failure.
+
 ## 11. Writing and concurrency
 
 ### 11.1 Serialized appends
@@ -1620,10 +1669,12 @@ read (`init`: where the state lives, what was installed, and what to do next;
 `skill` without `--eject`, which prints the adapter
 instructions as Markdown, `log`, which prints the discussion as Markdown,
 `--help`, which prints text, `hook prompt`, whose
-output follows the host's hook contract, and `pending --wait --stream`, which
+output follows the host's hook contract, `hook notify`, which prints nothing
+and answers with its exit code, and `pending --wait --stream`, which
 prints one JSON report per line for as long as it runs. Errors go to stderr
 as text. Every command exits with a stable code: `0` ok, `2` invalid input, `4` lock
-contention, `5` corrupt state or I/O failure, `6` timed out. `3` ("not a
+contention, `5` corrupt state or I/O failure, `6` timed out; `hook notify`
+alone exits `1` to hold a notification (10.7). `3` ("not a
 repository") and `7` ("another live session owns the role") are retired, and
 their numbers stay unused. Bodies travel through
 `--body-file` or stdin, never as an argument. No command needs to be told
@@ -1648,6 +1699,7 @@ sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown,
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
 sideband hook session-start                        # both clients' SessionStart hook for a clear: move the role to the new conversation
+sideband hook notify [--agent <role>]              # the notifier's gate on Stop, Notification, PermissionRequest, and UserPromptSubmit: exit 0 lets it ring, 1 holds it
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```
 
@@ -1664,7 +1716,9 @@ report was written (9.5); `hook prompt` reports every capture outcome in the
 host's context field and names the recorded entry so a delegation can cite it
 (7.1); `hook prompt` and `hook session-start` move a joined role's address to
 the conversation the operator's own input came from, never on a delivered
-envelope or a host notice (7.1, 9.5); `skill --eject` refuses to overwrite an
+envelope or a host notice (7.1, 9.5); `hook notify` holds a turn end only
+when the journal says the operator's attention is not wanted, and passes
+every other event (10.7); `skill --eject` refuses to overwrite an
 ejected skill unless forced (10.1).
 
 ## 19. Definition of done

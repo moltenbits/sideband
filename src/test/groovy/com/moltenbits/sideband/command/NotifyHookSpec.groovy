@@ -3,34 +3,32 @@ package com.moltenbits.sideband.command
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
-import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import io.micronaut.serde.ObjectMapper
 
-import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * The notify hook wraps a host's notifier command and runs it only for turn ends that are the
- * operator's business; everything that is not a turn end passes through, and so does everything
- * when Sideband is not in use in the calling session.
+ * The notify hook is the gate a host's notifier consults: exit 0 lets a notification through,
+ * exit 1 holds it. Only turn ends that are not the operator's business are held; everything
+ * else passes, and so does everything when Sideband is not in use in the calling session.
  */
 class NotifyHookSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
     Path stateDir = repo.resolve(".git/sideband")
-    Path received = repo.resolve("received.json")
-    String notifier = "cat > '" + received + "'"
 
     def setup() {
         run("init", "--repo", repo.toString(), "--skip-clients")
         stdout = new StringWriter()
     }
 
-    int hook(Map payload, List<String> args = ["--run", notifier]) {
+    int gate(Map payload, List<String> args = []) {
         InputStream original = System.in
         System.in = new ByteArrayInputStream(context.getBean(ObjectMapper).writeValueAsString(payload).bytes)
         try {
+            stderr = new StringWriter()
             return run((["hook", "notify"] + args) as String[])
         } finally {
             System.in = original
@@ -41,42 +39,30 @@ class NotifyHookSpec extends CommandSpec {
         [hook_event_name: "Stop", session_id: sessionId, cwd: repo.toString(), stop_hook_active: false]
     }
 
-    boolean ran() {
-        Files.exists(received)
-    }
-
     void human(String body = "fix the build", Role via = Role.CLAUDE) {
-        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [com.moltenbits.sideband.protocol.ParticipantId.of(via)], via))
+        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [ParticipantId.of(via)], via))
     }
 
-    void "a turn end in the operator's client with nothing open runs the notifier with the payload it was given"() {
+    void "a turn end in the operator's client with nothing open passes, with nothing on stdout"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         human()
         stdout = new StringWriter()
 
-        when:
-        int code = hook(stop())
-
-        then:
-        code == ExitCode.OK
-        ran()
-        context.getBean(ObjectMapper).readValue(Files.readString(received), Map).hook_event_name == "Stop"
+        expect:
+        gate(stop()) == ExitCode.OK
         stdout.toString().isEmpty()
+        stderr.toString().contains("notification passed: nothing is open")
     }
 
-    void "a turn end while a request to the other client is open runs nothing and says why"() {
+    void "a turn end while a request to the other client is open is held, and says why"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         human()
         context.getBean(Journal).append(stateDir, Fixtures.agentDraft([causedBy: null]))
 
-        when:
-        int code = hook(stop())
-
-        then:
-        code == ExitCode.OK
-        !ran()
+        expect:
+        gate(stop()) == ExitCode.HELD
         stderr.toString().contains("sideband hook: notification held: 1 open request")
     }
 
@@ -87,21 +73,12 @@ class NotifyHookSpec extends CommandSpec {
         human("do it", Role.CODEX)
 
         expect:
-        hook(stop("claude-session")) == ExitCode.OK
-        !ran()
+        gate(stop("claude-session")) == ExitCode.HELD
         stderr.toString().contains("typed into Codex, not Claude")
+        gate(stop("codex-thread")) == ExitCode.OK
 
-        and:
-        hook(stop("codex-thread")) == ExitCode.OK
-        ran()
-
-        when:
-        Files.delete(received)
-        stderr = new StringWriter()
-
-        then: "the override wins over the lookup"
-        hook(stop("claude-session"), ["--agent", "codex", "--run", notifier]) == ExitCode.OK
-        ran()
+        and: "the override wins over the lookup"
+        gate(stop("claude-session"), ["--agent", "codex"]) == ExitCode.OK
     }
 
     void "a session Sideband is not joined in gets every notification, as it would without Sideband"() {
@@ -111,71 +88,35 @@ class NotifyHookSpec extends CommandSpec {
         context.getBean(Journal).append(stateDir, Fixtures.agentDraft([causedBy: null]))
 
         expect:
-        hook(stop("some-other-session")) == ExitCode.OK
-        ran()
+        gate(stop("some-other-session")) == ExitCode.OK
         stderr.toString().contains("not in use in session some-other-session")
     }
 
-    void "a repository without Sideband, or a payload that cannot be read, passes straight through"() {
+    void "a repository without Sideband, or a payload that cannot be read, passes"() {
         expect:
-        hook([hook_event_name: "Stop", session_id: "s1", cwd: TempRepo.plainDirectory().toString()]) == ExitCode.OK
-        ran()
+        gate([hook_event_name: "Stop", session_id: "s1", cwd: TempRepo.plainDirectory().toString()]) == ExitCode.OK
 
         when:
-        Files.delete(received)
         InputStream original = System.in
         System.in = new ByteArrayInputStream("not json".bytes)
-        int code = run("hook", "notify", "--run", notifier)
+        int code = run("hook", "notify")
         System.in = original
 
         then:
         code == ExitCode.OK
-        Files.readString(received) == "not json"
+        stderr.toString().contains("unreadable payload")
     }
 
-    void "a turn end rings once: the idle reminder that repeats it is held, and passes through only where Sideband is not in use"() {
+    void "a turn end rings once: the idle reminder that repeats it is held, and passes only where Sideband is not in use"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         human()
 
         expect:
-        hook(stop()) == ExitCode.OK
-        ran()
-
-        when:
-        Files.delete(received)
-        stderr = new StringWriter()
-
-        then:
-        hook([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "s1", cwd: repo.toString()]) == ExitCode.OK
-        !ran()
+        gate(stop()) == ExitCode.OK
+        gate([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "s1", cwd: repo.toString()]) == ExitCode.HELD
         stderr.toString().contains("idle reminder")
-
-        and:
-        hook([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "elsewhere", cwd: repo.toString()]) == ExitCode.OK
-        ran()
-    }
-
-    void "the notifier's stdout goes to stderr, never to the host's decision channel, and the hook's own stdout stays empty"() {
-        given:
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        human()
-        stdout = new StringWriter()
-        PrintStream original = System.out
-        ByteArrayOutputStream processOut = new ByteArrayOutputStream()
-        System.out = new PrintStream(processOut, true)
-
-        when:
-        int code = hook(stop(), ["--run", "cat > /dev/null; echo '{\"decision\":\"block\"}'"])
-
-        then:
-        code == ExitCode.OK
-        stdout.toString().isEmpty()
-        processOut.toString().isEmpty()
-        stderr.toString().contains('{"decision":"block"}')
-
-        cleanup:
-        System.out = original
+        gate([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "elsewhere", cwd: repo.toString()]) == ExitCode.OK
     }
 
     void "only turn ends are held: an idle prompt is one, a permission prompt and any other event are not"() {
@@ -185,11 +126,10 @@ class NotifyHookSpec extends CommandSpec {
         context.getBean(Journal).append(stateDir, Fixtures.agentDraft([causedBy: null]))
 
         expect:
-        hook([hook_event_name: event, notification_type: type, session_id: "s1", cwd: repo.toString()]) == ExitCode.OK
-        ran() == forwarded
+        gate([hook_event_name: event, notification_type: type, session_id: "s1", cwd: repo.toString()]) == (passes ? ExitCode.OK : ExitCode.HELD)
 
         where:
-        event               | type                | forwarded
+        event               | type                | passes
         "Stop"              | null                | false
         "Notification"      | "idle_prompt"       | false
         "Notification"      | "permission_prompt" | true
@@ -198,58 +138,19 @@ class NotifyHookSpec extends CommandSpec {
         "SubagentStop"      | null                | true
     }
 
-    void "on a prompt the notifier runs for the operator's own words but not for a delivered envelope or a host notice"() {
+    void "on a prompt the operator's own words pass but a delivered envelope or a host notice is held"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
 
         expect:
-        hook([hook_event_name: "UserPromptSubmit", prompt: prompt, session_id: "s1", cwd: repo.toString()]) == ExitCode.OK
-        ran() == forwarded
+        gate([hook_event_name: "UserPromptSubmit", prompt: prompt, session_id: "s1", cwd: repo.toString()]) == (passes ? ExitCode.OK : ExitCode.HELD)
 
         where:
-        prompt                                                                                             | forwarded
+        prompt                                                                                             | passes
         "please look at this"                                                                              | true
         "/sideband status"                                                                                 | true
         "[Sideband message]\n{...}"                                                                        | false
         "<cross-session-message from-name=\"Codex\">\n[Sideband message]\n{...}\n</cross-session-message>" | false
         "<task-notification>\n<task-id>b1</task-id>\n</task-notification>"                                 | false
-    }
-
-    @spock.lang.Timeout(20)
-    void "a notifier that speaks a lot before it reads, given a large payload, still finishes"() {
-        given:
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        human()
-        String large = "x" * (1024 * 1024)
-        String talkative = "head -c 1048576 /dev/zero | tr '\\0' y; cat > '" + received + "'"
-
-        when:
-        int code = hook(stop() + [last_assistant_message: large], ["--run", talkative])
-
-        then:
-        code == ExitCode.OK
-        stderr.toString().count("y") == 1024 * 1024
-        Files.readString(received).contains(large)
-    }
-
-    void "a character the notifier splits across two writes reaches stderr whole"() {
-        given:
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        human()
-
-        expect:
-        hook(stop(), ["--run", "cat > /dev/null; printf '\\303'; sleep 0.2; printf '\\251'"]) == ExitCode.OK
-        stderr.toString().contains("\u00e9")
-        !stderr.toString().contains("\ufffd")
-    }
-
-    void "a notifier that fails never fails the hook"() {
-        given:
-        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        human()
-
-        expect:
-        hook(stop(), ["--run", "exit 3"]) == ExitCode.OK
-        stderr.toString().contains("sideband hook: notifier exited 3")
     }
 }
