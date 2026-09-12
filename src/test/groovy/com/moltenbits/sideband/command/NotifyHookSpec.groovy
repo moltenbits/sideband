@@ -133,6 +133,51 @@ class NotifyHookSpec extends CommandSpec {
         Files.readString(received) == "not json"
     }
 
+    void "a turn end rings once: the idle reminder that repeats it is held, and passes through only where Sideband is not in use"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        human()
+
+        expect:
+        hook(stop()) == ExitCode.OK
+        ran()
+
+        when:
+        Files.delete(received)
+        stderr = new StringWriter()
+
+        then:
+        hook([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "s1", cwd: repo.toString()]) == ExitCode.OK
+        !ran()
+        stderr.toString().contains("idle reminder")
+
+        and:
+        hook([hook_event_name: "Notification", notification_type: "idle_prompt", session_id: "elsewhere", cwd: repo.toString()]) == ExitCode.OK
+        ran()
+    }
+
+    void "the notifier's stdout goes to stderr, never to the host's decision channel, and the hook's own stdout stays empty"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        human()
+        stdout = new StringWriter()
+        PrintStream original = System.out
+        ByteArrayOutputStream processOut = new ByteArrayOutputStream()
+        System.out = new PrintStream(processOut, true)
+
+        when:
+        int code = hook(stop(), ["--run", "cat > /dev/null; echo '{\"decision\":\"block\"}'"])
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        processOut.toString().isEmpty()
+        stderr.toString().contains('{"decision":"block"}')
+
+        cleanup:
+        System.out = original
+    }
+
     void "only turn ends are held: an idle prompt is one, a permission prompt and any other event are not"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")

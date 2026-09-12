@@ -404,7 +404,8 @@ public class HookCommand {
      * so that under Sideband the operator hears about a turn end only when it is theirs: the
      * host fires its Stop hook at the end of every turn, and a pushed envelope starts a turn
      * like a typed prompt does, so without this every exchange between the clients rings.
-     * The verdict comes from {@link Attention}. Everything that is not a turn end passes
+     * The verdict comes from {@link Attention}, and the host's idle reminder, which repeats a
+     * turn end already decided, is held outright. Everything that is not a turn end passes
      * through, a permission prompt above all. On a prompt event, where the wrapped command is
      * usually the notifier's dismiss, the operator's own words pass through and a delivered
      * envelope does not, so an envelope never clears a notification the operator has not
@@ -478,8 +479,8 @@ public class HookCommand {
                 boolean transport = prompt.startsWith(Handoffs.ENVELOPE_MARKER) || Prompt.isPushedEnvelope(prompt) || Prompt.isHostNotification(prompt);
                 return transport ? "the prompt is a delivered envelope or a host notice, not the operator" : null;
             }
-            boolean turnEnd = event.equals("Stop") || event.equals("Notification") && "idle_prompt".equals(payload.notificationType());
-            if (!turnEnd) {
+            boolean idle = event.equals("Notification") && "idle_prompt".equals(payload.notificationType());
+            if (!event.equals("Stop") && !idle) {
                 return null;
             }
             Optional<Path> located = stateDirectory(home, payload.cwd());
@@ -490,6 +491,11 @@ public class HookCommand {
             if (role == null) {
                 err().println("sideband hook: notification passed through: Sideband is not in use in session " + payload.sessionId());
                 return null;
+            }
+            if (idle) {
+                // The host's reminder that a turn ended a while ago with no input since: the turn end
+                // itself already rang or was held, so under Sideband the reminder never adds a second.
+                return "an idle reminder repeats a turn end that has already been decided";
             }
             Attention.Verdict verdict = attention.atTurnEnd(located.get(), role);
             return verdict.wanted() ? null : verdict.reason();
@@ -505,15 +511,23 @@ public class HookCommand {
                     .findFirst();
         }
 
-        /** Runs the wrapped command with the payload on its stdin; its output goes wherever this hook's would. */
+        /**
+         * Runs the wrapped command with the payload on its stdin. Its stdout goes to this hook's
+         * stderr, never its stdout: the host reads a hook's stdout for decisions and context, and
+         * a notifier's chatter must not become one. Its stderr stays stderr.
+         */
         private int forward(byte[] payload) {
             try {
                 Process process = new ProcessBuilder("/bin/sh", "-c", run)
-                        .redirectOutput(ProcessBuilder.Redirect.INHERIT)
                         .redirectError(ProcessBuilder.Redirect.INHERIT)
                         .start();
                 try (var stdin = process.getOutputStream()) {
                     stdin.write(payload);
+                }
+                String output = new String(process.getInputStream().readAllBytes(), UTF_8);
+                if (!output.isEmpty()) {
+                    err().print(output);
+                    err().flush();
                 }
                 int exit = process.waitFor();
                 if (exit != 0) {
