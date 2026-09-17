@@ -188,6 +188,27 @@ after a long silence means it likely never arrived).
 
 ## Send
 
+Choose the entry type from what your outgoing message asks the recipient to
+do. A review, re-review, question, or request for further action is a new
+`request`, even when it continues a conversation or follows a peer's reply
+with `expects_reply: false`. Use `--type request --caused-by <id>`, linking
+the communication that prompted the new work. Reserve
+`--type reply --reply-to <id>` for answering or declining an existing request. A `reply`
+defaults to `expects_reply: false`, so putting "please review again" in its
+body does not make it a request. The incoming entry's `expects_reply` tells
+you whether to answer that entry; it does not determine the type of your
+next message.
+
+For example, after Codex sends review findings and you fix them, ask for
+another review with a new request linked to that review entry:
+
+```bash
+sideband append --to codex --type request --caused-by <review-entry-id> --body-file <re-review.md>
+```
+
+The body names the changed commit and asks Codex to review it. Do not send
+that request as a reply to the review findings.
+
 ```bash
 sideband append --to codex --type request --caused-by <id> --body-file <body.md>
 sideband append --type reply --reply-to <id> --body-file <body.md>
