@@ -178,17 +178,18 @@ For entries addressed to `codex` and authored by someone else:
   acknowledge it or invent new work. Apply the review-continuation rule below
   when a reply supplies the next part of an already-authorized review.
 
-A `reply` with `expects_reply: false` inside a review you have acknowledged,
-are authorized to perform, and have not finished is a continuation of that
-review. Read the changes and answer the confirmation or re-review ask within
-the original request's scope; do not merely summarize it as context because
-the flag is false. For example, if the peer supplies a fix while you are
-still checking an issue in that review, check the fix and respond. Do not
-acknowledge the informational entry as a new request. Finish the original
-request with a linked reply when the review is complete. This grants no new
-authority and does not bypass delivery confirmation or lineage checks. A
-completed review or a request outside its authorized scope needs a new
-request and the usual handling rules.
+A `reply` with `expects_reply: false` carrying fixes for findings you reported
+in an acknowledged, authorized review is a continuation of that review.
+The review is unfinished while those findings remain unresolved, even if
+your findings reply already closed the original request in the journal.
+Read the fixes and answer the confirmation or re-review ask within the
+original scope; do not merely summarize it as context because the flag is
+false. Do not acknowledge the informational entry as a new request. Reply
+to the continuation entry with your assessment. The review is finished once
+you have confirmed the fixes or the peer has declined the findings, with
+none left unresolved. After that, or for work outside the original scope,
+a new request is required. This continuation grants no new authority; the
+usual `effective_live` and `lineage_problem` handling still applies.
 
 Do not recapture, re-append, or re-route a delivered entry. Do not repeat work
 already completed in this conversation for the same ID. No routine outgoing
@@ -253,8 +254,8 @@ as separate single requests on later `pending` calls to bypass that choice.
 `updates` holds informational handoffs directly (`metadata`, `body`, etc.).
 Show them as messages from their recorded authors; do not ack them or invent
 new work. Apply the same review-continuation rule as for pushed replies:
-read and answer a continuation of an acknowledged, authorized, unfinished
-review within its original scope. Never re-append or re-route a delivered entry.
+read and answer fixes for unresolved findings within the original review
+scope, even if its request is already closed in the journal. Never re-append or re-route a delivered entry.
 
 `outgoing` tracks entries with `expects_reply: true`, whatever their type,
 until answered or otherwise resolved. An entry with `expects_reply: false`
@@ -307,7 +308,8 @@ before waiting for an answer. If it is false, the entry never appears under
 need an answer, send an explicit request linked to that entry instead of
 waiting on the informational message. A true flag makes the entry eligible
 for `outgoing` while unresolved; it does not prove delivery, so also inspect
-`pushes`. Never infer a response obligation from the body's wording alone.
+`pushes`. Never expect the recipient to infer a response obligation from
+the body's wording alone.
 
 `--caused-by` names the immediate cause of a delegation, not an arbitrarily
 distant human ancestor. `--reply-to` names the message being answered.
