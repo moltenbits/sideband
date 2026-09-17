@@ -45,12 +45,17 @@ class SqliteJournal implements Journal {
 
     @Override
     public Entry append(Path stateDirectory, Draft draft) {
+        return database.write(stateDirectory, () -> insert(draft));
+    }
+
+    /** Gives the draft its identity and inserts it on the current connection, inside whatever transaction is open. */
+    Entry insert(Draft draft) {
         EntryMetadata metadata = new EntryMetadata(
                 ids.next(),
                 OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS),
                 draft.from(), draft.via(), draft.to(), draft.type(), draft.route(),
                 draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.delivery());
-        return database.write(stateDirectory, () -> insert(rows, metadata, draft.body()));
+        return insert(rows, metadata, draft.body());
     }
 
     /** Inserts one complete entry on the current connection and returns it with the position the store assigned. */

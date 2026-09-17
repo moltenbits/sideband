@@ -34,13 +34,14 @@ import java.util.function.Supplier;
  * the database absent or below the current version, which each migration stamps into
  * {@code PRAGMA user_version}, so an up-to-date database costs one pragma to check. A read
  * finds no database, or one another process has created but not yet migrated, and reports
- * absence.
+ * absence; one an earlier executable left at a lower version it migrates first, so what
+ * that executable recorded stays visible without waiting for a write.
  */
 @Singleton
 final class Database {
 
     /** {@code PRAGMA user_version} once the latest migration has run. */
-    static final int SCHEMA_VERSION = 1;
+    static final int SCHEMA_VERSION = 2;
 
     /** The data source's busy timeout, repeated here for the contention message. */
     private final Duration busyTimeout;
@@ -72,8 +73,16 @@ final class Database {
         if (!Files.exists(file)) {
             return whenAbsent;
         }
-        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () ->
-                version() < SCHEMA_VERSION ? whenAbsent : work.get()));
+        return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> {
+            int version = version();
+            if (version == 0) {
+                return whenAbsent; // still being created: the first migration has not committed
+            }
+            if (version < SCHEMA_VERSION) {
+                migrator.run(migrations, dataSource);
+            }
+            return work.get();
+        }));
     }
 
     /** Runs {@code work} in one transaction. A database that is absent or behind is migrated first, on Flyway's own connections. */

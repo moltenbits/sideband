@@ -191,7 +191,10 @@ The following fields are conditional:
 
 Additional metadata may be introduced compatibly: a new column is a Flyway
 migration the executable applies the first time it opens a database that is
-behind, and readers of the JSON form must ignore unknown fields.
+behind, whether for a write or a read, so what an earlier executable recorded
+(sessions above all) stays visible to the first command of a newer one; only
+a database still at version zero, one another process is creating, reads as
+absent. Readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 
@@ -303,6 +306,31 @@ client records a prompt on the hook's behalf. Prompts that were never meant to b
 (commands, delivered envelopes, blank input) and repositories where Sideband
 is installed but not active stay silent, except that an inactive session
 whose role has entries waiting is told how many, so nothing waits unread.
+
+A role that has not joined cannot have its prompts recorded, yet the prompt
+that makes a client activate arrives before the join it leads to; recorded
+nowhere, a delegation it asks for would have no human origin and be refused
+(7.2). So the hook holds, rather than drops, a capturable prompt typed into
+a session whose role has not joined: the latest such prompt per role, with
+the session identifier it came from, in the `held_prompts` table beside the
+session record (9.5). A prompt that is not the operator's words (a command,
+blank input, a bang prompt) drops what is held, since whatever follows no
+longer leads from it. A prompt whose payload
+names no session drops what is held too, since it cannot be held itself
+and whatever was held led to an earlier prompt. `join` then adopts the held
+prompt when it came from the joining session: removes the hold and journals
+it verbatim as the human's request through that client, both in one
+transaction, so a failure leaves the hold for the next join and success
+leaves exactly one entry; then routes it by its first token, pushes it, and
+reports the entry as `adopted` in its output. A push that fails after the
+append leaves the entry, so the join completes, reports it with no pushes,
+and says on stderr what failed. One held for another session is dropped
+unreturned. The hook remains the only thing that takes the operator's words
+from the host, and the model is still never told to record a prompt: an
+inactive session hears only what it heard before, and the skill tells the
+model that the `adopted` entry is the prompt it is acting on and the
+`--caused-by` for what it delegates. A hold that fails leaves the prompt
+unrecorded as before, reported on stderr only.
 
 Each captured prompt is recorded with:
 
@@ -573,7 +601,8 @@ The usual `confirm` policy, lineage checks, and authority limits still apply.
 The only state a role keeps outside the journal is its session record: the
 host's session identifier (for Codex the thread id, which pushes address),
 when it joined, the journal size at that moment (its watermark), and its read
-position, the bookmark. Whoever joins as a role last holds it: `join` replaces
+position, the bookmark; and, before it has joined, at most one held prompt
+awaiting adoption (7.1). Whoever joins as a role last holds it: `join` replaces
 any earlier record, and no command compares the calling conversation or
 process against the record. The address alone also follows the operator
 without a join: when the operator's own input reaches a hook from a
