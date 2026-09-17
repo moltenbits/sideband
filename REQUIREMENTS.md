@@ -304,6 +304,25 @@ client records a prompt on the hook's behalf. Prompts that were never meant to b
 is installed but not active stay silent, except that an inactive session
 whose role has entries waiting is told how many, so nothing waits unread.
 
+A role that has not joined cannot have its prompts recorded, yet the prompt
+that makes a client activate arrives before the join it leads to; recorded
+nowhere, a delegation it asks for would have no human origin and be refused
+(7.2). So the hook holds, rather than drops, a capturable prompt typed into
+a session whose role has not joined: the latest such prompt per role, with
+the session identifier it came from, in the `held_prompts` table beside the
+session record (9.5). A prompt that is not the operator's words (a command,
+blank input, a bang prompt) drops what is held, since whatever follows no
+longer leads from it. `join` then adopts the held prompt when it came from
+the joining session: journals it verbatim as the human's request through
+that client, routes it by its first token, pushes it, and reports the entry
+as `adopted` in its output; one held for another session is dropped
+unreturned. The hook remains the only thing that takes the operator's words
+from the host, and the model is still never told to record a prompt: an
+inactive session hears only what it heard before, and the skill tells the
+model that the `adopted` entry is the prompt it is acting on and the
+`--caused-by` for what it delegates. A hold that fails leaves the prompt
+unrecorded as before, reported on stderr only.
+
 Each captured prompt is recorded with:
 
 - The human as `from`.
@@ -573,7 +592,8 @@ The usual `confirm` policy, lineage checks, and authority limits still apply.
 The only state a role keeps outside the journal is its session record: the
 host's session identifier (for Codex the thread id, which pushes address),
 when it joined, the journal size at that moment (its watermark), and its read
-position, the bookmark. Whoever joins as a role last holds it: `join` replaces
+position, the bookmark; and, before it has joined, at most one held prompt
+awaiting adoption (7.1). Whoever joins as a role last holds it: `join` replaces
 any earlier record, and no command compares the calling conversation or
 process against the record. The address alone also follows the operator
 without a join: when the operator's own input reaches a hook from a

@@ -25,7 +25,7 @@ described below.
 | `status` | Run `sideband doctor` and summarize it: both roles' sessions, pending counts, journal health, skill links. Do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
-| anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. |
+| anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. With no hook note, Claude had not joined here yet: the hook held the message, and activating sends it (see `adopted` under Activate). |
 
 To read what has been said, `sideband log` prints the discussion as Markdown,
 oldest first, with `--after <position>` and `--limit <n>` to select a range.
@@ -44,6 +44,16 @@ It is a plain command, `! sideband log`, not a skill argument.
    ```bash
    sideband join --resume
    ```
+
+   The prompt hook records only while Claude has joined, so the prompt that
+   made you activate was not recorded by it: the hook held that prompt, and
+   `join` adopts it, journaling it verbatim as the user's words and routing
+   it by its first token. The output's `adopted` entry is that prompt. Its
+   `metadata.id` is the `--caused-by` for anything the prompt delegates, and
+   its `pushes` say whether a `@codex` message reached Codex. It is your
+   current turn, not a pending request, so act on it as you would on any
+   prompt the hook recorded. No `adopted` means the hook had nothing held
+   for this conversation.
 
 2. The output is the first pending report. Its `open` list holds requests
    addressed to Claude that Claude has neither acknowledged nor answered.
@@ -117,7 +127,9 @@ leading `@claude`, `@codex`, or `@all` directive; anything else routes to
 Claude alone, and Claude's own turn is never redelivered. Use the noted id as
 `--caused-by` when the prompt leads you to delegate. Never record a prompt
 yourself, and never record a pushed envelope: the hook is the only thing that
-records prompts, and when it could not, reporting that is the whole recovery. Never read the journal file to find an id. Any other hook note
+records prompts, and when it could not, reporting that is the whole recovery.
+The one prompt it holds instead of recording is the one typed before Claude
+had joined here, and `join` adopts that (see Activate). Never read the journal file to find an id. Any other hook note
 is something to tell the user before doing anything else, and that is all it
 asks of you: "could not confirm recording this prompt" means recording did
 not complete, and the prompt may or may not be in the discussion; "recorded
@@ -217,7 +229,9 @@ sideband append --type ack --reply-to <id>
 
 `--caused-by` names the immediate communication that led to a delegation;
 `--reply-to` names the message being answered, and the answer goes to whoever
-wrote it unless you pass `--to` yourself (for instance to copy the user). The executable
+wrote it unless you pass `--to` yourself (for instance to copy the user). If `append`
+exits non-zero, nothing was sent: say so in the first line of your reply,
+and never describe that message as pending, queued, or awaiting a reply. The executable
 refuses an actionable request with no path back to a human entry (exit 2)
 and reports in `pushes` how each recipient was reached: an entry to Codex is
 pushed straight into Codex's conversation with `codex queue` when Codex has

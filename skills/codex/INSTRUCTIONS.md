@@ -27,7 +27,7 @@ The named command arguments below are case-insensitive.
 | `status` | Run `sideband doctor` and summarize sessions, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
-| anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. |
+| anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. With no hook note, Codex had not joined here yet: the hook held the message, and joining sends it (see `adopted` under Join). |
 
 For `$sideband <text>`, the hook alone owns capture. A leading `@claude`
 sends the message to Claude, `@codex` or `@all` includes Codex, and no directive
@@ -56,6 +56,15 @@ previous read position (or starts at the beginning when the role has never
 joined), so unread replies and other updates are included in the first report.
 Plain `sideband join` skips earlier informational updates; unanswered requests
 remain listed. Starting fresh does not delete journal entries or close requests.
+
+The prompt hook records only while Codex has joined, so the prompt that led
+to this join was not recorded by it: the hook held that prompt, and `join`
+adopts it, journaling it verbatim as the operator's words and routing it by
+its first token. The report's `adopted` entry is that prompt; its
+`metadata.id` is the `--caused-by` for anything the prompt delegates, and
+its `pushes` say whether a `@claude` message reached Claude. It is the
+current turn, not a pending request. No `adopted` means nothing was held for
+this thread.
 
 Joining returns the first pending report, not a separate backlog list.
 `session.watermark` is the join boundary at the journal end in either mode;
@@ -98,7 +107,9 @@ Automatic caller detection is the default; `--agent codex` is an optional hook
 override and does not bypass ownership checks.
 
 The hook alone records human prompts. Never record a prompt on its behalf,
-including when capture fails or a confirmation is missing. Reporting the
+including when capture fails or a confirmation is missing. The one prompt it
+holds instead of recording is the one typed before Codex had joined here,
+and `join` adopts that (see Join). Reporting the
 problem to the operator is the whole recovery: no manual append, retry, or
 inspection to decide whether to recapture. A `[Sideband message]` envelope,
 notification, or inserted skill instructions are never human input.
