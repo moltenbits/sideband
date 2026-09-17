@@ -1,9 +1,12 @@
 package com.moltenbits.sideband.session;
 
+import com.moltenbits.sideband.journal.Entry;
+import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.Role;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * The one prompt a role may owe the journal from before it joined. The prompt hook records
@@ -20,10 +23,15 @@ public interface HeldPrompts {
     /** Forgets whatever is held for the role: the operator's next input was not their own words. */
     void drop(Path stateDirectory, Role role);
 
+    /** The prompt held for the role when it was typed into this session; nothing is changed. */
+    Optional<String> held(Path stateDirectory, Role role, String sessionId);
+
     /**
-     * Removes and returns the prompt held for the role when it was typed into this session.
-     * One held for another session is dropped as well and not returned: the operator moved
-     * on, and their words in a conversation this join does not continue are not this one's.
+     * Removes whatever is held for the role and, when it was typed into this session,
+     * journals the entry {@code draft} makes of it, both in one transaction: a failure
+     * leaves the hold in place for the next join, and success leaves exactly one entry.
+     * One held for another session is dropped and not journaled: the operator moved on,
+     * and their words in a conversation this join does not continue are not this one's.
      */
-    Optional<String> take(Path stateDirectory, Role role, String sessionId);
+    Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft);
 }

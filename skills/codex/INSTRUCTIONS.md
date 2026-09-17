@@ -27,7 +27,7 @@ The named command arguments below are case-insensitive.
 | `status` | Run `sideband doctor` and summarize sessions, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
-| anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. With no hook note, Codex had not joined here yet: the hook held the message, and joining sends it (see `adopted` under Join). |
+| anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. With no hook note, either Codex had not joined here yet and the hook held the message, or the hook did not run: join, and only an `adopted` entry in the join output shows the message was sent. |
 
 For `$sideband <text>`, the hook alone owns capture. A leading `@claude`
 sends the message to Claude, `@codex` or `@all` includes Codex, and no directive
@@ -64,7 +64,9 @@ its first token. The report's `adopted` entry is that prompt; its
 `metadata.id` is the `--caused-by` for anything the prompt delegates, and
 its `pushes` say whether a `@claude` message reached Claude. It is the
 current turn, not a pending request. No `adopted` means nothing was held for
-this thread.
+this thread, which is also what a hook that never ran looks like. A stderr
+line saying it was adopted but not delivered means the entry exists and its
+push failed; report that with the id.
 
 Joining returns the first pending report, not a separate backlog list.
 `session.watermark` is the join boundary at the journal end in either mode;

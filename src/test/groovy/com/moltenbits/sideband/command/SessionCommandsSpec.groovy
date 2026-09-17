@@ -152,7 +152,7 @@ class SessionCommandsSpec extends CommandSpec {
         joined.session.watermark == 0
         joined.end == 1
         joined.open == []
-        held.take(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
 
         and: "a later join adopts nothing"
         runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted == null
@@ -170,7 +170,7 @@ class SessionCommandsSpec extends CommandSpec {
         then:
         joined.adopted == null
         joined.end == 0
-        held.take(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
     }
 
     void "the hook's last held prompt wins, and a held prompt is per role"() {

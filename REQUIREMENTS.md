@@ -191,7 +191,10 @@ The following fields are conditional:
 
 Additional metadata may be introduced compatibly: a new column is a Flyway
 migration the executable applies the first time it opens a database that is
-behind, and readers of the JSON form must ignore unknown fields.
+behind, whether for a write or a read, so what an earlier executable recorded
+(sessions above all) stays visible to the first command of a newer one; only
+a database still at version zero, one another process is creating, reads as
+absent. Readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 
@@ -312,10 +315,16 @@ a session whose role has not joined: the latest such prompt per role, with
 the session identifier it came from, in the `held_prompts` table beside the
 session record (9.5). A prompt that is not the operator's words (a command,
 blank input, a bang prompt) drops what is held, since whatever follows no
-longer leads from it. `join` then adopts the held prompt when it came from
-the joining session: journals it verbatim as the human's request through
-that client, routes it by its first token, pushes it, and reports the entry
-as `adopted` in its output; one held for another session is dropped
+longer leads from it. A prompt whose payload
+names no session drops what is held too, since it cannot be held itself
+and whatever was held led to an earlier prompt. `join` then adopts the held
+prompt when it came from the joining session: removes the hold and journals
+it verbatim as the human's request through that client, both in one
+transaction, so a failure leaves the hold for the next join and success
+leaves exactly one entry; then routes it by its first token, pushes it, and
+reports the entry as `adopted` in its output. A push that fails after the
+append leaves the entry, so the join completes, reports it with no pushes,
+and says on stderr what failed. One held for another session is dropped
 unreturned. The hook remains the only thing that takes the operator's words
 from the host, and the model is still never told to record a prompt: an
 inactive session hears only what it heard before, and the skill tells the

@@ -1,5 +1,6 @@
 package com.moltenbits.sideband.command;
 
+import com.moltenbits.sideband.capture.CaptureFailedException;
 import com.moltenbits.sideband.capture.Captured;
 import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.home.SidebandHome;
@@ -7,7 +8,6 @@ import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.protocol.Role;
-import com.moltenbits.sideband.session.HeldPrompts;
 import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
@@ -19,6 +19,7 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
@@ -56,17 +57,15 @@ public class JoinCommand implements Callable<Integer> {
     private final HostEnvironment host;
     private final Sessions sessions;
     private final Pending pending;
-    private final HeldPrompts held;
     private final HumanCapture capture;
     private final ObjectMapper json;
 
-    JoinCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HeldPrompts held,
-                HumanCapture capture, ObjectMapper json) {
+    JoinCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture,
+                ObjectMapper json) {
         this.home = home;
         this.host = host;
         this.sessions = sessions;
         this.pending = pending;
-        this.held = held;
         this.capture = capture;
         this.json = json;
     }
@@ -78,12 +77,28 @@ public class JoinCommand implements Callable<Integer> {
                 "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
         Path stateDirectory = repository.stateDirectory(home);
         sessions.join(stateDirectory, who, id, resume);
-        Captured adopted = held.take(stateDirectory, who, id)
-                .map(prompt -> capture.capture(stateDirectory, who, prompt))
-                .orElse(null);
+        Captured adopted = adopt(stateDirectory, who, id);
         PendingReport report = pending.report(stateDirectory, who).withAdopted(adopted);
         sessions.advance(stateDirectory, who, report.end());
         Output.print(spec, json, report);
         return ExitCode.OK;
+    }
+
+    /**
+     * The prompt held for this session, journaled and pushed. A push that fails after the
+     * append still leaves the entry, so the join goes on and reports it with no pushes,
+     * saying on stderr what failed; a failure before or inside the append propagates, and
+     * the hold stays for the next join.
+     */
+    private Captured adopt(Path stateDirectory, Role who, String id) {
+        try {
+            return capture.adopt(stateDirectory, who, id).orElse(null);
+        } catch (CaptureFailedException e) {
+            if (e.stage() != CaptureFailedException.Stage.JOURNALED || e.journaled() == null) {
+                throw e;
+            }
+            spec.commandLine().getErr().println("sideband join: adopted " + e.journaledId() + " but could not deliver it: " + e.getMessage());
+            return Captured.of(e.journaled(), List.of());
+        }
     }
 }

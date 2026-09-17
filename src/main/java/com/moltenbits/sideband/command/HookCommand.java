@@ -377,6 +377,8 @@ public class HookCommand {
          */
         private int hold(Path stateDirectory, Role role, @Nullable String sessionId, String prompt) throws IOException {
             if (sessionId == null || sessionId.isBlank()) {
+                // Whatever was held led to an earlier prompt, not this one; with no session to hold this one for, nothing is held.
+                dropped(stateDirectory, role);
                 spec.commandLine().getErr().println("sideband hook: not held for join: the payload names no session");
             } else {
                 try {

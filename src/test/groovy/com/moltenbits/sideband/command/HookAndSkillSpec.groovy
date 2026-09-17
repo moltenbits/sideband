@@ -629,33 +629,37 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString().isEmpty()
         stderr.toString().contains("held for join")
         context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 0
-        held.take(stateDir, Role.CLAUDE, "s1") == Optional.of("have Codex review this")
+        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("have Codex review this")
 
         when: "the skill's message form is held too, and a later prompt replaces an earlier one"
         hook("first", "s1")
         hook("/sideband @codex look at this", "s1")
 
         then:
-        held.take(stateDir, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
+        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
 
         when: "a command, a blank line, or a bang prompt is not the operator's words and drops what was held"
         hook("hello", "s1")
         hook(command, "s1")
 
         then:
-        held.take(stateDir, Role.CLAUDE, "s1").isEmpty()
+        held.held(stateDir, Role.CLAUDE, "s1").isEmpty()
 
         where:
         command << ["/sideband", "/sideband status", "/clear", "", "! sideband doctor"]
     }
 
-    void "a prompt from a payload without a session id is not held"() {
+    void "a prompt from a payload without a session id is not held, and drops what was held"() {
         given:
         detectedAgent = Role.CLAUDE
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(stateDir, Role.CLAUDE, "s1", "old task")
 
         expect:
-        hook("hello", null) == ExitCode.OK
-        context.getBean(HeldPrompts).take(stateDir, Role.CLAUDE, "").isEmpty()
+        hook("new task", null) == ExitCode.OK
+        stderr.toString().contains("names no session")
+        held.held(stateDir, Role.CLAUDE, "s1").isEmpty()
+        held.held(stateDir, Role.CLAUDE, "").isEmpty()
     }
 
     void "nothing is held once the role has joined: the prompt is journaled instead"() {
@@ -667,7 +671,7 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("hello", "s1") == ExitCode.OK
         context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 1
-        context.getBean(HeldPrompts).take(stateDir, Role.CLAUDE, "s1").isEmpty()
+        context.getBean(HeldPrompts).held(stateDir, Role.CLAUDE, "s1").isEmpty()
     }
 
     void "an envelope is never captured, whatever the session record says"() {
