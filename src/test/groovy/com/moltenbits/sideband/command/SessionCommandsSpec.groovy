@@ -1,6 +1,18 @@
 package com.moltenbits.sideband.command
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.capture.CaptureFailedException
+import com.moltenbits.sideband.capture.Captured
+import com.moltenbits.sideband.capture.HumanCapture
+import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.host.HostEnvironment
+import com.moltenbits.sideband.journal.Entry
+import com.moltenbits.sideband.pending.Pending
+import com.moltenbits.sideband.protocol.Draft
+import com.moltenbits.sideband.session.Sessions
+import io.micronaut.serde.ObjectMapper
+import picocli.CommandLine
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.session.HeldPrompts
 
@@ -185,6 +197,61 @@ class SessionCommandsSpec extends CommandSpec {
         expect:
         runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted.body == "second"
         runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1").adopted.body == "for codex"
+    }
+
+    void "a push that fails after the adopted prompt is journaled still lets join report it"() {
+        given: "a capture whose delivery fails after the append"
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        Path state = repo.resolve(".git/sideband")
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
+        HumanCapture failing = new HumanCapture() {
+            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
+                Entry entry = held.adopt(dir, via, sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
+                throw CaptureFailedException.afterAppend(entry, new IOException("codex queue unreachable"))
+            }
+        }
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(Sessions),
+                context.getBean(Pending), failing, context.getBean(ObjectMapper))
+        stdout = new StringWriter()
+        CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
+        cli.out = new PrintWriter(stdout, true)
+        cli.err = new PrintWriter(stderr, true)
+
+        when:
+        int code = cli.execute("--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+
+        then: "the join completes, the entry is reported with no pushes, and stderr names it"
+        code == ExitCode.OK
+        json().adopted.body == "@codex look at this"
+        json().adopted.pushes == []
+        json().end == 1
+        stderr.toString().contains("adopted " + json().adopted.metadata.id + " but could not deliver it: codex queue unreachable")
+        held.held(state, Role.CLAUDE, "s1").isEmpty()
+    }
+
+    void "a failure inside the adoption fails the join and keeps the hold"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        Path state = repo.resolve(".git/sideband")
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
+        HumanCapture failing = new HumanCapture() {
+            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
+                throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, new IOException("disk full"))
+            }
+        }
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(Sessions),
+                context.getBean(Pending), failing, context.getBean(ObjectMapper))
+        CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true).setExecutionExceptionHandler(ExitCode.HANDLER)
+        cli.out = new PrintWriter(stdout, true)
+        cli.err = new PrintWriter(stderr, true)
+
+        expect:
+        cli.execute("--repo", repo.toString(), "--role", "claude", "--session-id", "s1") != ExitCode.OK
+        held.held(state, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
     }
 
     void "pending never reports an adopted prompt"() {
