@@ -1,6 +1,8 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.HeldPrompts
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -127,6 +129,67 @@ class SessionCommandsSpec extends CommandSpec {
         expect:
         runJson("pending", "--repo", repo.toString(), "--role", "claude").updates.size() == 1
         runJson("pending", "--repo", repo.toString(), "--role", "claude").updates.size() == 0
+    }
+
+    void "join adopts the prompt the hook held for this session before the role had joined"() {
+        given: "the operator typed into s1 before Claude joined there"
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(repo.resolve(".git/sideband"), Role.CLAUDE, "s1", "@codex review the locking")
+
+        when:
+        Map joined = runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--resume")
+
+        then: "the entry is the operator's words through Claude, routed by its first token"
+        joined.adopted.metadata.from == "operator"
+        joined.adopted.metadata.via == "claude"
+        joined.adopted.metadata.to == ["codex"]
+        joined.adopted.metadata.type == "request"
+        joined.adopted.body == "@codex review the locking"
+        joined.adopted.pushes == [[role: "codex", outcome: "no-session", detail: null]]
+
+        and: "it is in the journal, after the watermark, and never shown to Claude as pending"
+        joined.session.watermark == 0
+        joined.end == 1
+        joined.open == []
+        held.take(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+
+        and: "a later join adopts nothing"
+        runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted == null
+    }
+
+    void "join drops a prompt held for another session of the same role"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(repo.resolve(".git/sideband"), Role.CLAUDE, "s1", "hello from s1")
+
+        when:
+        Map joined = runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s2")
+
+        then:
+        joined.adopted == null
+        joined.end == 0
+        held.take(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+    }
+
+    void "the hook's last held prompt wins, and a held prompt is per role"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        Path state = repo.resolve(".git/sideband")
+        HeldPrompts held = context.getBean(HeldPrompts)
+        held.hold(state, Role.CLAUDE, "s1", "first")
+        held.hold(state, Role.CLAUDE, "s1", "second")
+        held.hold(state, Role.CODEX, "t1", "for codex")
+
+        expect:
+        runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted.body == "second"
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1").adopted.body == "for codex"
+    }
+
+    void "pending never reports an adopted prompt"() {
+        expect:
+        !runJson("pending", "--repo", repo.toString(), "--role", "claude").containsKey("adopted")
     }
 
     void "activate for a role whose session id the environment does not expose is invalid input"() {

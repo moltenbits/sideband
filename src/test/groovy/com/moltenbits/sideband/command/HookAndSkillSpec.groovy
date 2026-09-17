@@ -6,6 +6,7 @@ import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.pending.Pending
+import com.moltenbits.sideband.session.HeldPrompts
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.serde.ObjectMapper
 import picocli.CommandLine
@@ -37,7 +38,7 @@ class HookAndSkillSpec extends CommandSpec {
                 role() >> Optional.ofNullable(detectedAgent)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
-                    context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(ObjectMapper))
+                    context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(HeldPrompts), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
             cli.err = new PrintWriter(stderr, true)
@@ -613,6 +614,60 @@ class HookAndSkillSpec extends CommandSpec {
         0       | null
         1       | "Sideband is not active in this session and 1 entry addressed to Claude is waiting. Tell the user; /sideband joins and reviews them."
         2       | "Sideband is not active in this session and 2 entries addressed to Claude are waiting. Tell the user; /sideband joins and reviews them."
+    }
+
+    void "a prompt typed before the role has joined is held for join to adopt, and a command drops it"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        HeldPrompts held = context.getBean(HeldPrompts)
+
+        when: "the operator's words arrive with no Claude session"
+        int code = hook("have Codex review this", "s1")
+
+        then: "nothing is journaled, the model hears nothing, and the prompt is held for s1"
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        stderr.toString().contains("held for join")
+        context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 0
+        held.take(stateDir, Role.CLAUDE, "s1") == Optional.of("have Codex review this")
+
+        when: "the skill's message form is held too, and a later prompt replaces an earlier one"
+        hook("first", "s1")
+        hook("/sideband @codex look at this", "s1")
+
+        then:
+        held.take(stateDir, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
+
+        when: "a command, a blank line, or a bang prompt is not the operator's words and drops what was held"
+        hook("hello", "s1")
+        hook(command, "s1")
+
+        then:
+        held.take(stateDir, Role.CLAUDE, "s1").isEmpty()
+
+        where:
+        command << ["/sideband", "/sideband status", "/clear", "", "! sideband doctor"]
+    }
+
+    void "a prompt from a payload without a session id is not held"() {
+        given:
+        detectedAgent = Role.CLAUDE
+
+        expect:
+        hook("hello", null) == ExitCode.OK
+        context.getBean(HeldPrompts).take(stateDir, Role.CLAUDE, "").isEmpty()
+    }
+
+    void "nothing is held once the role has joined: the prompt is journaled instead"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        expect:
+        hook("hello", "s1") == ExitCode.OK
+        context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 1
+        context.getBean(HeldPrompts).take(stateDir, Role.CLAUDE, "s1").isEmpty()
     }
 
     void "an envelope is never captured, whatever the session record says"() {

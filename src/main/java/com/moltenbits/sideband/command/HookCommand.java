@@ -9,6 +9,7 @@ import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.session.HeldPrompts;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
@@ -198,14 +199,17 @@ public class HookCommand {
         private final Sessions sessions;
         private final Pending pending;
         private final HumanCapture capture;
+        private final HeldPrompts held;
         private final ObjectMapper json;
 
-        Prompt(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture, ObjectMapper json) {
+        Prompt(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture,
+               HeldPrompts held, ObjectMapper json) {
             this.home = home;
             this.host = host;
             this.sessions = sessions;
             this.pending = pending;
             this.capture = capture;
+            this.held = held;
             this.json = json;
         }
 
@@ -275,7 +279,7 @@ public class HookCommand {
             }
             Optional<Session> current = sessions.load(stateDirectory, role);
             if (current.isEmpty()) {
-                return capturable ? inactive(stateDirectory, role) : ExitCode.OK;
+                return capturable ? hold(stateDirectory, role, payload.sessionId(), prompt) : dropped(stateDirectory, role);
             }
             // The operator typed this, so this is the conversation the operator is looking at:
             // even a prompt that is not recorded moves the role there.
@@ -360,6 +364,38 @@ public class HookCommand {
 
         private int report(String context) throws IOException {
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", context)));
+            return ExitCode.OK;
+        }
+
+        /**
+         * The role has not joined, so the prompt cannot be journaled yet; but it may be the
+         * words that make the client activate, and the join they lead to adopts it. The hook
+         * holds it for the session it was typed into, the latest such prompt replacing any
+         * earlier one, and the model hears nothing beyond what an inactive session is told.
+         * A hold that fails is a prompt lost as it always was, reported on stderr only: the
+         * model is not told the prompt was not recorded, because nothing was recording.
+         */
+        private int hold(Path stateDirectory, Role role, @Nullable String sessionId, String prompt) throws IOException {
+            if (sessionId == null || sessionId.isBlank()) {
+                spec.commandLine().getErr().println("sideband hook: not held for join: the payload names no session");
+            } else {
+                try {
+                    held.hold(stateDirectory, role, sessionId, prompt);
+                    spec.commandLine().getErr().println("sideband hook: held for join by " + role.id() + " in session " + sessionId);
+                } catch (RuntimeException e) {
+                    spec.commandLine().getErr().println("sideband hook: could not hold the prompt for join: " + e.getMessage());
+                }
+            }
+            return inactive(stateDirectory, role);
+        }
+
+        /** The operator's input was a command, not their words: whatever was held no longer leads to this join. */
+        private int dropped(Path stateDirectory, Role role) {
+            try {
+                held.drop(stateDirectory, role);
+            } catch (RuntimeException e) {
+                spec.commandLine().getErr().println("sideband hook: could not drop the held prompt: " + e.getMessage());
+            }
             return ExitCode.OK;
         }
 
