@@ -11,6 +11,8 @@ import picocli.CommandLine.ParseResult;
 public final class ExitCode {
 
     public static final int OK = 0;
+    /** The notify hook's answer as a gate: hold the notification. Only that command exits with it. */
+    public static final int HELD = 1;
     public static final int INVALID_INPUT = 2;
     /** Retired: every directory has a state location now. Kept so later codes keep their numbers. */
     public static final int NOT_A_REPOSITORY = 3;

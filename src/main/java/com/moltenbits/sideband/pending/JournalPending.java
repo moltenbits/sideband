@@ -64,7 +64,7 @@ class JournalPending implements Pending {
                 if (m.expectsReply()) {
                     List<EntryMetadata> mine = responses.getOrDefault(m.id(), List.of()).stream()
                             .filter(r -> r.from().equals(self)).toList();
-                    if (mine.stream().anyMatch(r -> answers(r, m))) {
+                    if (mine.stream().anyMatch(r -> answers(r, m)) || superseded(entry, role, all.entries())) {
                         continue;
                     }
                     Optional<OffsetDateTime> acked = latest(mine, MessageType.ACK);
@@ -77,7 +77,7 @@ class JournalPending implements Pending {
             if (Addressing.isOutgoingRequest(m, role)) {
                 List<EntryMetadata> theirs = responses.getOrDefault(m.id(), List.of()).stream()
                         .filter(r -> !r.from().equals(self)).toList();
-                if (theirs.stream().anyMatch(r -> answers(r, m))) {
+                if (theirs.stream().anyMatch(r -> answers(r, m)) || supersededForAnyRecipient(entry, all.entries())) {
                     continue;
                 }
                 Optional<OffsetDateTime> acked = latest(theirs, MessageType.ACK);
@@ -116,8 +116,33 @@ class JournalPending implements Pending {
      * question) and is addressed to whoever asked: a reply sent to the operator alone about
      * an agent's request leaves that agent's request open, since the agent never sees it.
      */
-    private static boolean answers(EntryMetadata response, EntryMetadata request) {
+    static boolean answers(EntryMetadata response, EntryMetadata request) {
         return response.type() == MessageType.REPLY && !response.expectsReply() && response.addresses(request.from());
+    }
+
+    /**
+     * An agent's request to a client is superseded by that agent's next actionable request
+     * to the same client: an agent delegates one thing at a time, so a later request is the
+     * current one and the earlier is dismissed, listed nowhere and awaited by nobody,
+     * however it was left. A request that expects nothing back is context and replaces no
+     * work. A human's prompts are never superseded; the operator may stack instructions.
+     */
+    static boolean superseded(Entry request, Role recipient, List<Entry> entries) {
+        EntryMetadata m = request.metadata();
+        if (!m.isAgentAuthored() || m.type() != MessageType.REQUEST) {
+            return false;
+        }
+        ParticipantId to = ParticipantId.of(recipient);
+        return entries.stream().anyMatch(e -> e.seq() > request.seq()
+                && e.metadata().type() == MessageType.REQUEST && e.metadata().expectsReply()
+                && e.metadata().from().equals(m.from())
+                && e.metadata().addresses(to));
+    }
+
+    /** Superseded from the sender's side: a later request of theirs to any client this one addressed. */
+    static boolean supersededForAnyRecipient(Entry request, List<Entry> entries) {
+        return request.metadata().to().stream().map(ParticipantId::role).flatMap(Optional::stream)
+                .anyMatch(recipient -> superseded(request, recipient, entries));
     }
 
     private static Optional<OffsetDateTime> latest(List<EntryMetadata> responses, MessageType type) {
