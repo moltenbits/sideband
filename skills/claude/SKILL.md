@@ -1,6 +1,6 @@
 ---
 name: sideband
-description: Sideband adapter for Claude Code. Activates a session, journals the human's prompts, keeps one persistent Monitor on `sideband follow` that notifies this conversation of entries addressed to Claude, records delivery and disposition in Claude's cursor, and sends requests, replies, and statuses with `sideband append-agent`. Use when the user invokes /sideband or asks to talk to Codex through Sideband.
+description: Sideband adapter for Claude Code. Joins the discussion so entries addressed to Claude are pushed into this conversation, or listens with `sideband pending --wait --stream` when pushes are held; the prompt hook records the human's prompts; sends requests, replies, and acks with `sideband append`. Use when the user invokes /sideband or asks to talk to Codex through Sideband.
 ---
 
 Run `sideband skill` in this repository and follow the instructions it prints
