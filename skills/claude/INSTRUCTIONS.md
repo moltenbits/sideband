@@ -223,6 +223,15 @@ sideband append --to codex --type request --caused-by <review-entry-id> --body-f
 The body names the changed commit and asks Codex to review it. Do not send
 that request as a reply to the review findings.
 
+After a successful `append`, read `metadata.expects_reply` in its output
+before waiting for an answer. If it is false, the entry never appears under
+`outgoing`: no response is tracked, and there is nothing to wait for. If you
+need an answer, send an explicit request linked to that entry instead of
+waiting on the informational message. `outgoing` tracks unresolved entries
+with `expects_reply: true`, whatever their type. A true flag does not prove
+delivery, so also inspect `pushes`. Never infer a response obligation from
+the body's wording alone.
+
 ```bash
 sideband append --to codex --type request --caused-by <id> --body-file <body.md>
 sideband append --type reply --reply-to <id> --body-file <body.md>
