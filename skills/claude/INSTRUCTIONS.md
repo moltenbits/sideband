@@ -62,8 +62,12 @@ It is a plain command, `! sideband log`, not a skill argument.
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 
-3. Find out how entries will reach this conversation: run `sideband doctor`
-   and read the state on its `claude inbound` line. The executable makes the same check
+3. Find out how entries will reach this conversation: run `sideband doctor`.
+   First read its `claude skill` and `claude hook` lines: `stale` or
+   `missing` means the installed files no longer match this executable, so
+   tell the user to run `sideband init` in this repository and then
+   `/sideband` again, and stop here. Then read the state on its
+   `claude inbound` line. The executable makes the same check
    from the same files every time it appends an entry for Claude, so the
    two sides agree as long as the user's settings do not change under a
    running session; if they do, the user re-runs `/sideband`.
