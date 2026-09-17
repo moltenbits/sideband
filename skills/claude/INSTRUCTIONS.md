@@ -62,8 +62,12 @@ It is a plain command, `! sideband log`, not a skill argument.
    not yet answered, which a cleared context should pick back up; `updates`
    are informational entries to show once; `outgoing` is described below.
 
-3. Find out how entries will reach this conversation: run `sideband doctor`
-   and read the state on its `claude inbound` line. The executable makes the same check
+3. Find out how entries will reach this conversation: run `sideband doctor`.
+   First read its `claude skill` and `claude hook` lines: `stale` or
+   `missing` means the installed files no longer match this executable, so
+   tell the user to run `sideband init` in this repository and then
+   `/sideband` again, and stop here. Then read the state on its
+   `claude inbound` line. The executable makes the same check
    from the same files every time it appends an entry for Claude, so the
    two sides agree as long as the user's settings do not change under a
    running session; if they do, the user re-runs `/sideband`.
@@ -183,6 +187,27 @@ move on, or tell the user the other agent is not responding (unacknowledged
 after a long silence means it likely never arrived).
 
 ## Send
+
+Choose the entry type from what your outgoing message asks the recipient to
+do. A review, re-review, question, or request for further action is a new
+`request`, even when it continues a conversation or follows a peer's reply
+with `expects_reply: false`. Use `--type request --caused-by <id>`, linking
+the communication that prompted the new work. Reserve
+`--type reply --reply-to <id>` for answering or declining an existing request. A `reply`
+defaults to `expects_reply: false`, so putting "please review again" in its
+body does not make it a request. The incoming entry's `expects_reply` tells
+you whether to answer that entry; it does not determine the type of your
+next message.
+
+For example, after Codex sends review findings and you fix them, ask for
+another review with a new request linked to that review entry:
+
+```bash
+sideband append --to codex --type request --caused-by <review-entry-id> --body-file <re-review.md>
+```
+
+The body names the changed commit and asks Codex to review it. Do not send
+that request as a reply to the review findings.
 
 ```bash
 sideband append --to codex --type request --caused-by <id> --body-file <body.md>
