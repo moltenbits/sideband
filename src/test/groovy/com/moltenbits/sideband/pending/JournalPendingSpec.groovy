@@ -1,11 +1,13 @@
 package com.moltenbits.sideband.pending
 
 import com.moltenbits.sideband.Fixtures
+import com.moltenbits.sideband.handoff.Handoff
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.MessageType
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Deliveries
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
@@ -22,6 +24,7 @@ class JournalPendingSpec extends Specification {
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
+    Deliveries deliveries = context.getBean(Deliveries)
     Pending pending = context.getBean(Pending)
     Path dir = Files.createTempDirectory("pending")
 
@@ -108,6 +111,131 @@ class JournalPendingSpec extends Specification {
 
         then:
         pending.report(dir, Role.CLAUDE).updates().isEmpty()
+    }
+
+    void "an update the writer pushed into this session says so, whether pending reads it before or after the envelope surfaces"() {
+        given: "Codex is mid-turn: Claude's review was queued to its thread but not yet surfaced there"
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry h = human("@codex implement it", Role.CODEX, Role.CODEX)
+        Entry ask = agent(Role.CODEX, Role.CLAUDE, MessageType.REQUEST, [causedBy: h.metadata().id()])
+        Entry review = agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id()])
+        deliveries.record(dir, review.seq(), Role.CODEX, "thread-1")
+
+        when: "Codex reads pending inside the turn, before the envelope has surfaced"
+        PendingReport before = pending.report(dir, Role.CODEX)
+
+        then: "the entry is listed, marked as already pushed into this very conversation"
+        before.updates()*.metadata()*.id() == [review.metadata().id()]
+        before.updates()[0].pushedAt() != null
+
+        when: "the read position passes it, as a plain pending does; the envelope surfaces later on its own"
+        sessions.advance(dir, Role.CODEX, review.seq())
+
+        then: "pending has nothing more to say about it; the journal state was never touched"
+        pending.report(dir, Role.CODEX).updates().isEmpty()
+
+        when: "the reverse order: an entry that surfaced as an envelope first, then a pending read"
+        Entry later = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        deliveries.record(dir, later.seq(), Role.CODEX, "thread-1")
+        PendingReport after = pending.report(dir, Role.CODEX)
+
+        then: "the same marker: the report cannot know the order, and the reader recognizes the id either way"
+        after.updates()*.metadata()*.id() == [later.metadata().id()]
+        after.updates()[0].pushedAt() != null
+    }
+
+    void "an entry whose push failed or was never attempted is unmarked: pending is the only path it reaches the role by"() {
+        given:
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry failed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+
+        expect:
+        pending.report(dir, Role.CODEX).updates()*.metadata()*.id() == [failed.metadata().id()]
+        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+    }
+
+    void "of several entries only the ones pushed into this session are marked"() {
+        given:
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry pushed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        Entry unpushed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        Entry pushedToo = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        deliveries.record(dir, pushed.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, pushedToo.seq(), Role.CODEX, "thread-1")
+
+        when:
+        List<Handoff> updates = pending.report(dir, Role.CODEX).updates()
+
+        then:
+        updates*.metadata()*.id() == [pushed, unpushed, pushedToo]*.metadata()*.id()
+        updates*.pushedAt().collect { it != null } == [true, false, true]
+    }
+
+    void "a session that replaced the one pushed into has nothing in flight: after a restart or clear everything is shown plainly"() {
+        given: "a review pushed into Codex's first thread, never read there"
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry review = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        deliveries.record(dir, review.seq(), Role.CODEX, "thread-1")
+
+        when: "Codex restarts and joins from a new thread, resuming its read position"
+        sessions.join(dir, Role.CODEX, "thread-2", true)
+
+        then: "the entry is recovered through pending, with no claim that it is also on its way in"
+        pending.report(dir, Role.CODEX).updates()*.metadata()*.id() == [review.metadata().id()]
+        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+
+        when: "the address moves without a join, as a clear does"
+        Entry another = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+        deliveries.record(dir, another.seq(), Role.CODEX, "thread-2")
+        sessions.relocate(dir, Role.CODEX, "thread-3")
+
+        then:
+        pending.report(dir, Role.CODEX).updates()*.pushedAt() == [null, null]
+    }
+
+    void "a pushed request is a receipt, not a completion: it stays open until answered and in progress once acknowledged"() {
+        given:
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry request = human("@codex review this")
+        deliveries.record(dir, request.seq(), Role.CODEX, "thread-1")
+
+        expect: "consumed through pending or not, the request is open and marked"
+        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
+        pending.report(dir, Role.CODEX).open()[0].entry().pushedAt() != null
+
+        when: "the read position passes it, as a plain pending does"
+        sessions.advance(dir, Role.CODEX, request.seq())
+
+        then: "an unanswered request is not closed by having been shown"
+        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
+
+        when:
+        agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: request.metadata().id(), to: [Fixtures.OPERATOR]])
+
+        then:
+        pending.report(dir, Role.CODEX).open().isEmpty()
+        pending.report(dir, Role.CODEX).inProgress()*.entry()*.pushedAt().every { it != null }
+
+        when:
+        agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: request.metadata().id(), to: [Fixtures.OPERATOR]])
+
+        then:
+        pending.report(dir, Role.CODEX).inProgress().isEmpty()
+    }
+
+    void "a pending read that lands between the append and the host accepting the push sees the entry unmarked, and the next read marked"() {
+        given:
+        sessions.join(dir, Role.CODEX, "thread-1")
+        Entry status = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
+
+        expect: "the entry is listed either way; the reader's rule that a repeated id is the same entry covers the gap"
+        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+
+        when:
+        deliveries.record(dir, status.seq(), Role.CODEX, "thread-1")
+
+        then:
+        pending.report(dir, Role.CODEX).updates()[0].pushedAt() != null
     }
 
     void "a reply addressed to the operator alone does not close an agent's request; one addressed to the agent does"() {

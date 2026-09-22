@@ -10,6 +10,7 @@ import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.session.Deliveries;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
@@ -33,12 +34,14 @@ class JournalPending implements Pending {
     private final Journal journal;
     private final Sessions sessions;
     private final Handoffs handoffs;
+    private final Deliveries deliveries;
     private final Clock clock;
 
-    JournalPending(Journal journal, Sessions sessions, Handoffs handoffs, Clock clock) {
+    JournalPending(Journal journal, Sessions sessions, Handoffs handoffs, Deliveries deliveries, Clock clock) {
         this.journal = journal;
         this.sessions = sessions;
         this.handoffs = handoffs;
+        this.deliveries = deliveries;
         this.clock = clock;
     }
 
@@ -91,24 +94,35 @@ class JournalPending implements Pending {
         // on without asking, several are confirmed first. After a plain join, everything that
         // predates the session is confirmed.
         boolean confirmOld = !resumed || open.size() + inProgress.size() > 1;
+        // What the writer already pushed into this very session arrives by its other path too,
+        // and the report says so on each such entry; a session that replaced the one pushed
+        // into has nothing in flight and is shown everything plainly.
+        Map<Long, OffsetDateTime> pushed = session.map(s -> deliveries.pushedInto(stateDirectory, role, s.id())).orElse(Map.of());
         return new PendingReport(
                 Handling.forRole(role),
                 session.orElse(null),
-                items(stateDirectory, open, confirmOld ? watermark : 0L, acknowledged),
-                items(stateDirectory, inProgress, confirmOld ? watermark : 0L, acknowledged),
-                handoffs.prepare(stateDirectory, updates),
+                items(stateDirectory, open, confirmOld ? watermark : 0L, acknowledged, pushed),
+                items(stateDirectory, inProgress, confirmOld ? watermark : 0L, acknowledged, pushed),
+                prepare(stateDirectory, updates, pushed),
                 outgoing,
                 all.end());
     }
 
-    private List<OpenItem> items(Path stateDirectory, List<Entry> entries, long watermark, Map<String, OffsetDateTime> acknowledged) {
-        List<Handoff> prepared = handoffs.prepare(stateDirectory, entries);
+    private List<OpenItem> items(Path stateDirectory, List<Entry> entries, long watermark,
+                                 Map<String, OffsetDateTime> acknowledged, Map<Long, OffsetDateTime> pushed) {
+        List<Handoff> prepared = prepare(stateDirectory, entries, pushed);
         List<OpenItem> items = new ArrayList<>();
         for (int i = 0; i < entries.size(); i++) {
             Entry entry = entries.get(i);
             items.add(new OpenItem(prepared.get(i), entry.seq() <= watermark, acknowledged.get(entry.metadata().id())));
         }
         return items;
+    }
+
+    private List<Handoff> prepare(Path stateDirectory, List<Entry> entries, Map<Long, OffsetDateTime> pushed) {
+        return handoffs.prepare(stateDirectory, entries).stream()
+                .map(handoff -> handoff.withPushedAt(pushed.get(handoff.seq())))
+                .toList();
     }
 
     /**

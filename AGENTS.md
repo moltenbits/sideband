@@ -20,6 +20,17 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   not lost: it is handled by the old thread and its reply is recorded in the
   discussion, just not shown in the new conversation. `sideband pending` does
   not replay Codex's completed replies.
+- **A queued envelope waits for the running turn to end** (codex-cli 0.155.1,
+  measured 2026-09-22). `codex queue` into a thread that is mid-turn holds
+  the message until that turn finishes, then surfaces it as the next user
+  turn, one queued message per turn. Codex therefore cannot see an entry
+  pushed during a long turn until the turn ends; `sideband pending` inside
+  the turn is the only earlier look, and it does not dequeue anything, so the
+  entry then arrives twice. The pending report marks such an entry
+  `pushed_at` and the adapter treats the later envelope as a repeat. The
+  rollout file under `~/.codex/sessions/` records each injected envelope
+  with its timestamp and `start`/`end` positions, which is how "queued once
+  or twice" is settled.
 - **No supported displayed-thread lookup was found in the tested TUI setup.** Codex's
   generated app-server protocol has no request or notification for a client's
   displayed thread; `codex queue` takes only a thread id or exact session

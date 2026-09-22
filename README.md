@@ -299,6 +299,11 @@ handled by the old thread and its reply recorded in the Sideband discussion
 without appearing in the new conversation. `pending` lists unanswered work
 and unread incoming updates; it does not replay Codex's completed replies.
 
+A queued envelope waits for the turn Codex is running to end, so a review
+that lands mid-implementation surfaces when that turn finishes. `pending`
+inside the turn shows it sooner, and then marks it `pushed_at`, so the
+envelope that follows is recognized as the same entry rather than a new one.
+
 ## 4. Development
 
 ```bash

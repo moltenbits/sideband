@@ -5,6 +5,7 @@ import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.MessageType
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Deliveries
 import io.micronaut.serde.ObjectMapper
 
 import java.nio.file.Files
@@ -67,6 +68,27 @@ class PendingWaitSpec extends CommandSpec {
         then:
         first == ["second"]
         second == []
+    }
+
+    void "a report marks an entry already pushed into this session with pushed_at, and leaves the field off every other entry"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "thread-1")
+        stdout = new StringWriter()
+        Journal journal = context.getBean(Journal)
+        long pushed = journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.STATUS,
+                causedBy: null, expectsReply: false, body: "queued to codex")).seq()
+        journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.STATUS,
+                causedBy: null, expectsReply: false, body: "push failed"))
+        context.getBean(Deliveries).record(stateDir, pushed, Role.CODEX, "thread-1")
+
+        when:
+        int code = run("pending", "--repo", repo.toString(), "--role", "codex")
+
+        then:
+        code == ExitCode.OK
+        json().updates*.body == ["queued to codex", "push failed"]
+        json().updates[0].pushed_at ==~ /\d{4}-\d{2}-\d{2}T.*/
+        !json().updates[1].containsKey("pushed_at")
     }
 
     void "--wait returns at once with the report when something is already there, and does not advance: a waited report is a delivery"() {

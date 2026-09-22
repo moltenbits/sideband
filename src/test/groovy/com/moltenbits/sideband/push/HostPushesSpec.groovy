@@ -7,6 +7,7 @@ import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Deliveries
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
@@ -33,6 +34,7 @@ class HostPushesSpec extends Specification {
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
+    Deliveries deliveries = context.getBean(Deliveries)
     Pushes pushes = context.getBean(Pushes)
     Path repo = TempRepo.init()
     Path state = Files.createDirectories(repo.resolve(".git/sideband"))
@@ -104,7 +106,7 @@ exit $(cat "''' + exitFile + '''")
                                    authors << from
                                    new PushResult(Role.CLAUDE, PushOutcome.PUSHED, text)
                                }] as HostPusher
-        Pushes wired = new HostPushes(context.getBean(Handoffs), [recorder])
+        Pushes wired = new HostPushes(context.getBean(Handoffs), sessions, deliveries, [recorder])
 
         when:
         List<PushResult> results = wired.deliver(state, reply)
@@ -128,7 +130,7 @@ exit $(cat "''' + exitFile + '''")
         !Files.exists(log)
     }
 
-    void "a failing codex queue leaves the entry pending with the reason"() {
+    void "a failing codex queue leaves the entry pending with the reason, and records no delivery"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123")
         Files.writeString(exitFile, "3")
@@ -140,6 +142,21 @@ exit $(cat "''' + exitFile + '''")
         then:
         results*.outcome() == [PushOutcome.FAILED]
         results[0].detail().contains("exited 3")
+        deliveries.pushedInto(state, Role.CODEX, "thread-123").isEmpty()
+    }
+
+    void "a push the host accepted is recorded against the session it went into, so pending can say it is on its way"() {
+        given:
+        sessions.join(state, Role.CODEX, "thread-123")
+        Entry entry = toCodex("@codex please look")
+
+        when:
+        pushes.deliver(state, entry)
+
+        then:
+        deliveries.pushedInto(state, Role.CODEX, "thread-123").keySet() == [entry.seq()] as Set
+        deliveries.pushedInto(state, Role.CODEX, "thread-456").isEmpty()
+        !Files.readAllLines(log).join("\n").contains("pushed_at")
     }
 
     void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {

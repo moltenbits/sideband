@@ -549,8 +549,9 @@ When an addressed entry is appended after the recipient's session watermark:
   must not manufacture additional work. A reply can supply the answer to a
   pending request and allow already-authorized work to continue under section
   9.6; it does not independently authorize a new task.
-- The recipient records successful handoff so duplicate notifications do not
-  cause duplicate work.
+- The writer records a handoff the host accepted against the session it went
+  into (section 9.5), and the recipient recognizes a repeated `id` (section
+  11.3), so duplicate notifications do not cause duplicate work.
 
 Successful delivery means that the host's native parent-wake mechanism accepted
 the message for handoff to the parent conversation. The transport worker cannot
@@ -628,6 +629,22 @@ read, by `pending`:
   to, so a conversation that lost its context can see what it had taken up.
 - **Updates**: informational entries addressed to the role past its read
   position. Showing them moves the read position past them.
+
+Beside the session record, the executable keeps the delivery state of
+section 11.3: which entries a host accepted, for which role, into which
+session, and when. It is written by the writer after a push the host took
+and read by `pending`, which marks every listed entry the host accepted for
+the session reading the report with `pushed_at`. The marker means the entry
+is also on its way into that conversation, or has already arrived there, by
+the host's own path; an entry without it reaches the role through the
+report alone, because its push failed, was never made, or went into a
+session the current one replaced, as after a restart or a clear. The record
+never says what the model did with an entry; acks and replies in the
+journal do. It exists because a host's queue can hold a push until the
+running turn ends (section 10.3) while a `pending` read inside that turn
+shows the same entry, and neither path can cancel the other: the report
+tells the reader the second arrival is coming, and the adapter rules make
+the reader recognize a repeated id rather than treat it as new or as late.
 - **Outgoing**: the role's own actionable requests to a client that no
   recipient has replied to, with the recipient's acknowledgements and the
   length of the silence (section 9.8).
@@ -865,6 +882,15 @@ tested and do not wake an idle parent; they must not be used for delivery.
 The pushed envelope arrives as user-role input and must be handled under
 section 7.4.
 
+Measured 2026-09-22 (codex-cli 0.155.1): a queue push into a session that is
+mid-turn is held until that turn ends, then surfaces as the next user turn,
+one queued message per turn. In the measured exchange three reviews pushed
+at 11:12, 11:15 and 11:21 during a turn that ran from 10:58 to 11:25 were
+injected at 11:25:06, 11:25:16 and 11:25:20, each exactly once, after Codex
+had already read them through `pending` inside the turn. Section 9.5 says
+how the report marks such an entry, and the adapter rules say how the
+reader treats the later envelope.
+
 Codex prompt capture is best effort through the skill until the client-aware
 hook of section 7.1 is loaded, trusted and running in Codex (section 17.2).
 Registration on disk alone does not establish that guarantee.
@@ -1002,8 +1028,12 @@ the same installed binary.
 - Sideband provides at-least-once rather than exactly-once delivery.
 - Recipients must deduplicate using `id`.
 - Delivery state advances only after the host's native parent-wake mechanism
-  accepts the handoff. Resolution state advances only after successful action,
-  presentation of a non-actionable entry, or an explicit human disposition.
+  accepts the handoff, and is kept per session pushed into: `pending` marks
+  an entry in flight to the reading session with `pushed_at` and shows one
+  pushed into a replaced session plainly (section 9.5). Resolution state
+  advances only after successful action, presentation of a non-actionable
+  entry, or an explicit human disposition; recognizing a repeated delivery
+  never closes a request.
 - The originating client must not redeliver a human message it already
   received directly.
 
