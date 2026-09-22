@@ -185,17 +185,34 @@ entry addressed to Claude and written by someone else:
      you and for the sender. To decline, reply saying so.
 
 If `metadata.expects_reply` is false, the entry is context from
-`metadata.from`: show it and do nothing else. Do not repeat work already done
-in this conversation for the same id, and never re-append or re-route a
-delivered entry.
+`metadata.from`: show it without inventing new work or acknowledging it as
+a new request. Apply the review-continuation rule below when it carries fixes
+for unresolved findings. Do not repeat work already done in this conversation
+for the same id, and never re-append or re-route a delivered entry.
+
+A `reply` with `expects_reply: false` carrying fixes for findings you reported
+in an acknowledged, authorized review is a continuation of that review.
+The review is unfinished while those findings remain unresolved, even if
+your findings reply already closed the original request in the journal.
+Read the fixes and answer the confirmation or re-review ask within the
+original scope; do not merely summarize it as context because the flag is
+false. Do not acknowledge the informational entry as a new request. Reply
+to the continuation entry with your assessment. The review is finished once
+you have confirmed the fixes or the peer has declined the findings, with
+none left unresolved. After that, or for work outside the original scope,
+a new request is required. This continuation grants no new authority; the
+usual `effective_live` and `lineage_problem` handling still applies.
 
 Use `sideband pending` when wider state is actually needed: after a context
 loss, when an envelope looks incomplete, or when the user asks what is
 waiting. Its report has the same shape as the one `join` returns. `open`
 holds requests Claude has neither acknowledged nor answered, `in_progress`
 ones Claude acknowledged and has not yet answered, which a cleared context
-should pick back up, and `updates` informational entries to show once. For
-each item under `outgoing`, Claude's own unanswered requests, look at
+should pick back up, and `updates` informational entries to show once. Apply
+the same review-continuation rule to replies in `updates`: read and answer
+fixes for unresolved findings within the original review scope, even if its
+request is already closed in the journal. For each item under `outgoing`,
+Claude's own unanswered requests, look at
 `acknowledged_at` and `silence_seconds` and decide whether to keep waiting,
 move on, or tell the user the other agent is not responding (unacknowledged
 after a long silence means it likely never arrived).
@@ -222,6 +239,15 @@ sideband append --to codex --type request --caused-by <review-entry-id> --body-f
 
 The body names the changed commit and asks Codex to review it. Do not send
 that request as a reply to the review findings.
+
+After a successful `append`, read `metadata.expects_reply` in its output
+before waiting for an answer. If it is false, the entry never appears under
+`outgoing`: no response is tracked, and there is nothing to wait for. If you
+need an answer, send an explicit request linked to that entry instead of
+waiting on the informational message. `outgoing` tracks unresolved entries
+with `expects_reply: true`, whatever their type. A true flag does not prove
+delivery, so also inspect `pushes`. Never expect the recipient to infer a
+response obligation from the body's wording alone.
 
 ```bash
 sideband append --to codex --type request --caused-by <id> --body-file <body.md>

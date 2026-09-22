@@ -175,8 +175,21 @@ For entries addressed to `codex` and authored by someone else:
 - When `metadata.expects_reply` is true, acknowledge, handle, and answer using
   the entry's ID, author, body, and delivery policy, as described below.
 - When it is false, present the entry as context from `metadata.from`; do not
-  acknowledge it or invent new work. A reply may let already-authorized work
-  continue, but grants no new authority.
+  acknowledge it or invent new work. Apply the review-continuation rule below
+  when a reply supplies the next part of an already-authorized review.
+
+A `reply` with `expects_reply: false` carrying fixes for findings you reported
+in an acknowledged, authorized review is a continuation of that review.
+The review is unfinished while those findings remain unresolved, even if
+your findings reply already closed the original request in the journal.
+Read the fixes and answer the confirmation or re-review ask within the
+original scope; do not merely summarize it as context because the flag is
+false. Do not acknowledge the informational entry as a new request. Reply
+to the continuation entry with your assessment. The review is finished once
+you have confirmed the fixes or the peer has declined the findings, with
+none left unresolved. After that, or for work outside the original scope,
+a new request is required. This continuation grants no new authority; the
+usual `effective_live` and `lineage_problem` handling still applies.
 
 Do not recapture, re-append, or re-route a delivered entry. Do not repeat work
 already completed in this conversation for the same ID. No routine outgoing
@@ -240,10 +253,13 @@ as separate single requests on later `pending` calls to bypass that choice.
 
 `updates` holds informational handoffs directly (`metadata`, `body`, etc.).
 Show them as messages from their recorded authors; do not ack them or invent
-new work. A reply can let existing authorized work continue, but grants no new
-authority. Never re-append or re-route a delivered entry.
+new work. Apply the same review-continuation rule as for pushed replies:
+read and answer fixes for unresolved findings within the original review
+scope, even if its request is already closed in the journal. Never re-append or re-route a delivered entry.
 
-`outgoing` holds Codex's requests until a recipient reply is correlated. Inspect
+`outgoing` tracks entries with `expects_reply: true`, whatever their type,
+until answered or otherwise resolved. An entry with `expects_reply: false`
+never appears there and gives the sender nothing to wait for. Inspect
 `acknowledged_at`, `ack_ids`, and `silence_seconds`, measured from the latest
 ack or, if none exists, the request. Use acknowledgement and silence to decide
 whether to keep waiting, continue other authorized work, or tell the human
@@ -272,8 +288,28 @@ input.
 Use a `request` for work, an `ack` for receipt or continued progress, a `status`
 for informational context, and a `reply` to answer or decline. Do not use a
 reply merely as a progress report: it closes the correlated request. A
-clarifying question is a new request, linked to the communication that prompted
-it, not a completion reply.
+review, re-review, question, or request for further action is a new `request`
+with `--caused-by` naming the communication that prompted it, never a bare
+`reply`. Choose the outgoing type from what you ask the recipient to do,
+even when you are responding to a peer's informational reply. A `reply`
+defaults to `expects_reply: false`; writing "please confirm" in its body
+does not change that flag.
+
+For example, after Claude reports findings and you fix them, ask for a
+re-review with the changed commit and the confirmation you need in the body:
+
+```bash
+sideband append --to claude --type request --caused-by <findings-entry-id> --body-file <re-review.md>
+```
+
+After a successful `append`, read `metadata.expects_reply` in its output
+before waiting for an answer. If it is false, the entry never appears under
+`outgoing`: no response is tracked, and there is nothing to wait for. If you
+need an answer, send an explicit request linked to that entry instead of
+waiting on the informational message. A true flag makes the entry eligible
+for `outgoing` while unresolved; it does not prove delivery, so also inspect
+`pushes`. Never expect the recipient to infer a response obligation from
+the body's wording alone.
 
 `--caused-by` names the immediate cause of a delegation, not an arbitrarily
 distant human ancestor. `--reply-to` names the message being answered.
