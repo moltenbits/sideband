@@ -183,7 +183,6 @@ exit $(cat "''' + exitFile + '''")
     void "a Claude push lands in whichever registered session accepts it, recorded or not, and that is the session recorded"() {
         given: "the recorded Claude session is A, but the socket that accepts belongs to B; then no Claude has joined at all"
         Entry first = journal.append(state, Fixtures.humanDraft("@claude one", [Fixtures.CLAUDE], Role.CODEX))
-        Entry second = journal.append(state, Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE], Role.CODEX))
         Entry third = journal.append(state, Fixtures.humanDraft("@claude three", [Fixtures.CLAUDE], Role.CODEX))
         String accepting = "claude-B"
         HostPusher socket = [role: { Role.CLAUDE },
@@ -200,20 +199,23 @@ exit $(cat "''' + exitFile + '''")
         deliveries.pushedInto(state, Role.CLAUDE, "claude-B").keySet() == [first.seq()] as Set
         deliveries.pushedInto(state, Role.CLAUDE, "claude-A").isEmpty()
 
-        when: "no Claude role is recorded, and the push still lands somewhere known"
-        sessions.join(state, Role.CODEX, "thread-1") // unrelated role; Claude's record is replaced by nothing
+        when: "no Claude role is recorded at all, and the push still lands somewhere known"
+        Path unjoined = Files.createDirectories(TempRepo.init().resolve(".git/sideband"))
+        Entry elsewhere = journal.append(unjoined, Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE], Role.CODEX))
         accepting = "claude-C"
-        wired.deliver(state, second)
+        wired.deliver(unjoined, elsewhere)
 
         then:
-        deliveries.pushedInto(state, Role.CLAUDE, "claude-C").keySet() == [second.seq()] as Set
+        sessions.load(unjoined, Role.CLAUDE).isEmpty()
+        deliveries.pushedInto(unjoined, Role.CLAUDE, "claude-C").keySet() == [elsewhere.seq()] as Set
 
         when: "a host that accepted the text but could not say which session took it"
         accepting = null
         wired.deliver(state, third)
 
         then: "nothing is recorded: pending then shows the entry plainly rather than claiming a place it cannot name"
-        deliveries.pushedInto(state, Role.CLAUDE, "claude-C").keySet() == [second.seq()] as Set
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-C").isEmpty()
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-B").keySet() == [first.seq()] as Set
     }
 
     void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
