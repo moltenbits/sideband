@@ -632,15 +632,22 @@ read, by `pending`:
 
 Beside the session record, the executable keeps the delivery state of
 section 11.3: which entries a host accepted, for which role, into which
-session, and when. It is written by the writer after a push the host took
-and read by `pending`, which marks every listed entry the host accepted for
-the session reading the report with `pushed_at`. The marker means the entry
-is also on its way into that conversation, or has already arrived there, by
-the host's own path; an entry without it reaches the role through the
-report alone, because its push failed, was never made, or went into a
-session the current one replaced, as after a restart or a clear. The record
-never says what the model did with an entry; acks and replies in the
-journal do. It exists because a host's queue can hold a push until the
+session, and when. It is written by the writer after a push the host took,
+against the session the pusher delivered into, in the identity the role's
+record uses (Codex's thread id, Claude Code's session id from its
+registration), never the role's record looked up afterwards, which a join
+or a clear may have moved while the push ran. `pending` marks every listed
+entry recorded as accepted by the session reading the report with
+`pushed_at`. The marker means the entry is also on its way into that
+conversation, or has already arrived there, by the host's own path. Its
+absence means only that no accepted push into that session had been
+recorded when the report was read: the push failed, went into a session
+the current one replaced, as after a restart or a clear, or had not yet
+completed, since the entry is journaled before it is pushed and the push
+before it is recorded, so an envelope may still follow. The reader's
+recognition of a repeated id therefore never depends on the marker. The
+record never says what the model did with an entry; acks and replies in
+the journal do. It exists because a host's queue can hold a push until the
 running turn ends (section 10.3) while a `pending` read inside that turn
 shows the same entry, and neither path can cancel the other: the report
 tells the reader the second arrival is coming, and the adapter rules make

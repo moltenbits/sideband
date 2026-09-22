@@ -128,7 +128,8 @@ class ClaudeSocketPusher implements HostPusher {
             try {
                 post(Path.of(candidate.messagingSocketPath()), bytes);
                 return new PushResult(Role.CLAUDE, PushOutcome.PUSHED,
-                        "posted to " + candidate.messagingSocketPath() + " (session " + candidate.name() + ", pid " + candidate.pid() + ")");
+                        "posted to " + candidate.messagingSocketPath() + " (session " + candidate.name() + ", pid " + candidate.pid() + ")",
+                        candidate.sessionId());
             } catch (IOException e) {
                 failure = "session " + candidate.name() + " (pid " + candidate.pid() + ") at " + candidate.messagingSocketPath()
                         + " did not accept the connection: " + e.getMessage();
@@ -286,9 +287,13 @@ class ClaudeSocketPusher implements HostPusher {
         }
     }
 
-    /** The fields of a Claude Code session registration this pusher reads; the rest are ignored. */
+    /**
+     * The fields of a Claude Code session registration this pusher reads; the rest are ignored.
+     * {@code sessionId} is the identity the Claude role's session record holds, so a delivery
+     * recorded under it is comparable to the session that later reads {@code pending}.
+     */
     @Serdeable
-    record Registration(@Nullable Long pid, @Nullable String cwd, @Nullable String messagingSocketPath,
+    record Registration(@Nullable Long pid, @Nullable String sessionId, @Nullable String cwd, @Nullable String messagingSocketPath,
                         @Nullable String name, @Nullable Long startedAt) {
     }
 

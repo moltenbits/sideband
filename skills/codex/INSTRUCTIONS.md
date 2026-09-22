@@ -202,19 +202,26 @@ read inside a turn is the only earlier look at such an entry, and it does
 not take the envelope out of the queue, so the entry then arrives twice,
 once in the report and once as a `[Sideband message]`. The report says so:
 an entry carrying `pushed_at` was already accepted by this conversation's
-queue and will surface, or has surfaced, as an envelope. Treat an envelope
-whose entry ID this conversation has already seen, in a report or an
-earlier envelope, as that same entry arriving by its other path: say in one
-line that it was already handled and where (for instance "read through
-pending at 11:18"), and do nothing else. Do not acknowledge it again, do
-not present it as a new review, and do not call it delayed: it waited in
-the queue for this turn to end. An envelope for an ID you have not seen is
-handled as above, whatever an earlier report showed. Recognizing a repeat
-closes nothing: a request stays open until you reply, and a review
-continuation stays unfinished until its findings are resolved. Ending a
-turn and letting the push start the next one avoids the second arrival
-altogether; read `pending` inside a turn only when the turn cannot end
-without the answer.
+queue and will surface, or has surfaced, as an envelope. An entry without
+it had no accepted push into this session recorded when the report was
+read: the push may have failed, gone to a conversation this one replaced,
+or not finished yet, since an entry is journaled before it is pushed and
+the push before it is recorded, so an envelope may still follow. Treat an
+envelope whose entry ID this conversation has already seen, in a report or
+an earlier envelope, as that same entry arriving by its other path,
+whether or not the report marked it: say in one line that it was already
+seen and where (for instance "read through pending at 11:18"), and do
+nothing else. The rule runs the other way too: a report listing an entry
+that already arrived as an envelope is that entry again. Do not acknowledge
+a repeat again, do not present it as a new review, and do not call it
+delayed: it waited in the queue for this turn to end. An envelope for an
+ID you have not seen is handled as above, whatever an earlier report
+showed. Recognizing a repeat closes nothing: a request stays open until
+you reply, one merely acknowledged or left awaiting approval stays where
+it was, and a review continuation stays unfinished until its findings are
+resolved. Ending a turn and letting the push start the next one avoids the
+second arrival altogether; read `pending` inside a turn only when the turn
+cannot end without the answer.
 
 Use `sideband pending` when wider state is actually needed: after context loss,
 when a message looks incomplete or its handling state is uncertain, or when
@@ -278,9 +285,9 @@ new work. An entry carrying `pushed_at`, in `updates` or inside an `open` or
 `in_progress` item, was also pushed into this conversation's queue and will
 surface, or has surfaced, as an envelope; handle it from the report and
 recognize the envelope as the same entry (see Pushed messages). An entry
-without it reached you by the report alone: its push failed, went to a
-conversation this one replaced, as after a restart or a clear, or was never
-made, and no envelope is coming. Apply the same review-continuation rule as for pushed replies:
+without it had no accepted push into this session recorded when the report
+was read, which does not rule out an envelope: recognize a repeated ID
+whether or not it was marked. Apply the same review-continuation rule as for pushed replies:
 read and answer fixes for unresolved findings within the original review
 scope, even if its request is already closed in the journal. Never re-append or re-route a delivered entry.
 
