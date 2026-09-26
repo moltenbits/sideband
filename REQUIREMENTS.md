@@ -310,7 +310,9 @@ it by its first token. The skill invoked alone or with one of its own words
 (`help`, `status`, `pending`, `off`) is a command and is not captured. `as`
 is reserved the same way: `as <name>` joins as a named instance (9.5a), and
 `as` alone, with a name that is not valid, or with anything after the name
-is a usage error the model reports, never a message.
+is a usage error the model reports, never a message. The skill invoked to
+join moves no instance to the session it was typed into (9.5a); the join
+records it.
 
 The hook must never block a prompt, so it always exits successfully, and the
 hook's context field is the shared, non-blocking channel both hosts show the
@@ -772,8 +774,10 @@ records of its role:
    restarted client in a discussion that used names rejoins explicitly as a
    matter of course.
 
-The hooks apply the three steps to the operator's own input and write what
-they decide: the process a record takes in step 1, the address moved in step
+The hooks apply the three steps to the operator's own input, except the
+skill invoked to join (alone, or with `as <name>`): that names the instance
+itself, and inferring one first would move another instance to the session
+only for the join to release it there. The hooks write what they decide: the process a record takes in step 1, the address moved in step
 2 or 3, and the process ownership above. A session that holds no instance is
 treated as a session of a role that has not joined always was: a capturable
 prompt typed into it is held for its join (7.1). This narrows version one,
@@ -968,25 +972,27 @@ Claude instance considers the registered sessions whose working directory
 resolves to this repository's state directory, worktrees included, and posts
 the envelope to one socket as one newline-terminated frame; an idle session
 starts a new turn with it and a busy one reads it between tool calls. The
-recipient is the registration the instance's record names (9.5a): the one
-whose session identifier is the record's, or, failing that, the one whose
-process is the record's, since a clear changes the identifier in place and
-the push may run before the session-start hook has moved the record; a
-registration whose session identifier another instance's record names is
-never taken by process. A named instance is reached only that way, and an
-entry for one whose registration is gone or refuses waits in the journal.
-The unnamed instance keeps version one's reach as well: when it has no
-record, when its record names no registration, or when every registration
-its record names refuses, the registrations that no instance's record names
-are tried newest first, so a single Claude that has never joined, or
-restarted without joining while the old registration lingers, is still
-reached and finds the skill through the envelope's intent sentence (section
-7.4). A registration another instance's record names is never a fallback. A
-socket that refuses the connection belongs to a session that has ended, so
-the next candidate is tried, and the entry waits in the journal when none
-accepts. A frame past Claude Code's cap of about a
-million characters is refused before any connection, and a session that
-accepts the connection but stops reading is given up on after a bounded wait.
+recipient is a registration the instance's record names (9.5a), and every such
+registration is tried before any other: those whose session identifier is the
+record's, since a resumed session can be registered twice, and then those of
+the record's process while it runs with its recorded start time, since a clear
+changes the identifier in place and the push may run before the session-start
+hook has moved the record. A registration whose session identifier another
+instance's record names is never taken by process. A named instance is
+reached only that way, and an entry for one whose registrations are gone or
+refuse waits in the journal. The unnamed instance keeps version one's reach
+as well: when it has no record, when its record names no registration, or
+when every registration its record names refuses, the registrations that no
+instance's record claims, by session or by a live process, are tried newest
+first, so a single Claude that has never joined, or restarted without joining
+while the old registration lingers, is still reached and finds the skill
+through the envelope's intent sentence (section 7.4). A registration another
+instance's record claims is never a fallback. A socket that refuses the
+connection belongs to a session that has ended, so the next candidate is
+tried, and the entry waits in the journal when none accepts. A frame past
+Claude Code's cap of about a million characters is refused before any
+connection, and a session that accepts the connection but stops reading is
+given up on after a bounded wait.
 
 Claude Code introduces every frame on that socket to the model as a message
 from another Claude session, and no field of the frame changes that

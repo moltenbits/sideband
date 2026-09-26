@@ -31,8 +31,10 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
@@ -304,6 +306,11 @@ public class HookCommand {
                 String reason = "cannot tell which " + role.id() + " instance this is: the hook payload names no session";
                 return sessions.records(stateDirectory, role).isEmpty() ? skipped(reason) : failed(reason);
             }
+            if (isJoinInvocation(trimmed)) {
+                // The join that follows names the instance itself; inferring one first would move
+                // another instance here, only for the join to release it from this session.
+                return dropped(stateDirectory, role, sessionId);
+            }
             // The operator typed this, so this is the conversation the operator is looking at:
             // even a prompt that is not recorded moves the instance there.
             InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, role, sessionId,
@@ -324,16 +331,23 @@ public class HookCommand {
 
         /** A prompt that was never meant to be captured, or a repository where Sideband is not in use: stderr only. */
         /** The skill's own argument words; anything else after {@code /sideband} or {@code $sideband} is a message. */
-        private static final java.util.Set<String> SKILL_WORDS = java.util.Set.of("help", "status", "pending", "off");
+        private static final Set<String> SKILL_WORDS = Set.of("help", "status", "pending", "off");
+
+        /**
+         * The word that joins as a named instance. It is reserved together with whatever follows
+         * it: a missing, invalid, or extra argument is a usage error for the model to report,
+         * never a message (REQUIREMENTS.md 7.1).
+         */
+        private static final String AS = "as";
 
         /**
          * The operator's words when the prompt is the Sideband skill invoked with a message,
          * such as {@code /sideband @codex look at this}; null for any other prompt, including
-         * the skill alone or with one of its own argument words.
+         * the skill alone, with one of its own argument words, or with {@code as} and whatever follows.
          */
         static String skillMessage(String trimmed) {
             String rest = skillArgument(trimmed);
-            return rest == null || rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)) ? null : rest;
+            return rest == null || reserved(rest) ? null : rest;
         }
 
         /** A pushed envelope inside the tag Claude Code gives its own cross-session messages: transport, never the operator typing. */
@@ -351,10 +365,30 @@ public class HookCommand {
                     || trimmed.startsWith("[SYSTEM NOTIFICATION");
         }
 
-        /** The skill invoked alone or with one of its own words: a command for the model, never the operator's words. */
+        /** The skill invoked alone, with one of its own words, or with {@code as <name>}: a command for the model, never the operator's words. */
         static boolean isSkillCommand(String trimmed) {
             String rest = skillArgument(trimmed);
-            return rest != null && (rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(java.util.Locale.ROOT)));
+            return rest != null && reserved(rest);
+        }
+
+        /** The skill alone, one of its own words, or {@code as} with whatever follows it. */
+        private static boolean reserved(String rest) {
+            return rest.isEmpty() || SKILL_WORDS.contains(rest.toLowerCase(Locale.ROOT)) || firstWord(rest).equals(AS);
+        }
+
+        /** The skill alone or with {@code as}: the operator is joining, and names the instance by doing so. */
+        static boolean isJoinInvocation(String trimmed) {
+            String rest = skillArgument(trimmed);
+            return rest != null && (rest.isEmpty() || firstWord(rest).equals(AS));
+        }
+
+        /** The argument's first word, lowercased, split on whitespace as the rest of the parser splits it. */
+        private static String firstWord(String rest) {
+            int end = 0;
+            while (end < rest.length() && !Character.isWhitespace(rest.charAt(end))) {
+                end++;
+            }
+            return rest.substring(0, end).toLowerCase(Locale.ROOT);
         }
 
         /** What follows the skill invocation, stripped; null when the prompt is not the skill at all. */

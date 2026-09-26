@@ -148,6 +148,16 @@ class HookAndSkillSpec extends CommandSpec {
         "\$sideband Status"                     | null
         "\$sideband PENDING"                    | null
         "\$sideband off"                        | null
+        "/sideband as fable"                    | null
+        "\$sideband as review"                  | null
+        "/sideband AS Fable"                    | null
+        "/sideband as"                          | null
+        "/sideband as fable and more"           | null
+        "/sideband as Not-Valid!"               | null
+        "/sideband assemble the report"         | "assemble the report"
+        "/sideband as-is, please"               | "as-is, please"
+        "/sideband as" + ((char) 0x2003) + "fable" | null
+        "\$sideband as" + ((char) 0x2003) + "review" | null
         "/sidebandish something"                | null
         "\$sidebandish something"               | "\$sidebandish something"
     }
@@ -362,7 +372,7 @@ class HookAndSkillSpec extends CommandSpec {
         where:
         prompt                                  | expected
         "/sideband status"                      | "new-thread"
-        "\$sideband"                            | "new-thread"
+        "\$sideband"                            | "old-thread"   // a join: it names the instance itself, and the join records the thread
         "! sideband doctor"                     | "new-thread"
         "   "                                   | "new-thread"
         "[Sideband message]\n{...}"             | "old-thread"
@@ -831,5 +841,37 @@ class HookAndSkillSpec extends CommandSpec {
         input                 | recorded
         "/sideband status"    | []
         "a newer task"        | ["a newer task"]
+    }
+
+    void "a join typed into the skill names the instance itself, so the hook infers none first and the first terminal keeps its instance"() {
+        given: "one Codex instance, which names no process, and a second Codex terminal that has not joined"
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        stdout = new StringWriter()
+
+        when: "the operator adds the second terminal under a name"
+        hook(invocation, "t2")
+        run("join", "--repo", repo.toString(), "--role", "codex", "--as", "review", "--session-id", "t2")
+
+        then:
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t1"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX, "review")).get().id() == "t2"
+        !stderr.toString().contains("now delivers to t2")
+
+        where:
+        invocation << ["\$sideband as review", "\$sideband"]
+    }
+
+    void "a skill command that does not join still follows the operator"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        stdout = new StringWriter()
+
+        when:
+        hook("\$sideband status", "t2")
+
+        then:
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t2"
     }
 }
