@@ -1,10 +1,14 @@
 package com.moltenbits.sideband.push;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.host.HostProcess;
+import com.moltenbits.sideband.host.HostProcesses;
 import com.moltenbits.sideband.install.InstallReport;
 import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.session.Session;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Value;
 import io.micronaut.core.annotation.Nullable;
 import io.micronaut.serde.ObjectMapper;
@@ -23,8 +27,12 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -32,16 +40,18 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 /**
  * Wakes a Claude Code session by posting the text to its inbox socket, the same channel
  * Claude Code's own cross-session messaging uses. Claude Code registers every session in
- * {@code ~/.claude/sessions/<pid>.json} with its working directory and socket path, so the
- * recipient is whichever registered session works in this repository: no Sideband record
- * is needed, and a Claude that has never joined still receives the envelope. An idle
- * session starts a new turn with it; a busy one reads it between tool calls.
+ * {@code ~/.claude/sessions/<pid>.json} with its working directory and socket path, and the
+ * recipient instance's session record says which of the sessions working in this repository
+ * is its own (REQUIREMENTS.md 10.2). An idle session starts a new turn with it; a busy one
+ * reads it between tool calls.
  * <p>
- * Registrations are tried newest first. A socket that refuses the connection belongs to a
- * session that has ended, so the next is tried; the entry waits in the journal when none
- * accepts. On macOS and Linux the connection needs no auth line. A frame beyond Claude Code's
- * inbox cap is refused before any connection, and a session that accepts the connection but
- * stops reading is given up on after a bounded wait, so a writer is never left hanging.
+ * The unnamed instance is also reached through the registrations no record claims, newest
+ * first, so a Claude that has never joined still receives the envelope. A socket that refuses
+ * the connection belongs to a session that has ended, so the next candidate is tried; the
+ * entry waits in the journal when none accepts. On macOS and Linux the connection needs no
+ * auth line. A frame beyond Claude Code's inbox cap is refused before any connection, and a
+ * session that accepts the connection but stops reading is given up on after a bounded wait,
+ * so a writer is never left hanging.
  * <p>
  * Claude Code treats every frame on this socket as one of its own sessions speaking, and
  * introduces it to the model as such; nothing in the frame changes that introduction. What
@@ -69,18 +79,21 @@ class ClaudeSocketPusher implements HostPusher {
     private final Path homeDirectory;
     private final SidebandHome home;
     private final Installer installer;
+    private final Sessions sessions;
+    private final HostProcesses processes;
     private final ObjectMapper json;
     private final Duration timeout;
 
     @Inject
     ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry,
                        @Value("${sideband.home-directory:}") String homeDirectory,
-                       SidebandHome home, Installer installer, ObjectMapper json,
+                       SidebandHome home, Installer installer, Sessions sessions, HostProcesses processes, ObjectMapper json,
                        @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
-        this(registry, homeDirectory, home, installer, json, Duration.ofSeconds(timeoutSeconds));
+        this(registry, homeDirectory, home, installer, sessions, processes, json, Duration.ofSeconds(timeoutSeconds));
     }
 
-    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, ObjectMapper json, Duration timeout) {
+    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, Sessions sessions,
+                       HostProcesses processes, ObjectMapper json, Duration timeout) {
         this.homeDirectory = homeDirectory == null || homeDirectory.isBlank()
                 ? Path.of(System.getProperty("user.home")) : Path.of(homeDirectory);
         this.registry = registry == null || registry.isBlank()
@@ -88,6 +101,8 @@ class ClaudeSocketPusher implements HostPusher {
                 : Path.of(registry);
         this.home = home;
         this.installer = installer;
+        this.sessions = sessions;
+        this.processes = processes;
         this.json = json;
         this.timeout = timeout;
     }
@@ -99,9 +114,10 @@ class ClaudeSocketPusher implements HostPusher {
 
     @Override
     public PushResult push(Path stateDirectory, ParticipantId recipient, ParticipantId from, String text) {
-        List<Registration> candidates = registered(stateDirectory);
+        List<Registration> candidates = candidates(recipient, sessions.records(stateDirectory, Role.CLAUDE), registered(stateDirectory));
         if (candidates.isEmpty()) {
-            return new PushResult(recipient, PushOutcome.NO_SESSION, null);
+            return new PushResult(recipient, PushOutcome.NO_SESSION, recipient.isUnnamed() ? null
+                    : "no running Claude Code session is recorded for " + recipient);
         }
         // Claude Code holds a frame from a process that is not the session's child unless the
         // operator's settings accept cross-session messages, and a held frame is an approval
@@ -196,6 +212,46 @@ class ClaudeSocketPusher implements HostPusher {
         return CLOSING_TAG_INSIDE.matcher(envelope).replaceAll(match -> String.format("\\\\u%04x", (int) match.group().charAt(0)));
     }
 
+    /**
+     * Where an entry for the instance may go, in the order to try them (REQUIREMENTS.md 10.2):
+     * every registration the instance owns first, those naming its record's session and then
+     * those of its record's process while it still runs, since a clear changes the session in
+     * place and the push may run before the session-start hook has moved the record; a
+     * registration whose session another record names is never taken by process. Then, for the unnamed instance only,
+     * the registrations no record claims, newest first, so a Claude that never joined, or
+     * restarted without joining while its old registration lingers, is still reached. A
+     * named instance is reached through its own record or not at all.
+     */
+    private List<Registration> candidates(ParticipantId recipient, Map<ParticipantId, Session> records, List<Registration> registered) {
+        Set<String> claimedSessions = records.values().stream().map(Session::id).collect(Collectors.toSet());
+        Set<Long> claimedProcesses = records.values().stream().map(Session::process)
+                .filter(process -> process != null && processes.alive(process))
+                .map(HostProcess::pid)
+                .collect(Collectors.toSet());
+        Set<Registration> candidates = new LinkedHashSet<>();
+        Session record = records.get(recipient);
+        if (record != null) {
+            registered.stream().filter(r -> record.id().equals(r.sessionId())).forEach(candidates::add);
+            byProcess(record, registered, claimedSessions).forEach(candidates::add);
+        }
+        if (recipient.isUnnamed()) {
+            registered.stream()
+                    .filter(r -> !claimedSessions.contains(r.sessionId()) && (r.pid() == null || !claimedProcesses.contains(r.pid())))
+                    .forEach(candidates::add);
+        }
+        return List.copyOf(candidates);
+    }
+
+    /** The registrations of the record's process while it still runs, except those whose session another record names. */
+    private List<Registration> byProcess(Session record, List<Registration> registered, Set<String> claimedSessions) {
+        HostProcess process = record.process();
+        if (process == null || !processes.alive(process)) {
+            return List.of();
+        }
+        return registered.stream()
+                .filter(r -> r.pid() != null && r.pid() == process.pid() && !claimedSessions.contains(r.sessionId()))
+                .toList();
+    }
     /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */
     private List<Registration> registered(Path stateDirectory) {
         if (!Files.isDirectory(registry)) {

@@ -2,8 +2,12 @@ package com.moltenbits.sideband.push
 
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.host.HostProcess
+import com.moltenbits.sideband.host.HostProcesses
+import com.moltenbits.sideband.install.Installer
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import io.micronaut.serde.ObjectMapper
 import spock.lang.AutoCleanup
@@ -29,6 +33,7 @@ class ClaudeSocketPusherSpec extends Specification {
 
     static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
     static final ParticipantId CODEX = ParticipantId.of(Role.CODEX)
+    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
 
     @Shared Path registry = Files.createTempDirectory("claude-sessions")
     /** A fake user home whose settings accept cross-session messages, so pushes are attempted. */
@@ -44,6 +49,9 @@ class ClaudeSocketPusherSpec extends Specification {
     }
 
     HostPusher pusher = context.getBeansOfType(HostPusher).find { it.role() == Role.CLAUDE }
+    Sessions sessions = context.getBean(Sessions)
+    /** This JVM, standing in for a running Claude Code process. */
+    HostProcess self = context.getBean(HostProcesses).describe(ProcessHandle.current().pid()).get()
     SidebandHome home = context.getBean(SidebandHome)
     Path repo = TempRepo.init()
     Path state = Files.createDirectories(home.locate(repo))
@@ -85,8 +93,8 @@ class ClaudeSocketPusherSpec extends Specification {
         }
     }
 
-    String register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid) {
-        String sessionId = UUID.randomUUID().toString()
+    String register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid,
+                    String sessionId = UUID.randomUUID().toString()) {
         Files.writeString(registry.resolve(pid + ".json"), context.getBean(ObjectMapper).writeValueAsString([
                 pid: pid, sessionId: sessionId, cwd: cwd.toString(), startedAt: startedAt,
                 version: "2.1.263", peerProtocol: 1, kind: "interactive", entrypoint: "cli",
@@ -270,7 +278,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Files.createDirectories(silentHome.resolve(".claude"))
         if (setting != null) Files.writeString(silentHome.resolve(".claude/settings.json"), '{"crossSessionInbound": "' + setting + '"}')
         HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         when:
         PushResult result = cautious.push(state, CLAUDE, CODEX, "hi")
@@ -305,7 +313,7 @@ class ClaudeSocketPusherSpec extends Specification {
     void "an absent registry directory means no session"() {
         given:
         HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
         lone.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
@@ -356,7 +364,7 @@ class ClaudeSocketPusherSpec extends Specification {
         servers << server
         register(8, repo, socket)
         HostPusher impatient = new ClaudeSocketPusher(registry.toString(), fakeHome.toString(), home,
-                context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
+                context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
         long started = System.nanoTime()
 
         when:
@@ -383,5 +391,161 @@ class ClaudeSocketPusherSpec extends Specification {
             detail().contains("alive")
         }
         received.get().contains('\\nhi\\n</cross-session-message>')
+    }
+
+    // --- which registration an instance's entry goes to (REQUIREMENTS.md 10.2) ---
+
+    void "an entry for a named instance goes to the registration its record names, not the newest one"() {
+        given:
+        Path fableSocket = socketPath()
+        def fableInbox = inbox(fableSocket)
+        String fableSession = register(11, repo, fableSocket, 1000L)
+        Path newerSocket = socketPath()
+        def newer = inbox(newerSocket)
+        register(12, repo, newerSocket, 2000L)
+        sessions.join(state, FABLE, fableSession)
+
+        when:
+        PushResult result = pusher.push(state, FABLE, CODEX, "for fable")
+
+        then:
+        result.outcome() == PushOutcome.PUSHED
+        result.session() == fableSession
+        fableInbox.get(5, TimeUnit.SECONDS).contains("for fable")
+        !newer.isDone()
+    }
+
+    void "a named instance is reached through its own record or not at all"() {
+        given: "registrations that no fable record names"
+        register(21, repo, socketPath(), 1000L)
+
+        expect: "without a record"
+        pusher.push(state, FABLE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+
+        when: "with a record whose session is no longer registered"
+        sessions.join(state, FABLE, "gone-session")
+
+        then:
+        pusher.push(state, FABLE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+    }
+
+    void "the unnamed instance goes to its own registration first, even when a newer one exists"() {
+        given:
+        Path ownSocket = socketPath()
+        def own = inbox(ownSocket)
+        String ownSession = register(31, repo, ownSocket, 1000L)
+        Path newerSocket = socketPath()
+        def newer = inbox(newerSocket)
+        register(32, repo, newerSocket, 2000L)
+        sessions.join(state, CLAUDE, ownSession)
+
+        when:
+        PushResult result = pusher.push(state, CLAUDE, CODEX, "for claude")
+
+        then:
+        result.session() == ownSession
+        own.get(5, TimeUnit.SECONDS).contains("for claude")
+        !newer.isDone()
+    }
+
+    void "the unnamed instance falls back to an unclaimed registration when its own refuses, as after a crash and an unjoined restart"() {
+        given: "the joined session's registration lingers with a socket nothing listens on"
+        String crashed = register(41, repo, socketPath(), 1000L)
+        sessions.join(state, CLAUDE, crashed)
+        Path restartedSocket = socketPath()
+        def restarted = inbox(restartedSocket)
+        String restartedSession = register(42, repo, restartedSocket, 2000L)
+
+        when:
+        PushResult result = pusher.push(state, CLAUDE, CODEX, "still reached")
+
+        then:
+        result.outcome() == PushOutcome.PUSHED
+        result.session() == restartedSession
+        restarted.get(5, TimeUnit.SECONDS).contains("still reached")
+    }
+
+    void "the unnamed instance never falls back onto a registration another instance holds"() {
+        given:
+        String fableSession = register(51, repo, socketPath(), 2000L)
+        sessions.join(state, FABLE, fableSession)
+
+        expect: "with only fable's session running, an entry for the unnamed Claude waits"
+        pusher.push(state, CLAUDE, CODEX, "not for fable").outcome() == PushOutcome.NO_SESSION
+
+        when: "an unclaimed older session is running too"
+        Path freeSocket = socketPath()
+        def free = inbox(freeSocket)
+        String freeSession = register(52, repo, freeSocket, 1000L)
+
+        then:
+        pusher.push(state, CLAUDE, CODEX, "for the free one").session() == freeSession
+        free.get(5, TimeUnit.SECONDS).contains("for the free one")
+    }
+
+    void "right after a clear the record's process finds the registration under its new session"() {
+        given: "fable's record still names the session before the clear; the registration already names the new one"
+        sessions.join(state, FABLE, "before-clear", self, false)
+        Path socket = socketPath()
+        def received = inbox(socket)
+        String afterClear = register(self.pid(), repo, socket)
+
+        when:
+        PushResult result = pusher.push(state, FABLE, CODEX, "after the clear")
+
+        then:
+        result.outcome() == PushOutcome.PUSHED
+        result.session() == afterClear
+        received.get(5, TimeUnit.SECONDS).contains("after the clear")
+    }
+
+    void "a registration another record names by session is never taken by process"() {
+        given: "fable's process now shows the unnamed instance's session, as after /resume inside one client"
+        sessions.join(state, FABLE, "fable-before", self, false)
+        String claudeSession = register(self.pid(), repo, socketPath())
+        sessions.join(state, CLAUDE, claudeSession)
+
+        expect:
+        pusher.push(state, FABLE, CODEX, "not through claude's session").outcome() == PushOutcome.NO_SESSION
+    }
+
+    void "every registration the instance owns is tried before any other: another registration of the same session"() {
+        given: "a resumed session registered twice, the newer registration's socket refusing"
+        Path socket = socketPath()
+        def received = inbox(socket)
+        String resumed = register(101, repo, socket, 1000L)
+        register(102, repo, socketPath(), 2000L, "session-102", resumed)
+        sessions.join(state, recipient, resumed)
+
+        when:
+        PushResult result = pusher.push(state, recipient, CODEX, "still reachable")
+
+        then:
+        result.outcome() == PushOutcome.PUSHED
+        result.session() == resumed
+        received.get(5, TimeUnit.SECONDS).contains("still reachable")
+
+        where:
+        recipient << [FABLE, CLAUDE]
+    }
+
+    void "every registration the instance owns is tried before any other: its process under a new session after a stale one refuses"() {
+        given: "the record's session is still registered by a dead socket, and its live process now shows a new session"
+        String beforeClear = register(201, repo, socketPath(), 1000L)
+        Path socket = socketPath()
+        def received = inbox(socket)
+        String afterClear = register(self.pid(), repo, socket, 2000L)
+        sessions.join(state, recipient, beforeClear, self, false)
+
+        when:
+        PushResult result = pusher.push(state, recipient, CODEX, "after the clear")
+
+        then:
+        result.outcome() == PushOutcome.PUSHED
+        result.session() == afterClear
+        received.get(5, TimeUnit.SECONDS).contains("after the clear")
+
+        where:
+        recipient << [FABLE, CLAUDE]
     }
 }
