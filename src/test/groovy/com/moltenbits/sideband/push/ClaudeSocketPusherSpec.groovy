@@ -84,11 +84,13 @@ class ClaudeSocketPusherSpec extends Specification {
         }
     }
 
-    void register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid) {
+    String register(long pid, Path cwd, Path socket, long startedAt = 1000L, String name = "session-" + pid) {
+        String sessionId = UUID.randomUUID().toString()
         Files.writeString(registry.resolve(pid + ".json"), context.getBean(ObjectMapper).writeValueAsString([
-                pid: pid, sessionId: UUID.randomUUID().toString(), cwd: cwd.toString(), startedAt: startedAt,
+                pid: pid, sessionId: sessionId, cwd: cwd.toString(), startedAt: startedAt,
                 version: "2.1.263", peerProtocol: 1, kind: "interactive", entrypoint: "cli",
                 messagingSocketPath: socket.toString(), name: name, status: "idle"]))
+        sessionId
     }
 
     void "the component is exposed only through its interface"() {
@@ -100,7 +102,7 @@ class ClaudeSocketPusherSpec extends Specification {
         given:
         Path socket = socketPath()
         def received = inbox(socket)
-        register(4242, repo, socket)
+        String sessionId = register(4242, repo, socket)
         String text = "[Sideband message]\n{\"intent\":\"Sideband delivery\",\"entries\":[]}"
 
         when:
@@ -110,6 +112,7 @@ class ClaudeSocketPusherSpec extends Specification {
         then:
         result.role() == Role.CLAUDE
         result.outcome() == PushOutcome.PUSHED
+        result.session() == sessionId
         result.detail().contains("session-4242")
         result.detail().contains("4242")
         wire.endsWith("\n")

@@ -7,6 +7,7 @@ import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.session.Deliveries
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
@@ -33,6 +34,7 @@ class HostPushesSpec extends Specification {
 
     Journal journal = context.getBean(Journal)
     Sessions sessions = context.getBean(Sessions)
+    Deliveries deliveries = context.getBean(Deliveries)
     Pushes pushes = context.getBean(Pushes)
     Path repo = TempRepo.init()
     Path state = Files.createDirectories(repo.resolve(".git/sideband"))
@@ -104,7 +106,7 @@ exit $(cat "''' + exitFile + '''")
                                    authors << from
                                    new PushResult(Role.CLAUDE, PushOutcome.PUSHED, text)
                                }] as HostPusher
-        Pushes wired = new HostPushes(context.getBean(Handoffs), [recorder])
+        Pushes wired = new HostPushes(context.getBean(Handoffs), deliveries, [recorder])
 
         when:
         List<PushResult> results = wired.deliver(state, reply)
@@ -128,7 +130,7 @@ exit $(cat "''' + exitFile + '''")
         !Files.exists(log)
     }
 
-    void "a failing codex queue leaves the entry pending with the reason"() {
+    void "a failing codex queue leaves the entry pending with the reason, and records no delivery"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123")
         Files.writeString(exitFile, "3")
@@ -140,6 +142,80 @@ exit $(cat "''' + exitFile + '''")
         then:
         results*.outcome() == [PushOutcome.FAILED]
         results[0].detail().contains("exited 3")
+        deliveries.pushedInto(state, Role.CODEX, "thread-123").isEmpty()
+    }
+
+    void "a push the host accepted is recorded against the session it went into, so pending can say it is on its way"() {
+        given:
+        sessions.join(state, Role.CODEX, "thread-123")
+        Entry entry = toCodex("@codex please look")
+
+        when:
+        List<PushResult> results = pushes.deliver(state, entry)
+
+        then:
+        results*.session() == ["thread-123"]
+        deliveries.pushedInto(state, Role.CODEX, "thread-123").keySet() == [entry.seq()] as Set
+        deliveries.pushedInto(state, Role.CODEX, "thread-456").isEmpty()
+        !Files.readAllLines(log).join("\n").contains("pushed_at")
+    }
+
+    void "the delivery is recorded against the destination the pusher used, not the role's record afterwards, which a join may move mid-push"() {
+        given: "Codex holds thread A; while the push to A is in flight, Codex rejoins from thread B"
+        sessions.join(state, Role.CODEX, "thread-A")
+        Entry entry = toCodex("@codex please look")
+        HostPusher relocating = [role: { Role.CODEX },
+                                 push: { Path directory, ParticipantId from, String text ->
+                                     String target = sessions.load(directory, Role.CODEX).get().id()
+                                     sessions.join(directory, Role.CODEX, "thread-B", true)
+                                     new PushResult(Role.CODEX, PushOutcome.PUSHED, "queued to " + target, target)
+                                 }] as HostPusher
+        Pushes wired = new HostPushes(context.getBean(Handoffs), deliveries, [relocating])
+
+        when:
+        wired.deliver(state, entry)
+
+        then: "A, which holds the envelope, has the record; B, which will never see it, has none"
+        deliveries.pushedInto(state, Role.CODEX, "thread-A").keySet() == [entry.seq()] as Set
+        deliveries.pushedInto(state, Role.CODEX, "thread-B").isEmpty()
+    }
+
+    void "a Claude push lands in whichever registered session accepts it, recorded or not, and that is the session recorded"() {
+        given: "the recorded Claude session is A, but the socket that accepts belongs to B; then no Claude has joined at all"
+        Entry first = journal.append(state, Fixtures.humanDraft("@claude one", [Fixtures.CLAUDE], Role.CODEX))
+        Entry third = journal.append(state, Fixtures.humanDraft("@claude three", [Fixtures.CLAUDE], Role.CODEX))
+        String accepting = "claude-B"
+        HostPusher socket = [role: { Role.CLAUDE },
+                             push: { Path directory, ParticipantId from, String text ->
+                                 new PushResult(Role.CLAUDE, PushOutcome.PUSHED, "posted", accepting)
+                             }] as HostPusher
+        Pushes wired = new HostPushes(context.getBean(Handoffs), deliveries, [socket])
+        sessions.join(state, Role.CLAUDE, "claude-A")
+
+        when:
+        wired.deliver(state, first)
+
+        then:
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-B").keySet() == [first.seq()] as Set
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-A").isEmpty()
+
+        when: "no Claude role is recorded at all, and the push still lands somewhere known"
+        Path unjoined = Files.createDirectories(TempRepo.init().resolve(".git/sideband"))
+        Entry elsewhere = journal.append(unjoined, Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE], Role.CODEX))
+        accepting = "claude-C"
+        wired.deliver(unjoined, elsewhere)
+
+        then:
+        sessions.load(unjoined, Role.CLAUDE).isEmpty()
+        deliveries.pushedInto(unjoined, Role.CLAUDE, "claude-C").keySet() == [elsewhere.seq()] as Set
+
+        when: "a host that accepted the text but could not say which session took it"
+        accepting = null
+        wired.deliver(state, third)
+
+        then: "nothing is recorded: pending then shows the entry plainly rather than claiming a place it cannot name"
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-C").isEmpty()
+        deliveries.pushedInto(state, Role.CLAUDE, "claude-B").keySet() == [first.seq()] as Set
     }
 
     void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
@@ -171,7 +247,7 @@ exit $(cat "''' + exitFile + '''")
         Entry viaCodex = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
 
         expect:
-        pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.")]
+        pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.", "thread-123")]
         pushes.deliver(state, viaCodex) == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
     }
 }

@@ -92,7 +92,7 @@ class SqliteHeldPromptsSpec extends Specification {
         held.held(dir, Role.CLAUDE, "s1").isEmpty()
         DriverManager.getConnection("jdbc:sqlite:" + file).withCloseable { c ->
             c.createStatement().withCloseable { s -> s.executeQuery("PRAGMA user_version").getInt(1) }
-        } == 2
+        } == Database.SCHEMA_VERSION
     }
 
     void "a database another process is still creating reads as absent"() {

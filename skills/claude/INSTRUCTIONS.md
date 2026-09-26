@@ -190,6 +190,23 @@ a new request. Apply the review-continuation rule below when it carries fixes
 for unresolved findings. Do not repeat work already done in this conversation
 for the same id, and never re-append or re-route a delivered entry.
 
+An entry can reach this conversation twice: once in a `pending` report and
+once as a pushed envelope, since a report cannot take back a frame the
+inbox already accepted. A report marks such an entry with `pushed_at`, the
+moment this conversation accepted the push. An entry without it had no
+accepted push into this conversation recorded when the report was read:
+the push may have failed, gone to a conversation this one replaced, or not
+finished yet, since an entry is journaled before it is pushed and the push
+before it is recorded, so an envelope may still follow. Treat an envelope
+whose entry id this conversation has already seen, in a report or an
+earlier envelope, as that same entry arriving by its other path, whether
+or not the report marked it, and a report listing an entry that already
+arrived as an envelope the same way: say in one line that it was already
+seen and where, and do nothing else, no second ack, no new review, no
+"delayed" explanation. Recognizing a repeat closes nothing: a request
+stays open until you reply, and one merely acknowledged or left awaiting
+approval stays where it was.
+
 A `reply` with `expects_reply: false` carrying fixes for findings you reported
 in an acknowledged, authorized review is a continuation of that review.
 The review is unfinished while those findings remain unresolved, even if

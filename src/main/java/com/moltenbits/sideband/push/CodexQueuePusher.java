@@ -57,7 +57,7 @@ class CodexQueuePusher implements HostPusher {
             if (process.exitValue() != 0) {
                 return new PushResult(Role.CODEX, PushOutcome.FAILED, "codex queue exited " + process.exitValue() + ": " + output);
             }
-            return new PushResult(Role.CODEX, PushOutcome.PUSHED, output);
+            return new PushResult(Role.CODEX, PushOutcome.PUSHED, output, session.get().id());
         } catch (IOException e) {
             return new PushResult(Role.CODEX, PushOutcome.FAILED, "could not run " + executable + ": " + e.getMessage());
         } catch (InterruptedException e) {
