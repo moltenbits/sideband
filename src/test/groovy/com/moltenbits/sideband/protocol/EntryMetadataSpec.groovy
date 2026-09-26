@@ -73,6 +73,25 @@ class EntryMetadataSpec extends Specification {
         [id: ""]                                                                           | "'id' must not be blank"
         [id: "a b"]                                                                        | "whitespace"
         [from: Fixtures.CLAUDE, via: null, type: MessageType.REQUEST, replyTo: " "]        | "'reply_to' must not be blank"
+        [via: Fixtures.OPERATOR]                                                           | "'via' must be a client instance"
+    }
+
+    void "a prompt typed into a named instance names it in via, and round-trips"() {
+        given:
+        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        EntryMetadata typed = Fixtures.metadata(via: fable, to: [fable], route: Route.DIRECT)
+
+        when:
+        String written = json.writeValueAsString(typed)
+
+        then:
+        written.contains('"from":"operator","via":"claude:fable","to":["claude:fable"]')
+        json.readValue(written, EntryMetadata) == typed
+    }
+
+    void "a version-one via reads as the unnamed instance"() {
+        expect:
+        json.readValue(SAMPLE, EntryMetadata).via() == ParticipantId.of(Role.CLAUDE)
     }
 
     void "drafts apply the same rules and reject a blank body"() {

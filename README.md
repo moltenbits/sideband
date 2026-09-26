@@ -54,8 +54,8 @@ cd <your repository>
 sideband init
 ```
 
-Check the result at any time. `doctor` reports the database, both roles'
-sessions, and every client item, and says where anything still needs your
+Check the result at any time. `doctor` reports the database, every
+instance's session, and every client item, and says where anything still needs your
 attention:
 
 ```bash
@@ -170,6 +170,35 @@ commits as you both work along and tell me when it is done.
 Everything you type on either side keeps being journaled, so a later prompt
 can redirect either agent, or `@all` can speak to both at once.
 
+### 2.4 Several sessions of one client
+
+More than one Claude Code or Codex session can take part in the same
+discussion, say one Claude running Opus and another running Fable. The first
+of each joins as usual and is the unnamed `claude` or `codex`; every further
+one joins under a name:
+
+```text
+/sideband as fable
+```
+
+That session is now `claude:fable`, with its own bookmark and its own pending
+work, and `@claude:fable` at the start of a prompt reaches it. `@claude`
+still reaches only the unnamed Claude, and `@all` reaches every session that
+has joined. An agent's reply goes back to the session that asked. A name is a
+lowercase letter followed by up to 31 lowercase letters, digits, and hyphens.
+
+Joining under a name another session holds takes the name over, and the
+join says which session it replaced. Claude Code tells Sideband which process
+every session runs in, so a second Claude Code terminal that has not joined
+is never folded into an instance whose client is still running elsewhere:
+its prompts wait for its own `/sideband` or `/sideband as <name>`, and a
+cleared conversation keeps its instance. Codex offers no such signal. While
+one Codex instance is joined, Codex behaves as it always has: a cleared or
+second Codex terminal takes the instance over with its first prompt, so join
+a second Codex under a name before typing into it. With two or more Codex
+instances joined, a cleared conversation is told which instances it could
+be, and `$sideband` or `$sideband as <name>` settles it.
+
 ## 3. How it works
 
 - **Agents delegate to each other and reply.** Claude asks Codex to review
@@ -188,20 +217,21 @@ can redirect either agent, or `@all` can speak to both at once.
   either client is journaled verbatim and attributed to the human. Normally
   each agent is spoken to in its own session; `@codex` at the start of a
   prompt typed into Claude Code routes it to Codex anyway, `@claude` does the
-  reverse, and `@all` reaches both.
+  reverse, `@claude:fable` reaches a named session (2.4), and `@all`
+  reaches every session that has joined.
 - **Nothing is lost, and nothing is tracked outside the journal.** A request
   stays listed for its recipient until the journal holds that recipient's
   acknowledgement or reply, and listed for its sender until a reply exists.
   Requests that arrived while a client was away are confirmed with the human
-  before any action. The only thing kept beside the journal is each role's
-  session record: how far it has read, and for Codex the thread to push into.
-  Whoever joins as a role last holds it; one client per role per repository is
-  a convention the operator keeps, not something the executable polices.
+  before any action. The only thing kept beside the journal is each
+  instance's session record: how far it has read, which conversation and, for
+  Claude Code, which process it is, and for Codex the thread to push into.
+  Whoever joins under an identifier last holds it; nothing is refused.
 
 ### 3.1 The journal
 
 `sideband.db` is one SQLite database in the state directory holding every
-entry and both roles' session records. An entry is its metadata plus the
+entry and every instance's session record. An entry is its metadata plus the
 verbatim body, and `sideband log` prints the whole discussion as Markdown for
 a person to read:
 
@@ -229,14 +259,17 @@ after it is live. A state directory from before the database still holds
 ### 3.2 Claude Code
 
 `init` installs the skill under `~/.claude/skills/sideband` and registers
-both hooks in the repository's `.claude/settings.json`. In Claude Code the
-hooks are only bookkeeping, because the session is found by process:
-Claude Code registers every session in `~/.claude/sessions/<pid>.json` with
-its working directory and an inbox socket, the channel its own cross-session
-messaging uses. The writer finds the registered session working in this
-repository, worktrees included, and posts the envelope to its socket as one
-newline-terminated frame. No Sideband record is involved, so a Claude Code
-session that has never run `/sideband` is reached too; it loads the skill from
+both hooks in the repository's `.claude/settings.json`. The hooks keep each
+instance's record on the conversation you are in, and the writer reaches that
+conversation through the registry Claude Code keeps: Claude Code registers
+every session in `~/.claude/sessions/<pid>.json` with its working directory
+and an inbox socket, the channel its own cross-session messaging uses. The
+writer considers the registered sessions working in this repository,
+worktrees included, and posts the envelope to one socket as one
+newline-terminated frame. The recipient is the session the instance's record
+names, by session id or, right after a clear, by process. An entry for the
+unnamed `claude` also reaches a Claude Code session that has never run
+`/sideband`, as long as no other instance holds it; it loads the skill from
 the envelope's first line. A socket that refuses the connection belongs to a
 session that has ended, and the entry then waits in the journal.
 
@@ -244,8 +277,8 @@ Claude Code introduces everything on that socket to the model as a message
 from another Claude session; no frame can change that. The frame does carry
 the shape Claude Code's own cross-session messaging uses, a
 `<cross-session-message>` tag whose `from-name` Claude Code parses into the
-message's origin, so the envelope arrives named for its author: Codex, or the
-operator, rather than an anonymous session.
+message's origin, so the envelope arrives named for its author: Codex,
+`Claude (fable)`, or the operator, rather than an anonymous session.
 
 One setting is yours to make (section 1.2), and without it Claude falls
 back to listening. A pushed envelope reaches Claude Code from a process that
@@ -287,10 +320,12 @@ Codex has no session registry. It records its thread id when it joins, and
 the writer pushes the envelope into that thread with `codex queue`. That
 address follows you: `/clear` in Codex starts a new thread and leaves the old
 one loaded, where a queued envelope would run unseen, so the hooks move the
-role to the new thread: the session-start hook when Codex runs it for the
+instance to the new thread: the session-start hook when Codex runs it for the
 clear, and the prompt hook whenever a prompt you type comes from a thread
 other than the recorded one. Only your own input moves it; a delivered
-envelope never does. One window remains. Codex runs both hooks only when you
+envelope never does. That holds while one Codex instance is joined; with
+several, the hooks cannot tell which one a new thread continues, move none,
+and tell the new conversation to join again (section 2.4). One window remains. Codex runs both hooks only when you
 submit your first prompt in the new thread, not at the clear itself, and in
 the tested Codex 0.153.4 TUI setup Sideband has no supported way to identify
 the thread on screen during that window. So **after `/clear` in Codex, type

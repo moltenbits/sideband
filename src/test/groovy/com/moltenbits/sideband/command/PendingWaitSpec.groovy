@@ -4,6 +4,7 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.session.Deliveries
 import io.micronaut.serde.ObjectMapper
@@ -40,7 +41,7 @@ class PendingWaitSpec extends CommandSpec {
         when:
         Thread.sleep(300)
         journal.append(stateDir, Fixtures.humanDraft("@codex not for claude", [Fixtures.CODEX]))
-        journal.append(stateDir, Fixtures.humanDraft("@claude first", [Fixtures.CLAUDE], Role.CODEX))
+        journal.append(stateDir, Fixtures.humanDraft("@claude first", [Fixtures.CLAUDE], Fixtures.CODEX))
         Thread.sleep(400)
         journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [Fixtures.CLAUDE], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "second"))
@@ -79,7 +80,7 @@ class PendingWaitSpec extends CommandSpec {
                 causedBy: null, expectsReply: false, body: "queued to codex")).seq()
         journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "push failed"))
-        context.getBean(Deliveries).record(stateDir, pushed, Role.CODEX, "thread-1")
+        context.getBean(Deliveries).record(stateDir, pushed, ParticipantId.of(Role.CODEX), "thread-1")
 
         when:
         int code = run("pending", "--repo", repo.toString(), "--role", "codex")

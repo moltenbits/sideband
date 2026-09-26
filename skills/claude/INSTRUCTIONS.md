@@ -22,7 +22,8 @@ described below.
 | Argument | What to do |
 | --- | --- |
 | `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. Remind the user that `! sideband <command>` runs any command directly with no model turn. |
-| `status` | Run `sideband doctor` and summarize it: both roles' sessions, pending counts, journal health, skill links. Do not activate. |
+| `status` | Run `sideband doctor` and summarize it: every instance's session, pending counts, journal health, skill links. Do not activate. |
+| `as <name>` | Activate as the named instance `claude:<name>` instead of the unnamed `claude`, so a second Claude Code session can take part in the same discussion: everything under Activate applies, with `sideband join --resume --as <name>` in step 1. A name is a lowercase letter followed by up to 31 lowercase letters, digits, and hyphens. `as` alone, a name that is not valid, or anything after the name is a usage error: show the user the form `/sideband as <name>` and the name rule, and do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. With no hook note, either Claude had not joined here yet and the hook held the message, or the hook did not run: activate, and only an `adopted` entry in the join output shows the message was sent. |
@@ -34,10 +35,14 @@ It is a plain command, `! sideband log`, not a skill argument.
 ## Activate
 
 1. Join. The executable recognizes Claude Code from its shell environment
-   and records this conversation as the one holding the Claude role here;
-   whoever joins last holds it, so a restarted Claude simply joins again and
-   nothing is refused. Plain `join`
-   starts at the latest point; `--resume` picks up from where Claude last
+   and records this conversation, and the Claude Code process it runs in, as
+   the one holding its instance here: the unnamed `claude`, or `claude:<name>`
+   after `/sideband as <name>`. Whoever joins under an identifier last holds
+   it, so a restarted Claude simply joins again and nothing is refused. A
+   report with `replaced` means this join took the instance over from that
+   session: tell the user in one line, since a Claude Code session they
+   forgot may still be running there and no longer receives anything.
+   Plain `join` starts at the latest point; `--resume` picks up from where Claude last
    left off, so replies and other updates written for it since are shown.
    Use `--resume` unless the user says to start fresh.
 
@@ -85,10 +90,12 @@ It is a plain command, `! sideband log`, not a skill argument.
    running session; if they do, the user re-runs `/sideband`.
 
    `installed` means the executable will post to this session: whoever
-   appends an entry for Claude posts the complete envelope into this
+   appends an entry for this instance posts the complete envelope into this
    conversation over Claude Code's inbox socket, which starts a turn here
    when the conversation is idle and is read between tool calls when it is
-   busy. That also works for a Claude Code session that has not joined. It
+   busy. An entry for the unnamed `claude` also reaches a Claude Code session
+   that has not joined, as long as no instance's record names that session;
+   one for a named instance reaches only the session that joined as it. It
    is the verdict of the files the executable can read, not proof that
    managed settings or `--settings` allow it; if pushes still show up as
    approval dialogs, tell the user. If a listener from an earlier
@@ -125,9 +132,11 @@ It is a plain command, `! sideband log`, not a skill argument.
 
 The prompt hook records every prompt the human types, before you see it, and
 says so in a hook note that names the entry's id. The executable resolves a
-leading `@claude`, `@codex`, or `@all` directive; anything else routes to
-Claude alone, and Claude's own turn is never redelivered. Use the noted id as
-`--caused-by` when the prompt leads you to delegate. Never record a prompt
+leading directive: `@claude` and `@codex` reach the unnamed instances,
+`@claude:<name>` and `@codex:<name>` that named instance, and `@all` both
+unnamed instances and every joined named one. Anything else routes to this
+instance alone, and this instance's own turn is never redelivered. Use the
+noted id as `--caused-by` when the prompt leads you to delegate. Never record a prompt
 yourself, and never record a pushed envelope: the hook is the only thing that
 records prompts, and when it could not, reporting that is the whole recovery.
 The one prompt it holds instead of recording is the one typed before Claude
@@ -138,11 +147,15 @@ not complete, and the prompt may or may not be in the discussion; "recorded
 this prompt as <id> but could not deliver it" means it is, but the push to
 its recipient failed; "not active in this session and N entries
 are waiting" means offer `/sideband`; "joined as Claude in this repository
-and delivers to this conversation" is the session-start hook after a clear,
-saying the role followed you here, and needs nothing unless it counts
-waiting entries, in which case run `sideband pending`. Never record a prompt
-yourself; the hook records prompts, and reporting a failure is the whole
-recovery.
+and delivers to this conversation", or as a named instance such as
+"Claude (fable)", is the session-start hook after a clear, saying that
+instance followed you here, and needs nothing unless it counts waiting
+entries, in which case run `sideband pending`; "cannot tell which Claude
+instance this conversation continues" means nothing moved and this
+conversation holds no instance: tell the user, ask which instance this
+terminal was, and join as it (`/sideband`, or `/sideband as <name>`).
+Never record a prompt yourself; the hook records prompts, and reporting a
+failure is the whole recovery.
 
 ## When a listener notification arrives
 
@@ -169,7 +182,8 @@ lost these instructions can find them again.
 
 The envelope holds the complete entries, metadata and body. Handle each entry
 in `entries` directly, in order, without running `pending` first. For an
-entry addressed to Claude and written by someone else:
+entry addressed to this instance (`claude`, or `claude:<name>` when it joined
+under a name) and written by someone else:
 
   1. If `metadata.expects_reply` is true, acknowledge it first:
      `sideband append --type ack --reply-to <id>`. That is the journal's
@@ -274,7 +288,13 @@ sideband append --type ack --reply-to <id>
 
 `--caused-by` names the immediate communication that led to a delegation;
 `--reply-to` names the message being answered, and the answer goes to whoever
-wrote it unless you pass `--to` yourself (for instance to copy the user). If `append`
+wrote it unless you pass `--to` yourself (for instance to copy the user). A
+named instance of either client is addressed as it is named, `--to codex:review`
+or `--to claude:fable`, and `--to claude` reaches only the unnamed Claude; the
+author is always the calling instance. An exit 2 saying this session holds no
+Sideband instance here means this conversation lost its instance, to another
+session's join or to a restart nobody has rejoined: tell the user and offer
+`/sideband`; never retry as another instance. If `append`
 exits non-zero, say so in the first line of your reply and never describe
 that message as pending, queued, or awaiting a reply. Exit 2 means nothing
 was written. Any other failure leaves recording and delivery unconfirmed,

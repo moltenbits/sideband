@@ -7,7 +7,7 @@ import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.protocol.MessageType;
-import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import com.moltenbits.sideband.waiting.JournalWatcher;
@@ -28,12 +28,14 @@ import java.util.concurrent.Callable;
 import java.util.function.Predicate;
 
 /**
- * Everything a role has to look at, derived from the journal: unanswered requests to it,
+ * Everything the calling instance has to look at, derived from the journal: unanswered requests to it,
  * informational entries it has not been shown, and its own requests still awaiting a reply.
- * Printing the report advances the role's read position past the updates.
+ * Printing the report advances the instance's read position past the updates. Which instance
+ * is calling follows the commands' rule of REQUIREMENTS.md 9.5a, and a session that holds none is
+ * refused.
  * <p>
  * With {@code --wait} the command first blocks, at no model cost, until something new for
- * the role arrives; with {@code --stream} it keeps doing that forever, one report per batch.
+ * the instance arrives; with {@code --stream} it keeps doing that forever, one report per batch.
  * A waiting report is a delivery, not a read: it never advances the read position, because
  * a host notification may be truncated, so the model's own plain {@code pending} is what
  * marks updates shown. Both forms sit under a host facility, Claude Code's Monitor or a
@@ -64,8 +66,9 @@ public class PendingCommand implements Callable<Integer> {
     @Option(names = "--from", hidden = true, description = "Position to watch from (default: the session's read position)")
     Long from;
 
-    @Option(names = "--role", hidden = true, description = "Override the client detected from the environment")
-    Role role;
+    @Option(names = "--role", hidden = true, converter = ParticipantIdConverter.class,
+            description = "Act as this client instance rather than the one the environment identifies")
+    ParticipantId role;
 
     @Option(names = "--max-batches", hidden = true, description = "With --stream: stop after this many reports (for tests)")
     Integer maxBatches;
@@ -100,8 +103,8 @@ public class PendingCommand implements Callable<Integer> {
         if (from != null && from < 0) {
             throw new IllegalArgumentException("--from must not be negative");
         }
-        Role who = role != null ? role : host.requireRole("--role");
         Path stateDirectory = repository.stateDirectory(home);
+        ParticipantId who = role != null ? Caller.client(role, "--role") : Caller.identify(host, sessions, stateDirectory, "--role");
         if (!wait) {
             return print(stateDirectory, who, true, ExitCode.OK);
         }
@@ -128,7 +131,7 @@ public class PendingCommand implements Callable<Integer> {
     }
 
     /** Prints first and moves the bookmark second, so a report nobody received is not marked shown. */
-    private int print(Path stateDirectory, Role who, boolean advance, int exit) throws IOException {
+    private int print(Path stateDirectory, ParticipantId who, boolean advance, int exit) throws IOException {
         PendingReport report = pending.report(stateDirectory, who);
         PrintWriter out = spec.commandLine().getOut();
         out.println(json.writeValueAsString(report));

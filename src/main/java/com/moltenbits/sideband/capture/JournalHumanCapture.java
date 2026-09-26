@@ -3,15 +3,17 @@ package com.moltenbits.sideband.capture;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
-import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.routing.Destination;
 import com.moltenbits.sideband.routing.Routing;
 import com.moltenbits.sideband.session.HeldPrompts;
+import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
 import java.util.Optional;
+import java.util.Set;
 
 @Singleton
 class JournalHumanCapture implements HumanCapture {
@@ -20,8 +22,10 @@ class JournalHumanCapture implements HumanCapture {
     private final Routing routing;
     private final Pushes pushes;
     private final HeldPrompts held;
+    private final Sessions sessions;
 
-    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held) {
+    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held, Sessions sessions) {
+        this.sessions = sessions;
         this.journal = journal;
         this.routing = routing;
         this.pushes = pushes;
@@ -29,10 +33,10 @@ class JournalHumanCapture implements HumanCapture {
     }
 
     @Override
-    public Captured capture(Path stateDirectory, Role via, String body) {
+    public Captured capture(Path stateDirectory, ParticipantId via, String body) {
         Destination destination;
         try {
-            destination = routing.resolve(body, via);
+            destination = routing.resolve(body, via, sessions.all(stateDirectory).keySet());
         } catch (IllegalArgumentException e) {
             throw e; // invalid input keeps its own exit code; nothing was written
         } catch (RuntimeException e) {
@@ -48,11 +52,12 @@ class JournalHumanCapture implements HumanCapture {
     }
 
     @Override
-    public Optional<Captured> adopt(Path stateDirectory, Role via, String sessionId) {
+    public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, String sessionId) {
         Optional<Entry> entry;
         try {
-            entry = held.adopt(stateDirectory, via, sessionId,
-                    prompt -> Draft.humanRequest(via, routing.resolve(prompt, via).to(), prompt));
+            Set<ParticipantId> joined = sessions.all(stateDirectory).keySet();
+            entry = held.adopt(stateDirectory, via.role().orElseThrow(), sessionId,
+                    prompt -> Draft.humanRequest(via, routing.resolve(prompt, via, joined).to(), prompt));
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (RuntimeException e) {

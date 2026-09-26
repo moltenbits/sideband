@@ -50,6 +50,16 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   any `sideband init` that adds or changes a definition in `.codex/hooks.json`,
   run `/hooks` in Codex and trust it, then type one prompt so the recorded
   thread id refreshes.
+- **A Codex process does not identify a terminal** (codex-cli 0.157.1,
+  measured 2026-09-26, in this setup; other Codex clients or configurations
+  were not tested). The first TUI started one
+  `codex app-server --managed-daemon`, and the second TUI used that daemon:
+  it had no child processes at all, and Codex's own shell ancestry ran
+  through the daemon. That is why a Codex instance is
+  known by its thread id alone, and why, after a clear with two Codex
+  instances joined, Sideband cannot tell which one the new thread continues
+  (REQUIREMENTS.md 9.5a). `SessionEnd` does not help: its reason is always
+  `other`, and it does not fire on a clear.
 - **Debugging a silent Codex.** Use `sideband doctor` for the recorded thread
   id and state directory. Codex's rollout files under `~/.codex/sessions/`
   and its `queue_1.sqlite` are version-specific diagnostic evidence, not
@@ -68,9 +78,16 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   repository's `.claude/settings.json` can only tighten that value, so
   `sideband init` does not write it; `sideband doctor` says where accept must
   go.
-- **Delivery does not depend on Sideband's record.** The writer finds the
-  running session through `~/.claude/sessions/<pid>.json` by working
-  directory, so a clear or restart in Claude Code needs nothing further.
+- **A clear keeps the process and its registration** (2.1.283, measured
+  2026-09-26). Claude Code sets `CLAUDE_PID` and `CLAUDE_CODE_SESSION_ID`
+  in every shell and hook it runs, and hooks run as its direct children.
+  After a clear, `~/.claude/sessions/<pid>.json` keeps its pid and
+  `startedAt` and names the new session id, `CLAUDE_PID` is unchanged, and
+  `CLAUDE_CODE_SESSION_ID` in later shells names the new session. The
+  instance record keeps the process for exactly this: it is how a cleared
+  conversation is matched to its instance, and how the writer still finds the
+  registration if it pushes before the session-start hook has moved the
+  record (REQUIREMENTS.md 9.5a, 10.2).
 - **To learn what Claude Code actually does, read its binary.** Its bundled
   code is plain strings: `strings "$(readlink -f "$(command -v claude)")"`.
   That is how the hook payloads, the cross-session message frame, and the

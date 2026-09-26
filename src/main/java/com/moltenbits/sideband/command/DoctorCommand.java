@@ -6,6 +6,7 @@ import com.moltenbits.sideband.install.Installer;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
@@ -22,6 +23,10 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.Arrays;
+import java.util.SortedMap;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.concurrent.Callable;
 
 /**
@@ -71,11 +76,15 @@ public class DoctorCommand implements Callable<Integer> {
                     .append(" (").append(permissions(stateDirectory)).append(")\n");
             text.append("Database: ").append(store.inspect(stateDirectory).map(ReportLines::database)
                     .orElse("none; rerun sideband init to create it")).append('\n');
-            text.append("\nRoles:\n");
-            for (Role role : Role.values()) {
-                Session session = sessions.load(stateDirectory, role).orElse(null);
-                PendingReport report = pending.report(stateDirectory, role);
-                text.append(String.format("  %-7s ", role.id()));
+            text.append("\nInstances:\n");
+            SortedMap<ParticipantId, Session> records = sessions.all(stateDirectory);
+            SortedSet<ParticipantId> instances = new TreeSet<>(records.keySet());
+            Arrays.stream(Role.values()).map(ParticipantId::of).forEach(instances::add);
+            int width = instances.stream().mapToInt(instance -> instance.value().length()).max().orElse(0);
+            for (ParticipantId instance : instances) {
+                Session session = records.get(instance);
+                PendingReport report = pending.report(stateDirectory, instance);
+                text.append("  ").append(String.format("%-" + width + "s", instance.value())).append("  ");
                 if (session == null) {
                     text.append("not joined");
                 } else {

@@ -7,9 +7,11 @@ import com.moltenbits.sideband.capture.Captured
 import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.host.HostEnvironment
+import com.moltenbits.sideband.host.HostProcesses
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.pending.Pending
 import com.moltenbits.sideband.protocol.Draft
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.serde.ObjectMapper
 import picocli.CommandLine
@@ -158,7 +160,7 @@ class SessionCommandsSpec extends CommandSpec {
         joined.adopted.metadata.to == ["codex"]
         joined.adopted.metadata.type == "request"
         joined.adopted.body == "@codex review the locking"
-        joined.adopted.pushes == [[role: "codex", outcome: "no-session", detail: null]]
+        joined.adopted.pushes == [[recipient: "codex", outcome: "no-session", detail: null]]
 
         and: "it is in the journal, after the watermark, and never shown to Claude as pending"
         joined.session.watermark == 0
@@ -170,7 +172,7 @@ class SessionCommandsSpec extends CommandSpec {
         runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted == null
     }
 
-    void "join drops a prompt held for another session of the same role"() {
+    void "join leaves a prompt held for another session of the same role, for that session's own join"() {
         given:
         run("init", "--repo", repo.toString(), "--skip-clients")
         HeldPrompts held = context.getBean(HeldPrompts)
@@ -182,7 +184,7 @@ class SessionCommandsSpec extends CommandSpec {
         then:
         joined.adopted == null
         joined.end == 0
-        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1") == Optional.of("hello from s1")
     }
 
     void "the hook's last held prompt wins, and a held prompt is per role"() {
@@ -206,13 +208,13 @@ class SessionCommandsSpec extends CommandSpec {
         HeldPrompts held = context.getBean(HeldPrompts)
         held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
-            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
-                Entry entry = held.adopt(dir, via, sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
+            Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
+                Entry entry = held.adopt(dir, via.role().get(), sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
                 throw CaptureFailedException.afterAppend(entry, new IOException("codex queue unreachable"))
             }
         }
-        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(Sessions),
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
                 context.getBean(Pending), failing, context.getBean(ObjectMapper))
         stdout = new StringWriter()
         CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
@@ -238,12 +240,12 @@ class SessionCommandsSpec extends CommandSpec {
         HeldPrompts held = context.getBean(HeldPrompts)
         held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
-            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
+            Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
                 throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, new IOException("disk full"))
             }
         }
-        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(Sessions),
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
                 context.getBean(Pending), failing, context.getBean(ObjectMapper))
         CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true).setExecutionExceptionHandler(ExitCode.HANDLER)
         cli.out = new PrintWriter(stdout, true)

@@ -18,13 +18,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Pushes an entry to each client recipient through that host's own pusher, and records a
+ * Pushes an entry to each client instance it is for through that host's own pusher, and records a
  * push the host accepted against the session the pusher says it delivered into, so that a
  * {@code pending} read in that session can say the entry is also on its way in. The
- * destination comes from the pusher, which knows where it posted; the role's session
+ * destination comes from the pusher, which knows where it posted; the instance's session
  * record is not consulted afterwards, since a join or a clear may have moved it while the
  * push ran. A refused or failed push, or one whose destination the pusher cannot name,
- * records nothing: the entry then reaches the role through {@code pending} alone.
+ * records nothing: the entry then reaches the instance through {@code pending} alone.
  */
 @Singleton
 class HostPushes implements Pushes {
@@ -47,20 +47,19 @@ class HostPushes implements Pushes {
             return results;
         }
         for (ParticipantId recipient : entry.metadata().to()) {
-            recipient.role().ifPresent(role -> {
-                if (Addressing.concerns(entry.metadata(), role)) {
-                    results.add(deliver(stateDirectory, entry, role));
-                }
-            });
+            if (!recipient.isHuman() && Addressing.concerns(entry.metadata(), recipient)) {
+                results.add(deliver(stateDirectory, entry, recipient));
+            }
         }
         return results;
     }
 
-    private PushResult deliver(Path stateDirectory, Entry entry, Role role) {
+    private PushResult deliver(Path stateDirectory, Entry entry, ParticipantId recipient) {
+        Role role = recipient.role().orElseThrow();
         Batch batch = Batch.forRole(role, entry.seq(), entry.seq(), handoffs.prepare(stateDirectory, List.of(entry)), false);
-        PushResult result = pushers.get(role).push(stateDirectory, entry.metadata().from(), handoffs.envelope(batch));
+        PushResult result = pushers.get(role).push(stateDirectory, recipient, entry.metadata().from(), handoffs.envelope(batch));
         if (result.outcome() == PushOutcome.PUSHED && result.session() != null) {
-            deliveries.record(stateDirectory, entry.seq(), role, result.session());
+            deliveries.record(stateDirectory, entry.seq(), recipient, result.session());
         }
         return result;
     }

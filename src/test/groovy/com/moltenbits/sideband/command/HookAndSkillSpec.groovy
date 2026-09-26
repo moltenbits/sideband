@@ -1,9 +1,15 @@
 package com.moltenbits.sideband.command
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.journal.Entry
+import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.host.HostEnvironment
+import com.moltenbits.sideband.host.HostProcess
+import com.moltenbits.sideband.host.HostProcesses
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.pending.Pending
 import com.moltenbits.sideband.session.HeldPrompts
@@ -20,6 +26,7 @@ class HookAndSkillSpec extends CommandSpec {
     Path stateDir = repo.resolve(".git/sideband")
     Path journalFile = stateDir.resolve("sideband.db")
     Role detectedAgent
+    HostProcess callerProcess
     Map extraPayload = [:]
     HumanCapture captureOverride
 
@@ -36,6 +43,7 @@ class HookAndSkillSpec extends CommandSpec {
         try {
             HostEnvironment host = Stub() {
                 role() >> Optional.ofNullable(detectedAgent)
+                process(_) >> Optional.ofNullable(callerProcess)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
                     context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(HeldPrompts), context.getBean(ObjectMapper))
@@ -140,6 +148,16 @@ class HookAndSkillSpec extends CommandSpec {
         "\$sideband Status"                     | null
         "\$sideband PENDING"                    | null
         "\$sideband off"                        | null
+        "/sideband as fable"                    | null
+        "\$sideband as review"                  | null
+        "/sideband AS Fable"                    | null
+        "/sideband as"                          | null
+        "/sideband as fable and more"           | null
+        "/sideband as Not-Valid!"               | null
+        "/sideband assemble the report"         | "assemble the report"
+        "/sideband as-is, please"               | "as-is, please"
+        "/sideband as" + ((char) 0x2003) + "fable" | null
+        "\$sideband as" + ((char) 0x2003) + "review" | null
         "/sidebandish something"                | null
         "\$sidebandish something"               | "\$sidebandish something"
     }
@@ -179,7 +197,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         entries.size() == 1
         entries[0].body() == prompt
-        entries[0].metadata().via() == Role.CODEX
+        entries[0].metadata().via() == Fixtures.CODEX
         entries[0].metadata().from().toString() == "operator"
 
         when:
@@ -302,18 +320,18 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString() == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
     }
 
-    void "the role is all that matters: a restarted, cleared, or second client captures for the joined role, and the record follows the human's conversation"() {
+    void "a restarted or cleared client captures for the instance it continues, and the record follows the human's conversation"() {
         given:
         detectedAgent = detected
         run("join", "--repo", repo.toString(), "--role", owner, "--session-id", "s1")
         Sessions state = context.getBean(Sessions)
         Path dir = context.getBean(SidebandHome).locate(repo)
-        def before = state.load(dir, Role.valueOf(owner.toUpperCase())).get()
+        def before = state.load(dir, ParticipantId.of(Role.valueOf(owner.toUpperCase()))).get()
         stdout = new StringWriter()
 
         when:
         int code = hook("first prompt after restart", session, repo.toString(), flag ? ["--agent", flag] : [])
-        def after = state.load(dir, Role.valueOf(owner.toUpperCase())).get()
+        def after = state.load(dir, ParticipantId.of(Role.valueOf(owner.toUpperCase()))).get()
 
         then:
         code == ExitCode.OK
@@ -332,7 +350,6 @@ class HookAndSkillSpec extends CommandSpec {
         Role.CLAUDE | "codex"  | "codex"  | "after-restart"
         Role.CLAUDE | "claude" | null     | "after-clear"
         null        | "claude" | "claude" | "after-clear"
-        Role.CLAUDE | "claude" | null     | null
     }
 
     void "a prompt the hook does not record still moves the record to the conversation it was typed in, but a delivered envelope never does"() {
@@ -350,12 +367,12 @@ class HookAndSkillSpec extends CommandSpec {
         code == ExitCode.OK
         stdout.toString().isEmpty()
         bodies().isEmpty()
-        state.load(dir, Role.CODEX).get().id() == expected
+        state.load(dir, ParticipantId.of(Role.CODEX)).get().id() == expected
 
         where:
         prompt                                  | expected
         "/sideband status"                      | "new-thread"
-        "\$sideband"                            | "new-thread"
+        "\$sideband"                            | "old-thread"   // a join: it names the instance itself, and the join records the thread
         "! sideband doctor"                     | "new-thread"
         "   "                                   | "new-thread"
         "[Sideband message]\n{...}"             | "old-thread"
@@ -371,6 +388,7 @@ class HookAndSkillSpec extends CommandSpec {
         try {
             HostEnvironment host = Stub() {
                 role() >> Optional.ofNullable(detectedAgent)
+                process(_) >> Optional.ofNullable(callerProcess)
             }
             def command = new HookCommand.SessionStart(context.getBean(SidebandHome), host,
                     context.getBean(Sessions), context.getBean(Pending), context.getBean(ObjectMapper))
@@ -396,7 +414,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        state.load(dir, Role.CODEX).get().id() == "new-thread"
+        state.load(dir, ParticipantId.of(Role.CODEX)).get().id() == "new-thread"
         json().hookSpecificOutput.hookEventName == "SessionStart"
         json().hookSpecificOutput.additionalContext.contains("joined as Codex")
         json().hookSpecificOutput.additionalContext.contains("delivers to this conversation")
@@ -439,12 +457,12 @@ class HookAndSkillSpec extends CommandSpec {
                 replyTo: request.metadata().id(), causedBy: null, expectsReply: false, body: "taking it up"))
         Sessions state = context.getBean(Sessions)
         Path dir = context.getBean(SidebandHome).locate(repo)
-        long bookmark = state.load(dir, Role.CODEX).get().offset()
+        long bookmark = state.load(dir, ParticipantId.of(Role.CODEX)).get().offset()
         stdout = new StringWriter()
 
         expect:
-        context.getBean(Pending).report(dir, Role.CODEX).open().isEmpty()
-        context.getBean(Pending).report(dir, Role.CODEX).inProgress().size() == 1
+        context.getBean(Pending).report(dir, ParticipantId.of(Role.CODEX)).open().isEmpty()
+        context.getBean(Pending).report(dir, ParticipantId.of(Role.CODEX)).inProgress().size() == 1
 
         when:
         int code = sessionStart("clear")
@@ -452,7 +470,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
-        state.load(dir, Role.CODEX).get().offset() == bookmark
+        state.load(dir, ParticipantId.of(Role.CODEX)).get().offset() == bookmark
     }
 
     void "a session start that is not a clear, is another event, names no session, or finds no joined role leaves the record alone and says nothing to the model"() {
@@ -469,7 +487,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        state.load(dir, Role.CODEX).map { it.id() }.orElse(null) == (joined ? "old-thread" : null)
+        state.load(dir, ParticipantId.of(Role.CODEX)).map { it.id() }.orElse(null) == (joined ? "old-thread" : null)
 
         where:
         source    | session      | event              | joined
@@ -502,7 +520,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), Role.CODEX).get().id() == "old-thread"
+        context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), ParticipantId.of(Role.CODEX)).get().id() == "old-thread"
 
         where:
         detected   | input
@@ -528,7 +546,7 @@ class HookAndSkillSpec extends CommandSpec {
     void "a failure before the append says the prompt was not recorded"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        captureOverride = { Path dir, Role via, String body ->
+        captureOverride = { Path dir, ParticipantId via, String body ->
             throw new com.moltenbits.sideband.capture.CaptureFailedException(
                     com.moltenbits.sideband.capture.CaptureFailedException.Stage.NOT_JOURNALED, null, new RuntimeException("routing exploded"))
         } as HumanCapture
@@ -547,7 +565,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         def journal = context.getBean(com.moltenbits.sideband.journal.Journal)
-        captureOverride = { Path dir, Role via, String body ->
+        captureOverride = { Path dir, ParticipantId via, String body ->
             def entry = journal.append(dir, com.moltenbits.sideband.protocol.Draft.humanRequest(via, [com.moltenbits.sideband.Fixtures.CODEX], body))
             throw new com.moltenbits.sideband.capture.CaptureFailedException(
                     com.moltenbits.sideband.capture.CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), new IOException("codex session unreadable"))
@@ -649,7 +667,7 @@ class HookAndSkillSpec extends CommandSpec {
         command << ["/sideband", "/sideband status", "/clear", "", "! sideband doctor"]
     }
 
-    void "a prompt from a payload without a session id is not held, and drops what was held"() {
+    void "a prompt from a payload without a session id is neither held nor able to drop another session's hold"() {
         given:
         detectedAgent = Role.CLAUDE
         HeldPrompts held = context.getBean(HeldPrompts)
@@ -658,8 +676,22 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("new task", null) == ExitCode.OK
         stderr.toString().contains("names no session")
-        held.held(stateDir, Role.CLAUDE, "s1").isEmpty()
+        stdout.toString().isEmpty()
+        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("old task")
         held.held(stateDir, Role.CLAUDE, "").isEmpty()
+    }
+
+    void "a prompt from a payload without a session id cannot be tied to a joined instance, and the model is told"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        expect:
+        hook("new task", null) == ExitCode.OK
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband could not confirm recording this prompt")
+        json().hookSpecificOutput.additionalContext.contains("names no session")
+        bodies().isEmpty()
     }
 
     void "nothing is held once the role has joined: the prompt is journaled instead"() {
@@ -680,14 +712,166 @@ class HookAndSkillSpec extends CommandSpec {
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
         Path dir = context.getBean(SidebandHome).locate(repo)
         Sessions state = context.getBean(Sessions)
-        def before = state.load(dir, Role.CODEX)
+        def before = state.load(dir, ParticipantId.of(Role.CODEX))
         stdout = new StringWriter()
 
         expect:
         hook("[Sideband message]\n{}", "other") == ExitCode.OK
         stdout.toString().isEmpty()
         stderr.toString().isEmpty()
-        state.load(dir, Role.CODEX) == before
+        state.load(dir, ParticipantId.of(Role.CODEX)) == before
         bodies().isEmpty()
+    }
+
+    // --- instances (REQUIREMENTS.md 9.5a) ---
+
+    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+
+    HostProcesses processes = context.getBean(HostProcesses)
+    /** This JVM and its parent: two processes that are certainly alive, standing in for two Claude Code terminals. */
+    HostProcess self = processes.describe(ProcessHandle.current().pid()).get()
+    HostProcess elsewhere = processes.describe(ProcessHandle.current().parent().get().pid()).get()
+
+    Entry lastEntry() {
+        context.getBean(Journal).readAfter(stateDir, 0).entries().last()
+    }
+
+    void "a prompt typed into a named instance is recorded through that instance and stays with it"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--as", "fable", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        when:
+        hook("look at this", "s1")
+
+        then:
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt")
+        lastEntry().metadata().via() == FABLE
+        lastEntry().metadata().to() == [FABLE]
+    }
+
+    void "a clear in a named instance's client moves that instance by its process, and leaves the other alone"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--pid", elsewhere.pid().toString())
+        run("join", "--repo", repo.toString(), "--role", "claude", "--as", "fable", "--session-id", "s2", "--pid", self.pid().toString())
+        callerProcess = self
+        stdout = new StringWriter()
+
+        when:
+        sessionStart("clear", "s3", repo.toString(), ["--agent", "claude"])
+
+        then:
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband is joined as Claude (fable) in this repository and delivers to this conversation")
+        context.getBean(Sessions).load(stateDir, FABLE).get().id() == "s3"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
+    }
+
+    void "a second terminal does not take over an instance whose client runs elsewhere: its prompt waits for its own join"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--pid", elsewhere.pid().toString())
+        context.getBean(Journal).append(stateDir, Fixtures.humanDraft("@claude waiting for the first terminal", [Fixtures.CLAUDE], Fixtures.CODEX))
+        callerProcess = self
+        stdout = new StringWriter()
+
+        when:
+        hook("hello from the second terminal", "s2")
+
+        then: "nothing moves or is recorded, and the model is not invited to take the instance over"
+        stdout.toString().isEmpty()
+        bodies() == ["@claude waiting for the first terminal"]
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
+        context.getBean(HeldPrompts).held(stateDir, Role.CLAUDE, "s2") == Optional.of("hello from the second terminal")
+    }
+
+    void "after a clear with two Codex instances joined, neither moves and the new conversation is told which could be continued"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        run("join", "--repo", repo.toString(), "--role", "codex", "--as", "review", "--session-id", "t2")
+        Sessions state = context.getBean(Sessions)
+        stdout = new StringWriter()
+
+        when:
+        sessionStart("clear", "t3")
+
+        then:
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband cannot tell which Codex instance this conversation continues: codex, codex:review.")
+        json().hookSpecificOutput.additionalContext.contains("\$sideband as <name> joins as codex:<name>")
+        state.load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t1"
+        state.load(stateDir, ParticipantId.of(Role.CODEX, "review")).get().id() == "t2"
+
+        when: "the operator's first prompt there is held for the join that settles it"
+        stdout = new StringWriter()
+        hook("which one am I", "t3")
+
+        then:
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband cannot tell which Codex instance")
+        bodies().isEmpty()
+        context.getBean(HeldPrompts).held(stateDir, Role.CODEX, "t3") == Optional.of("which one am I")
+    }
+
+    void "once a session continues an instance, its own earlier hold is dropped, whether the next input is a command or the operator's words"() {
+        given: "the first terminal holds the unnamed instance, and the second, unjoined, types a task that is held"
+        Process first = new ProcessBuilder("sleep", "30").start()
+        detectedAgent = Role.CLAUDE
+        callerProcess = self
+        context.getBean(Sessions).join(stateDir, ParticipantId.of(Role.CLAUDE), "first", processes.describe(first.pid()).get(), false)
+        HeldPrompts held = context.getBean(HeldPrompts)
+        hook("old task from the second terminal", "second")
+        assert held.held(stateDir, Role.CLAUDE, "second").isPresent()
+
+        when: "the first terminal's client exits, and the second continues the instance"
+        first.destroyForcibly()
+        first.waitFor()
+        stdout = new StringWriter()
+        hook(input, "second")
+
+        then: "the instance moved there, and the old task is never adopted by a later join"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "second"
+        held.held(stateDir, Role.CLAUDE, "second").isEmpty()
+        bodies() == recorded
+
+        cleanup:
+        first?.destroyForcibly()
+
+        where:
+        input                 | recorded
+        "/sideband status"    | []
+        "a newer task"        | ["a newer task"]
+    }
+
+    void "a join typed into the skill names the instance itself, so the hook infers none first and the first terminal keeps its instance"() {
+        given: "one Codex instance, which names no process, and a second Codex terminal that has not joined"
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        stdout = new StringWriter()
+
+        when: "the operator adds the second terminal under a name"
+        hook(invocation, "t2")
+        run("join", "--repo", repo.toString(), "--role", "codex", "--as", "review", "--session-id", "t2")
+
+        then:
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t1"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX, "review")).get().id() == "t2"
+        !stderr.toString().contains("now delivers to t2")
+
+        where:
+        invocation << ["\$sideband as review", "\$sideband"]
+    }
+
+    void "a skill command that does not join still follows the operator"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        stdout = new StringWriter()
+
+        when:
+        hook("\$sideband status", "t2")
+
+        then:
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t2"
     }
 }

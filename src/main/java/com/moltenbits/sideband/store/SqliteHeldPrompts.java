@@ -10,7 +10,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.function.Function;
 
-/** One row per role in the {@code held_prompts} table; adoption deletes it and inserts the entry in the same transaction. */
+/** One row per role and session in the {@code held_prompts} table; adoption deletes it and inserts the entry in the same transaction. */
 @Singleton
 class SqliteHeldPrompts implements HeldPrompts {
 
@@ -27,38 +27,37 @@ class SqliteHeldPrompts implements HeldPrompts {
     @Override
     public void hold(Path stateDirectory, Role role, String sessionId, String prompt) {
         database.write(stateDirectory, () -> {
-            HeldPromptRow row = new HeldPromptRow(role.id(), sessionId, prompt);
-            if (rows.existsById(role.id())) {
-                rows.update(row);
-            } else {
-                rows.save(row);
-            }
+            find(role, sessionId).ifPresentOrElse(
+                    existing -> rows.update(new HeldPromptRow(existing.id(), role.id(), sessionId, prompt)),
+                    () -> rows.save(new HeldPromptRow(null, role.id(), sessionId, prompt)));
             return null;
         });
     }
 
     @Override
-    public void drop(Path stateDirectory, Role role) {
+    public void drop(Path stateDirectory, Role role, String sessionId) {
         database.write(stateDirectory, () -> {
-            rows.deleteById(role.id());
+            find(role, sessionId).ifPresent(rows::delete);
             return null;
         });
     }
 
     @Override
     public Optional<String> held(Path stateDirectory, Role role, String sessionId) {
-        return database.read(stateDirectory, Optional.empty(), () -> rows.findById(role.id())
-                .filter(row -> row.sessionId().equals(sessionId))
-                .map(HeldPromptRow::prompt));
+        return database.read(stateDirectory, Optional.empty(), () -> find(role, sessionId).map(HeldPromptRow::prompt));
     }
 
     @Override
     public Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft) {
         return database.write(stateDirectory, () -> {
-            Optional<HeldPromptRow> held = rows.findById(role.id());
-            held.ifPresent(row -> rows.deleteById(role.id()));
-            return held.filter(row -> row.sessionId().equals(sessionId))
-                    .map(row -> journal.insert(draft.apply(row.prompt())));
+            Optional<HeldPromptRow> held = find(role, sessionId);
+            held.ifPresent(rows::delete);
+            return held.map(row -> journal.insert(draft.apply(row.prompt())));
         });
+    }
+
+    /** The session's hold for the role on the current connection. */
+    private Optional<HeldPromptRow> find(Role role, String sessionId) {
+        return rows.findByRoleAndSessionId(role.id(), sessionId);
     }
 }

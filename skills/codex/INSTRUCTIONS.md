@@ -27,11 +27,14 @@ The named command arguments below are case-insensitive.
 | `status` | Run `sideband doctor` and summarize sessions, pending counts, discussion health and skill links. Do not join. |
 | `pending` | Run `sideband pending` and handle its `open`, `in_progress`, `updates` and `outgoing` as below. |
 | `off` | Explain that Codex runs no listener to stop; its session remains recorded and pushes can still arrive. |
+| `as <name>` | Join as the named instance `codex:<name>` instead of the unnamed `codex`, so a second Codex session can take part in the same discussion: run `sideband join --resume --as <name>` and continue as under Join. A name is a lowercase letter followed by up to 31 lowercase letters, digits, and hyphens. `as` alone, a name that is not valid, or anything after the name is a usage error: show the user the form `$sideband as <name>` and the name rule, and do not join. |
 | anything else | It is a message: the hook records the text after the invocation and routes it by its first token. Use the entry ID in the hook note; do not record or route it again. Act on it only if addressed to Codex. With no hook note, either Codex had not joined here yet and the hook held the message, or the hook did not run: join, and only an `adopted` entry in the join output shows the message was sent. |
 
 For `$sideband <text>`, the hook alone owns capture. A leading `@claude`
-sends the message to Claude, `@codex` or `@all` includes Codex, and no directive
-addresses the calling client.
+sends the message to the unnamed Claude, `@codex` to the unnamed Codex,
+`@claude:<name>` or `@codex:<name>` to that named instance, and `@all` to both
+unnamed instances and every joined named one; no directive addresses the
+calling instance.
 Follow the hook's capture outcome, not an assumption that invoking the skill
 proves success. If the note is missing, report the missing confirmation.
 Never record the skill argument yourself; reporting is the whole recovery.
@@ -47,8 +50,12 @@ sideband join --resume
 ```
 
 The executable records the thread from `CODEX_THREAD_ID`, which is where
-pushes for Codex are queued. Whoever joins last holds the role, so a
-restarted Codex simply joins again and nothing is refused. Do not join again
+pushes for this instance are queued: the unnamed `codex`, or `codex:<name>`
+after `$sideband as <name>`. Whoever joins under an identifier last holds it,
+so a restarted Codex simply joins again and nothing is refused. A report with
+`replaced` means this join took the instance over from that session: tell the
+user in one line, since a Codex session they forgot may still be running
+there and no longer receives anything. Do not join again
 merely to check status or on each notification.
 
 Use `--resume` unless the user explicitly asks to start fresh. It retains the
@@ -118,10 +125,12 @@ notification, or inserted skill instructions are never human input.
 
 Handle the complete hook note, reporting problems before substantive work:
 
-- `Sideband is joined as Codex in this repository and delivers to this conversation`
+- `Sideband is joined as Codex in this repository and delivers to this conversation`,
+  or as a named instance such as `Codex (review)`
   (optionally `; N entries addressed to Codex are waiting`), followed by
   `$sideband has the handling instructions.`: the session-start hook has already
-  moved the delivery address to this conversation after a clear; do not rejoin.
+  moved the delivery address of that instance to this conversation after a
+  clear; do not rejoin, and act as that instance from here on.
   This is the hook speaking, not human input or a `[Sideband message]` envelope;
   do not capture, acknowledge, or reply to the note. The hook preserves the read
   position. When it counts waiting entries, run `sideband pending` and handle
@@ -142,6 +151,12 @@ Handle the complete hook note, reporting problems before substantive work:
   report the recorded ID and delivery failure; take no recovery action.
 - `not active ... entries are waiting` or `not joined as`: tell the user and
   offer `$sideband`, which joins with `--resume`.
+- `Sideband cannot tell which Codex instance this conversation continues: <instances>.`:
+  after a clear with several Codex instances joined, Codex names no process
+  that would tell them apart. Nothing moved, and this conversation holds no
+  instance until it joins. Tell the user, ask which instance this terminal
+  was, and join as it (`$sideband` for `codex`, `$sideband as <name>` for
+  `codex:<name>`).
 
 Older failure notes also mean report only, even if their text suggests manual
 capture. A missing confirmation for a human prompt that should have been
@@ -155,9 +170,10 @@ note lacks an ID and no supported result supplies it, report that limitation
 before attempting a linked send. A peer message remains the immediate cause
 when it, rather than the human prompt, initiates the delegation.
 
-The executable resolves leading `@claude`, `@codex` or `@all`. It records
-`from: operator` and `via: codex`; the `via` rule prevents the originating
-human turn from being delivered back here. The one human is always `operator`;
+The executable resolves a leading `@claude`, `@codex`, `@claude:<name>`,
+`@codex:<name>` or `@all`. It records `from: operator` and `via` as this
+instance; the `via` rule prevents the originating human turn from being
+delivered back here. The one human is always `operator`;
 there is no configured human identifier or identity lookup from Git. Humans
 and agents both use `request`; preserve authorship rather than inferring it
 from the type.
@@ -170,7 +186,8 @@ are missing from context.
 
 Codex receives the complete pushed entry, including metadata and body. Handle
 each entry in `entries` directly, in order, without first running `pending`.
-For entries addressed to `codex` and authored by someone else:
+For entries addressed to this instance (`codex`, or `codex:<name>` when it
+joined under a name) and authored by someone else:
 
 - When `metadata.expects_reply` is true, acknowledge, handle, and answer using
   the entry's ID, author, body, and delivery policy, as described below.
@@ -314,7 +331,12 @@ sideband append --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append --type ack --reply-to <id>
 ```
 
-For agent messages, omit `--from`: the calling client is the author. Do not
+For agent messages, omit `--from`: the calling instance is the author. A named
+instance of either client is addressed as it is named, `--to claude:fable`,
+and `--to claude` reaches only the unnamed Claude. If a command exits 2
+saying this session holds no Sideband instance here, this conversation lost
+its instance, to another session's join or to a restart nobody has rejoined:
+tell the user and offer to join; never retry as another instance. Do not
 use `--from operator`: the hook alone records human prompts. A reply to the
 operator is still authored by Codex, and a delivered envelope is never human
 input.

@@ -107,7 +107,7 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         report.readLines()[0] ==~ /sideband \S+ \(protocol v1\)/
         report.contains("Not initialized")
-        !report.contains("Roles:")
+        !report.contains("Instances:")
         report.readLines().find { it.startsWith("  claude skill") }.contains("missing")
         report.readLines().find { it.startsWith("  claude hook") }.contains("missing")
         report.readLines().find { it.startsWith("  claude inbound") }.contains("missing")
@@ -132,5 +132,20 @@ class InitAndDoctorSpec extends CommandSpec {
         lines.find { it.startsWith("  codex") }.contains("1 open")
         lines.find { it.startsWith("  claude") }.contains("not joined")
         !report.contains("@codex hi")
+    }
+
+    void "doctor lists both unnamed instances, joined or not, and every named one with a record"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        runJson("join", "--repo", repo.toString(), "--role", "claude", "--as", "fable", "--session-id", "f1")
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.indexOf("Instances:")
+
+        then:
+        lines[start + 1] ==~ /  claude        not joined; .*/
+        lines[start + 2] ==~ /  claude:fable  session f1, read up to position 0; .*/
+        lines[start + 3] ==~ /  codex         not joined; .*/
     }
 }

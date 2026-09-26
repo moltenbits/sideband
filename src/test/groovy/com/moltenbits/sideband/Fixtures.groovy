@@ -30,7 +30,7 @@ class Fixtures {
 
     static EntryMetadata metadata(Map overrides = [:]) {
         Map m = [
-                id: "019a", createdAt: T0, from: OPERATOR, via: Role.CLAUDE, to: [CLAUDE, CODEX],
+                id: "019a", createdAt: T0, from: OPERATOR, via: CLAUDE, to: [CLAUDE, CODEX],
                 type: MessageType.REQUEST, route: Route.BROADCAST, replyTo: null, causedBy: null,
                 expectsReply: true, delivery: Delivery.DEFAULT,
         ] + overrides
@@ -39,7 +39,7 @@ class Fixtures {
     }
 
     static Draft humanDraft(String body = "@all independently review the proposed database migration.",
-                            List<ParticipantId> to = [CLAUDE, CODEX], Role via = Role.CLAUDE) {
+                            List<ParticipantId> to = [CLAUDE, CODEX], ParticipantId via = CLAUDE) {
         Draft.humanRequest(via, to, body)
     }
 

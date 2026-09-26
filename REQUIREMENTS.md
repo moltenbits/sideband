@@ -60,10 +60,14 @@ invocations such as `claude -p` or `codex exec resume`.
   Codex.
 - **Author**: the participant that composed a message.
 - **Via**: the client in which a human entered a message.
-- **Recipient**: a participant addressed by a message: a client role, `claude`
-  or `codex`, or the one human, `operator`.
-- **Instance**: one active interactive session of a client role. Version one
-  permits at most one instance of each role per repository.
+- **Recipient**: a participant addressed by a message: a client instance,
+  `claude`, `codex`, or a named one such as `claude:fable`, or the one human,
+  `operator`.
+- **Instance**: one client session taking part in the discussion under its
+  own participant identifier (section 9.5a): the bare role, `claude` or
+  `codex`, which is the unnamed instance, or `<role>:<name>`, a named one.
+  Several instances of a role may take part at once; one unnamed instance of
+  each is the default and is everything version one had.
 - **Live message**: a message appended after the recipient's session
   watermark (section 9.3), so it is pushed into the running session.
 - **Listener**: where this document says a role's listener delivers an entry,
@@ -82,7 +86,9 @@ invocations such as `claude -p` or `codex exec resume`.
 Version one supports:
 
 - One local Git repository.
-- One active Claude Code session and one active Codex session per repository.
+- Claude Code and Codex sessions per repository, each taking part as its own
+  instance (9.5a): one unnamed instance of each by default, and any number of
+  named ones.
 - One shared native `sideband` executable used by both client skills.
 - A single append-only journal shared by both clients, in one embedded
   database.
@@ -118,7 +124,7 @@ The layout is:
     └── libsqlitejdbc.<ext>
 ```
 
-`sideband.db` is one SQLite database holding the journal and both roles'
+`sideband.db` is one SQLite database holding the journal and every instance's
 session records. Beside it the executable keeps the SQLite native library the
 driver loads, written once so no command extracts it again; a copy the driver
 cannot load, damaged or from another platform, is ignored in favour of the
@@ -163,9 +169,10 @@ Every entry must include:
 
 - `id`: a globally unique, stable message identifier.
 - `created_at`: an RFC 3339 timestamp including an offset.
-- `from`: the actual author: `operator`, `claude`, or `codex`.
-- `to`: a non-empty array of intended participant identifiers: `claude`,
-  `codex`, or `operator`. There is exactly one human per journal, so nothing
+- `from`: the actual author: `operator` or a client instance, `claude`,
+  `codex`, or a named one such as `claude:fable` (9.5a).
+- `to`: a non-empty array of intended participant identifiers: client
+  instances or `operator`. There is exactly one human per journal, so nothing
   about who they are is configured or recorded.
 - `type`: `request`, `reply`, `status`, or `ack` (section 9.8). There is no
   separate human-only type: a human's prompt and an agent's delegation are
@@ -179,8 +186,8 @@ Every entry must include:
 
 The following fields are conditional:
 
-- `via`: required for human-authored messages and identifies the client where
-  the human entered the message.
+- `via`: required for human-authored messages and identifies the client
+  instance where the human entered the message; it is never `operator`.
 - `reply_to`: identifies the immediate message to which this is a direct
   response, or the earlier peer message that a human-directed follow-up
   updates (section 9.7).
@@ -242,14 +249,19 @@ use `UserPromptSubmit` with the same payload shape, and Codex gives hook
 shells none of the environment markers other commands rely on
 (`CODEX_THREAD_ID` for Codex; `CLAUDECODE` or `CLAUDE_CODE_SESSION_ID` for
 Claude Code), so the registration names the client; the markers remain the
-fallback when the flag is absent. Nothing else about the caller is examined:
-the prompt belongs to whichever conversation holds the role, so a restarted
-or cleared client captures without rejoining. The record does follow the
-operator, though: a prompt the operator typed comes from the conversation
-the operator is looking at, so when its session identifier differs from the
-one recorded, the hook moves the role's address there and keeps everything
-else (9.5). A delivered envelope or a host notice says nothing about where
-the operator is and never moves anything. A
+fallback when the flag is absent. Which instance of the client is calling is
+decided from the payload's session identifier and, where the host names it,
+the host process, by the rule of section 9.5a. A cleared or restarted client
+therefore captures without rejoining whenever that rule can tell which
+instance it continues; when it cannot, as for a second terminal of a client
+whose instance is still running elsewhere, or a clear with two Codex
+instances joined, the session holds no instance and its prompts are held for
+its join, as below. The record follows the operator: a
+prompt the operator typed comes from the conversation the operator is
+looking at, so when the instance it belongs to is recorded at another
+session identifier, the hook moves that instance's address there and keeps
+everything else (9.5). A delivered envelope or a host notice says nothing
+about where the operator is and never moves anything. A
 hook that cannot tell its client skips capture with a diagnostic. It then
 reads the payload, journals the prompt as a request from the human through
 that client, and answers in that client's response format. `sideband init` writes each registration, so
@@ -259,10 +271,13 @@ is registered under each client's `SessionStart` event with the matcher
 `clear`: a clear replaces the conversation on screen with a new one before
 any prompt is typed, and the old conversation may live on inside the client,
 where a push addressed to it would run unseen. The session-start hook moves
-the joined role to the new conversation when the host runs it and tells it,
-through the context field, that Sideband is live there and how many entries addressed
+the instance the new conversation continues (9.5a) to it when the host runs it and tells it,
+through the context field, that Sideband is live there as that instance and how many entries addressed
 to it need attention, counting requests it acknowledged and has not yet
 answered, since the ack is the one thing the new conversation has forgotten.
+When several instances could be the one continued and none can be told
+apart, it moves none and tells the new conversation which instances those
+are and that joining again settles it.
 `init` places the handler under the `clear` matcher and moves one it finds
 under any other matcher, where it would never fire; `doctor` reports a
 handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
@@ -292,7 +307,12 @@ A prompt that invokes the client's Sideband skill with text after it, such
 as `/sideband @codex look at this`, is the operator's words typed as the
 skill's argument: the hook records the text after the invocation and routes
 it by its first token. The skill invoked alone or with one of its own words
-(`help`, `status`, `pending`, `off`) is a command and is not captured.
+(`help`, `status`, `pending`, `off`) is a command and is not captured. `as`
+is reserved the same way: `as <name>` joins as a named instance (9.5a), and
+`as` alone, with a name that is not valid, or with anything after the name
+is a usage error the model reports, never a message. The skill invoked to
+join moves no instance to the session it was typed into (9.5a); the join
+records it.
 
 The hook must never block a prompt, so it always exits successfully, and the
 hook's context field is the shared, non-blocking channel both hosts show the
@@ -311,21 +331,23 @@ A role that has not joined cannot have its prompts recorded, yet the prompt
 that makes a client activate arrives before the join it leads to; recorded
 nowhere, a delegation it asks for would have no human origin and be refused
 (7.2). So the hook holds, rather than drops, a capturable prompt typed into
-a session whose role has not joined: the latest such prompt per role, with
-the session identifier it came from, in the `held_prompts` table beside the
-session record (9.5). A prompt that is not the operator's words (a command,
-blank input, a bang prompt) drops what is held, since whatever follows no
+a session that holds no instance of its role (9.5a): the latest such prompt per session,
+with its role and session identifier, in the `held_prompts` table beside the
+session records (9.5). Several sessions of a role may be waiting to join at
+once, so each session's hold is its own: nothing one session types replaces,
+drops, or adopts another's, and the name the session will join under is not
+needed until the join. A prompt that is not the operator's words (a command,
+blank input, a bang prompt) drops what its session holds, since whatever follows no
 longer leads from it. A prompt whose payload
-names no session drops what is held too, since it cannot be held itself
-and whatever was held led to an earlier prompt. `join` then adopts the held
-prompt when it came from the joining session: removes the hold and journals
-it verbatim as the human's request through that client, both in one
+names no session is neither held nor able to drop anything, since it cannot
+be tied to a session. `join` then adopts the prompt held for the joining
+session: removes the hold and journals
+it verbatim as the human's request through the instance joining, both in one
 transaction, so a failure leaves the hold for the next join and success
 leaves exactly one entry; then routes it by its first token, pushes it, and
 reports the entry as `adopted` in its output. A push that fails after the
 append leaves the entry, so the join completes, reports it with no pushes,
-and says on stderr what failed. One held for another session is dropped
-unreturned. The hook remains the only thing that takes the operator's words
+and says on stderr what failed. The hook remains the only thing that takes the operator's words
 from the host, and the model is still never told to record a prompt: an
 inactive session hears only what it heard before, and the skill tells the
 model that the `adopted` entry is the prompt it is acting on and the
@@ -335,7 +357,7 @@ unrecorded as before, reported on stderr only.
 Each captured prompt is recorded with:
 
 - The human as `from`.
-- The receiving client as `via`.
+- The receiving client instance as `via`.
 - The resolved routing destination in `to`.
 - The original human text as the body.
 
@@ -452,10 +474,17 @@ case-insensitive routing directives:
 
 | Directive | Recipients |
 | --- | --- |
-| None | Only the client where the message was entered |
-| `@claude` | Claude Code |
-| `@codex` | Codex |
-| `@all` | Claude Code and Codex |
+| None | Only the client instance where the message was entered |
+| `@claude` | The unnamed Claude Code instance |
+| `@codex` | The unnamed Codex instance |
+| `@claude:<name>`, `@codex:<name>` | That named instance (9.5a) |
+| `@all` | Both unnamed instances and every named instance that has joined |
+
+A named instance is reached only by its own directive: `@claude` never fans
+out to `claude:fable`. A directive naming an instance nobody has joined as
+still addresses it, and the entry waits in the journal as one for an absent
+role always has. A token that is not a valid identifier, such as
+`@claude:Fable!`, is not a directive.
 
 A token elsewhere in the message is ordinary content and must not alter
 routing. For example, asking "What does `@all` mean?" must not accidentally
@@ -465,13 +494,15 @@ The original body, including any routing directive, remains in the journal.
 
 ### 8.2 Broadcasts
 
-- `@all` creates one journal entry with both clients in `to`; it must not create
-  duplicate per-recipient entries.
-- The client through which the broadcast entered is recorded in `via`.
+- `@all` creates one journal entry with every recipient of the table above in
+  `to`; it must not create duplicate per-recipient entries. An instance
+  counts as joined when it has a session record (9.5).
+- The client instance through which the broadcast entered is recorded in `via`.
 - The originating client acts on the human's existing turn and must not inject
   a second copy into its own conversation.
 - Other recipients receive the journal entry through their listeners.
-- A broadcast targets all supported client roles even if one is offline. An
+- A broadcast targets both unnamed instances even if one is offline, and every
+  named instance with a record, whether or not its client is still running. An
   offline recipient handles it under the backlog policy when it returns.
 
 ### 8.3 Loop prevention
@@ -599,17 +630,20 @@ The usual `confirm` policy, lineage checks, and authority limits still apply.
 
 ### 9.5 Session record
 
-The only state a role keeps outside the journal is its session record: the
+Where this section says role, read instance (9.5a): each instance has its
+own record, and the unnamed instance's is the role's record of version one.
+The only state an instance keeps outside the journal is its session record: the
 host's session identifier (for Codex the thread id, which pushes address),
-when it joined, the journal size at that moment (its watermark), and its read
-position, the bookmark; and, before it has joined, at most one held prompt
-awaiting adoption (7.1). Whoever joins as a role last holds it: `join` replaces
-any earlier record, and no command compares the calling conversation or
-process against the record. The address alone also follows the operator
+the host process when the host names one, when it joined, the journal size
+at that moment (its watermark), and its read position, the bookmark. Beside
+the records, a session that holds no instance yet has at most one held
+prompt awaiting adoption (7.1). Whoever joins under an identifier last holds it:
+`join` replaces any earlier record for that identifier and nothing is
+refused; the record's process is never used to refuse anything, only to tell
+which instance a calling session is (9.5a). The address alone also follows the operator
 without a join: when the operator's own input reaches a hook from a
-conversation other than the recorded one, as after a clear, the record's
-identifier changes and its watermark and bookmark stay (7.1). One client per role per repository is the
-operator's convention, not something the executable polices. `join`
+conversation the instance continues, as after a clear, the record's
+identifier changes and its watermark and bookmark stay (7.1). `join`
 starts the bookmark at the latest point; `join --resume` keeps the previous
 one (or the start of the journal for a role that never had one), so
 everything written for the role while it was away is shown. The read position
@@ -656,9 +690,128 @@ the reader recognize a repeated id rather than treat it as new or as late.
   recipient has replied to, with the recipient's acknowledgements and the
   length of the silence (section 9.8).
 
-A human's own turn is never listed for the client it was typed into; the
+A human's own turn is never listed for the client instance it was typed into; the
 `via` field says so. Dismissing a request is a reply saying so; deferring one
 is leaving it open. Neither touches anything but the journal.
+
+### 9.5a Instances
+
+Several sessions of one client may take part in one discussion at once, such
+as two Claude Code sessions running different models. Each takes part as an
+instance with its own participant identifier:
+
+- The unnamed instance is the bare role, `claude` or `codex`. It is what a
+  plain `/sideband` or `$sideband` joins as, and it is everything version one
+  had: a discussion that never names an instance behaves as before, except
+  for the narrowing of step 3 below.
+- A named instance is `<role>:<name>`, joined with `/sideband as <name>` in
+  Claude Code or `$sideband as <name>` in Codex, which run
+  `sideband join --as <name>`. A name is a lowercase letter followed by up to
+  31 lowercase letters, digits, and hyphens, so it is safe in a routing
+  directive, in a hook's context field, and in the `from-name` Claude Code
+  parses (10.2). Its display name is the role's followed by the name in
+  parentheses, `Claude (fable)`.
+
+An instance is a participant in every sense: it is `from` on what it writes
+and `via` on what the operator types into it, it is addressed in `to`, and it
+has its own session record, bookmark, delivery records, and pending report.
+A reply goes back to the instance that asked, since a reply's recipients
+default to the author of the entry it answers (9.6). The operator addresses
+a named instance with `@<role>:<name>` (8.1). Nothing is stored about
+instances beyond their session records: an identifier in `to` needs no
+registration, and one nobody has joined as simply waits in the journal. The
+causal-path rule and the delegation depth cap (8.3) apply between two
+instances of one role exactly as between two roles.
+
+Joining keeps the version-one rule, per identifier: whoever joins under an
+identifier last holds it, and nothing is refused. The join output names the
+session it replaced, when it replaced one, so a forgotten client losing its
+identifier is at least visible. A session holds one instance at a time:
+joining removes the record of any other instance of the role that names the
+joining session, so switching a conversation from `claude` to
+`claude:fable` leaves the unnamed instance unjoined.
+
+Beside the host's session identifier, an instance's record holds the host
+process when the host names it: its process id together with its start
+time, so an id the system has since given to another program never counts
+as the instance's client. A recorded process is alive when a process with
+that id exists and started at the recorded time. Claude Code sets
+`CLAUDE_PID` in the environment of every shell and hook it runs, and a clear
+keeps the process while changing the session identifier (measured
+2026-09-26, section 17.2). Codex names no process: in the setup measured
+(codex-cli 0.157.1, section 17.2), its shells and hooks ran under one
+app-server daemon that every Codex terminal shared, so a process said
+nothing about which terminal was calling, and Sideband records none for
+Codex.
+
+A live process belongs to at most one instance of its role. Whenever a
+record takes a process, by a join or by any of the steps below, every other
+record of the role naming that process loses it: its address and pending
+work stay, but it no longer claims to be running there. That happens when a
+client switches its conversation to another instance's session, as Claude
+Code's `/resume` can inside one process, and when a session joins in a
+process an older record still names.
+
+Which instance a calling session is, is decided in one place, from the
+records of its role:
+
+1. The instance whose record names the calling session is the one calling.
+   When the caller names a process the record does not, the record takes
+   it, as after a client resumes the same session in a new process.
+2. Otherwise, when the caller names its process and an instance's record
+   names the same process, that instance is calling from a new conversation
+   in the same client, as after a clear, and its address moves to the calling
+   session.
+3. Otherwise, an instance may be continued by the caller when nothing shows
+   it is still running elsewhere: its record names no process, or one that is
+   no longer alive. When exactly one instance of the role qualifies, its
+   address moves to the calling session, as after a restart, or after a clear
+   in Codex. When none does, the calling session holds no instance. When
+   several do, which one continues cannot be told, and the calling session
+   holds none either; joining again settles it, and the session-start hook
+   says so (7.1). Records outlive their clients (the last paragraph of this
+   section), so once instances have come and gone several may qualify, and a
+   restarted client in a discussion that used names rejoins explicitly as a
+   matter of course.
+
+The hooks apply the three steps to the operator's own input, except the
+skill invoked to join (alone, or with `as <name>`): that names the instance
+itself, and inferring one first would move another instance to the session
+only for the join to release it there. The hooks write what they decide: the process a record takes in step 1, the address moved in step
+2 or 3, and the process ownership above. A session that holds no instance is
+treated as a session of a role that has not joined always was: a capturable
+prompt typed into it is held for its join (7.1). This narrows version one,
+where any prompt typed into any session of a joined client moved the role
+there: a second terminal no longer takes over an instance whose client is
+still running elsewhere by being typed into, only by joining. For Codex,
+which names no process, step 3 keeps the version-one behavior while one
+Codex instance is joined.
+
+The model's own commands (`append`, `pending`) establish who is writing
+more strictly, and write nothing to the records. Step 3 infers that a client
+continues an instance from the absence of evidence elsewhere, which is
+enough to follow the operator's own input but proves nothing about who
+authored a command: a session displaced by a takeover would be taken for
+whichever retained record happens to qualify. So a command acts as an
+instance only when its record names the calling session (step 1) or names
+the calling process, alive and with the recorded start time (step 2).
+Otherwise, when the role has no instance records at all, the command acts as
+the unnamed instance, which covers a client of a role that has never joined,
+as in version one. In every other case it refuses as invalid input, saying
+the session holds no instance and that joining settles it; acting as any
+joined instance would write under its identity and move its bookmark. A
+session whose instance another join took over while it was working is
+refused on its next command this way, and so is a restarted client that has
+not rejoined and has not been typed into, which a join or the operator's
+first prompt settles. `join` is never refused.
+
+Delivery reaches an instance through its own record: Codex's pusher queues
+into the thread the instance's record names (10.3), and Claude Code's posts
+to the registration naming the record's session or process (10.2).
+
+Instances of deleted worktrees or finished experiments are not retired: their
+records stay until someone joins under their identifier again, and `@all`
+keeps addressing them. A registry with a retired state is later work.
 
 ### 9.6 Asynchronous requests and replies
 
@@ -814,18 +967,32 @@ listener is stopped and started again.
 Claude Code exposes each session's inbox socket, the channel its own
 cross-session messaging uses, and registers every session in
 `~/.claude/sessions/<pid>.json` with its working directory and socket path.
-Claude therefore runs no listener. Whoever appends an entry addressed to
-Claude finds the registered session whose working directory resolves to this
-repository's state directory, worktrees included, and posts the envelope to
-its socket as one newline-terminated frame; an idle session starts a new turn
-with it and a busy one reads it between tool calls. No Sideband session record
-is needed for delivery, so a session that has never joined is reached and
-finds the skill through the envelope's intent sentence (section 7.4).
-Registrations are tried newest first; a socket that refuses the connection
-belongs to a session that has ended, so the next is tried, and the entry waits
-in the journal when none accepts. A frame past Claude Code's cap of about a
-million characters is refused before any connection, and a session that
-accepts the connection but stops reading is given up on after a bounded wait.
+Claude therefore runs no listener. Whoever appends an entry addressed to a
+Claude instance considers the registered sessions whose working directory
+resolves to this repository's state directory, worktrees included, and posts
+the envelope to one socket as one newline-terminated frame; an idle session
+starts a new turn with it and a busy one reads it between tool calls. The
+recipient is a registration the instance's record names (9.5a), and every such
+registration is tried before any other: those whose session identifier is the
+record's, since a resumed session can be registered twice, and then those of
+the record's process while it runs with its recorded start time, since a clear
+changes the identifier in place and the push may run before the session-start
+hook has moved the record. A registration whose session identifier another
+instance's record names is never taken by process. A named instance is
+reached only that way, and an entry for one whose registrations are gone or
+refuse waits in the journal. The unnamed instance keeps version one's reach
+as well: when it has no record, when its record names no registration, or
+when every registration its record names refuses, the registrations that no
+instance's record claims, by session or by a live process, are tried newest
+first, so a single Claude that has never joined, or restarted without joining
+while the old registration lingers, is still reached and finds the skill
+through the envelope's intent sentence (section 7.4). A registration another
+instance's record claims is never a fallback. A socket that refuses the
+connection belongs to a session that has ended, so the next candidate is
+tried, and the entry waits in the journal when none accepts. A frame past
+Claude Code's cap of about a million characters is refused before any
+connection, and a session that accepts the connection but stops reading is
+given up on after a bounded wait.
 
 Claude Code introduces every frame on that socket to the model as a message
 from another Claude session, and no field of the frame changes that
@@ -833,8 +1000,8 @@ introduction (verified against Claude Code 2.1.263, 2026-09-07). The frame's
 content therefore takes the shape Claude Code's own cross-session messaging
 sends, a `<cross-session-message>` tag whose `from-name` the receiving side
 parses into the message's origin, with the envelope inside it; the name is the
-entry author's display name, so the message is attributed to Codex or the
-operator rather than to an anonymous session. The Claude adapter tells the
+entry author's display name, such as `Codex` or `Claude (fable)`, so the
+message is attributed to its author rather than to an anonymous session. The Claude adapter tells the
 model to trust that name and `metadata.from` over the introduction.
 
 Claude Code recognizes only text its own serializer would leave alone, and
@@ -881,10 +1048,10 @@ operator has accepted it.
 Codex offers `codex queue --thread <thread id> --message <text>`, which
 starts a new turn in an existing idle session, as the wake-path spike proved.
 Codex therefore runs no
-listener. On joining, `sideband join --role codex` records the
-session's thread id from `CODEX_THREAD_ID`; from then on every writer that
-appends an entry addressed to Codex pushes the envelope with `codex queue`
-and marks it delivered. Subagent messaging and subagent completion were
+listener. On joining, `sideband join` records the
+session's thread id from `CODEX_THREAD_ID` for the instance joining; from then on every writer that
+appends an entry addressed to that instance pushes the envelope with `codex queue`
+into the thread its record names and marks it delivered. Subagent messaging and subagent completion were
 tested and do not wake an idle parent; they must not be used for delivery.
 The pushed envelope arrives as user-role input and must be handled under
 section 7.4.
@@ -911,11 +1078,11 @@ Registration on disk alone does not establish that guarantee.
   waits; the reply is pushed when it is written.
 - Messages written while a client is absent remain durable in the journal.
 - A returning client drains the backlog using the confirmation workflow.
-- One instance of each client role per repository is the operator's
-  convention; the executable does not police it. A second join as the same
-  role replaces the role's record and holds the role from then on. Claude and
-  Codex may still operate simultaneously from different worktrees because they
-  have different roles.
+- Several instances of each client role may take part in one repository,
+  each under its own identifier (9.5a). A second join under the same
+  identifier replaces that instance's record and holds it from then on; no
+  join is refused. Instances may operate from the same worktree or
+  from different ones.
 
 ### 10.5 Activation
 
@@ -1069,21 +1236,20 @@ Version one does not provide:
   automation.
 - A database server or a graphical user interface; the embedded database is
   a file in the state directory that only the executable opens.
-- Multiple simultaneous sessions of the same client role in one repository.
-- Session-specific routing or presence heartbeats.
+- Presence heartbeats, or retiring an instance whose client is gone (9.5a).
 - Exactly-once delivery.
 - Recipient confidentiality within the shared journal.
 - Binary attachment storage.
 - Full client transcripts, hidden prompts, tool logs, or private reasoning.
 - Audit-grade guaranteed capture of every human input byte.
 
-A later version may replace role-only identity with stable per-instance identity
-such as `claude:<instance>`. Role-level routing could then fan out to active
-instances, while replies use `to` to address the instance that authored the
-request and `reply_to` to identify that request. Session records would
-become per-instance, and an instance registry with a retired state would report
-backlog for deleted worktrees as orphaned rather than leave it pending forever.
-This is design direction only and does not relax the version-one limit.
+Per-instance identity, once design direction here, is specified in section
+9.5a (2026-09-26), with two departures from the direction first sketched:
+`@claude` reaches only the unnamed instance rather than fanning out, and
+names are chosen by the operator at join rather than derived from the
+worktree. An instance registry with a retired state, which would report
+backlog for deleted worktrees as orphaned rather than leave it pending
+forever, remains later work.
 
 ## 14. Acceptance scenarios
 
@@ -1139,9 +1305,8 @@ appear in the journal without interleaving or corruption.
 ### 14.8 Worktrees
 
 Given Claude and Codex operate from different worktrees of the same Git
-repository, both resolve and use the same Sideband journal. This scenario uses
-one instance of each role; it does not authorize two Claude or two Codex
-instances.
+repository, both resolve and use the same Sideband journal. Instances of one
+role in different worktrees share it the same way (14.10a).
 
 ### 14.9 Restart and replay
 
@@ -1154,11 +1319,47 @@ it; only its reply closes the request.
 
 ### 14.10 Duplicate role activation
 
-Given one Codex instance has joined a repository, when another Codex instance
-joins the same repository, the second join replaces the role's session record
-and holds the role; nothing is refused. Prompts typed into either instance are
-recorded for the Codex role. Keeping one instance per role is the operator's
-convention.
+Given one Codex session has joined a repository as `codex`, when another
+Codex session joins it as `codex` too, the second join replaces that
+instance's record and holds it; nothing is refused, and the join output names
+the session it replaced. Codex names no process, so a prompt typed into the
+first session afterwards moves the instance back there by step 3 of 9.5a,
+as in version one. The same with Claude Code: the second join holds
+`claude`, and a prompt typed into the first session, whose process is not
+the recorded one, is held for a join rather than moving the instance while
+the second session's process is alive.
+
+### 14.10a Named instances
+
+Given one Claude Code session joined as `claude` and another joined with
+`/sideband as fable` as `claude:fable`, in the same worktree or in two:
+
+- each receives only entries addressed to it, prompts typed into each are
+  recorded with that instance as `via`, and their bookmarks are independent;
+- `@claude` reaches only `claude`, `@claude:fable` only `claude:fable`, and
+  `@all` both of them, `codex`, and every other named instance with a record;
+- a reply to a request `claude:fable` wrote is delivered to `claude:fable`;
+- a request from `claude` to `claude:fable` traces to a human entry and is
+  bounded by the delegation depth cap exactly as one between roles;
+- `/clear` in either session keeps that session's instance, moves its
+  address to the new conversation, and leaves the other instance alone;
+- a prompt typed into a third Claude Code session that has not joined is
+  held for its join and moves neither instance; and
+- `/sideband as fable` from the third session takes `claude:fable` over, and
+  its join output names the session it replaced; and
+- when the first session's client switches its conversation to
+  `claude:fable`'s session, as `/resume` can, `claude:fable` takes the
+  process and `claude`'s record gives it up, so no process is named by two
+  records and no push for one instance reaches the other through it.
+
+Given a single Claude joined as `claude` that crashed, leaving its
+registration behind with a socket that refuses, and restarted without
+joining, an entry for `claude` reaches the restarted session.
+
+Given two Codex sessions joined as `codex` and `codex:review`, when either is
+cleared, the session-start hook cannot tell which instance the new thread
+continues, moves neither, and tells the new conversation so; joining again
+settles it.
 
 ### 14.11 Agent-to-human message
 
@@ -1263,10 +1464,28 @@ capture.
 Given the hook command is registered in both clients, each registration names
 its client with `--agent`, because both hosts send the same payload and Codex
 gives hook shells no environment markers. When either client invokes it, the
-executable records the prompt with that client as `via` whenever the client's
-role has joined, whichever conversation or process is calling; a restarted or
-cleared client needs nothing. A hook that cannot tell its client records
-nothing and says so.
+executable records the prompt with the calling instance as `via` whenever
+the calling session holds an instance by the rule of 9.5a, which a cleared
+or restarted client does without rejoining when the rule can tell which
+instance it continues. A session that holds no instance, as for a second
+terminal while the instance's client runs elsewhere, or a clear with two
+Codex instances joined, has its prompt held for its join (7.1). A hook that
+cannot tell its client records nothing and says so.
+
+Given two sessions of one role that have not joined, when the operator types
+a prompt into each and then joins in either, that join adopts its own
+session's prompt, and the other session's prompt stays held for its own
+join; a command typed into one drops only its own session's hold.
+
+Given `claude:fable` in session A is mid-turn when session B joins as
+`claude:fable` and `claude` is held by session C, when A's model next runs
+`append` or `pending`, the command refuses and says A holds no instance,
+rather than writing as `claude:fable` or `claude`. It refuses the same way
+when a retained `claude:old` record names a dead process, and when A was
+`codex:review`, B took it over, and B's is the only Codex record: an
+instance a hook could continue by step 3 is never one a command writes as.
+Given no Claude instance record exists at all, a command from a Claude
+session acts as `claude`, as in version one.
 
 ### 14.17a Acknowledgement
 
@@ -1304,7 +1523,6 @@ The following questions remain intentionally unresolved:
   presentation. Version one uses ordinary linked follow-ups (section 9.7).
 - Retention, archive, compaction, and export policies for very large journals.
 - Future attachment representation.
-- Future support for multiple sessions of the same client role.
 - Whether later versions should add an optional cloud journal and WebSocket
   notification layer while retaining the same entry protocol.
 
@@ -1383,6 +1601,13 @@ reported as orphaned rather than pending forever. The section 13 non-goal on
 session-specific routing and presence would be relaxed at that point. The
 version-one format should keep `from` and `to` as plain role names so this can
 be added compatibly.
+
+Superseded (2026-09-26): the refusal was removed on 2026-09-06 (#5), and
+per-instance identity is now specified in section 9.5a. The plain role names
+this note preserved are the unnamed instances, so existing journals read
+unchanged. James decided that `@claude` reaches only the unnamed instance,
+that `@all` reaches every joined instance, and that a second join under an
+identifier replaces the first rather than being refused.
 
 #### 16.4 Agent-to-human entries need an addressing model
 
@@ -1723,6 +1948,26 @@ ran in Codex until James re-trusted them through `/hooks`.
 
 Neither is a release blocker for the Claude Code path.
 
+Instance identity (2026-09-26, Claude Code 2.1.283 and codex-cli 0.157.1),
+the evidence for section 9.5a. Claude Code: a throwaway `SessionStart` and
+`UserPromptSubmit` hook under `claude -p` ran as a direct child of the
+Claude Code process, through `/bin/sh`, with `CLAUDE_PID` set to that
+process and `CLAUDE_CODE_SESSION_ID` to the session. In the interactive
+session that did this work, the process was started at 10:24:32 with
+`claude -c`, the operator cleared at 10:25:40, and afterwards the
+registration `~/.claude/sessions/<pid>.json` named the new session
+identifier under the same pid and `startedAt`, while `CLAUDE_PID` in its
+shells still named the same process and `CLAUDE_CODE_SESSION_ID` named the new session. Codex: two
+TUIs were running, and one `codex app-server --managed-daemon` process,
+the child of the first TUI, served both; the second TUI had no child
+processes, so its shells and hooks cannot run under it. A Codex process
+therefore does not identify a terminal. Codex's `SessionEnd` hook does not
+fire on a clear: per its
+[hooks documentation](https://learn.chatgpt.com/docs/hooks) its reason is
+always `other`, and a request for a `clear` reason
+([openai/codex#20374](https://github.com/openai/codex/issues/20374)) was
+closed as not planned.
+
 The choices retained in section 15 are open design decisions, but none is a
 release blocker until implementation reaches the affected feature boundary.
 
@@ -1748,13 +1993,15 @@ which client it runs inside: each recognizes the client from the environment
 the client gives its subprocesses, so `--role`, `--via`, and `--client` are
 hidden overrides for tests. `append --from` is the one visible author flag:
 `operator` means the entry is the operator's own words; a client name is an
-override for tests.
+override for tests. Which instance of the client is calling, and when a
+command refuses because the session holds none, is the command rule of
+section 9.5a; only `join --as` names an instance explicitly.
 
 ```text
 sideband init [--skip-clients]                     # state directory and database, both skill stubs, both hook registrations
-sideband join [--resume]                           # start this client's session, taking the role over; prints the first pending report
+sideband join [--as <name>] [--resume]             # start this session as the unnamed or a named instance, taking it over; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
-sideband append --type request --to <role> --caused-by <id> [--body-file <path>]
+sideband append --type request --to <instance> --caused-by <id> [--body-file <path>]
 sideband append --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]
 sideband append --type status --to <role|operator> [--reply-to <id>] [--body-file <path>]
 sideband append --type ack --reply-to <id>         # receipt; body optional; never delivered as such
@@ -1764,7 +2011,7 @@ sideband pending --wait --stream                   # the listener: one report pe
 sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown, oldest first
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
-sideband hook session-start                        # both clients' SessionStart hook for a clear: move the role to the new conversation
+sideband hook session-start                        # both clients' SessionStart hook for a clear: move the instance to the new conversation
 sideband hook notify [--agent <role>]              # the notifier's gate on Stop, Notification, PermissionRequest, and UserPromptSubmit: exit 0 lets it ring, 1 holds it
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```
@@ -1780,9 +2027,11 @@ pushed, never wake a listener, and are never listed (9.8); a waited `pending`
 report never advances the bookmark and a plain one advances only after the
 report was written (9.5); `hook prompt` reports every capture outcome in the
 host's context field and names the recorded entry so a delegation can cite it
-(7.1); `hook prompt` and `hook session-start` move a joined role's address to
-the conversation the operator's own input came from, never on a delivered
-envelope or a host notice (7.1, 9.5); `hook notify` holds a turn end only
+(7.1); `hook prompt` and `hook session-start` move a joined instance's address to
+the conversation the operator's own input came from when that conversation
+continues it, never on a delivered envelope or a host notice (7.1, 9.5,
+9.5a); `join` names the session it replaced and releases any other instance
+of the role recorded at the joining session (9.5a); `hook notify` holds a turn end only
 when the journal says the operator's attention is not wanted, and passes
 every other event (10.7); `skill --eject` refuses to overwrite an
 ejected skill unless forced (10.1).

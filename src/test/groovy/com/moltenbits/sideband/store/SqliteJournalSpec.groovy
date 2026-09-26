@@ -200,7 +200,7 @@ class SqliteJournalSpec extends Specification {
         config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE)
         def holder = config.createConnection("jdbc:sqlite:" + database)
         holder.autoCommit = false
-        holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('claude','x','2026-09-02T16:42:00-05:00',0,0,0)")
+        holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('claude','x','2026-09-02T16:42:00-05:00',0,0,0,NULL,NULL)")
         Duration patience = Duration.ofMillis(300)
         ApplicationContext impatient = ApplicationContext.run(["sideband.store.busy-timeout": "300ms"])
         Journal quick = impatient.getBean(Journal)

@@ -17,7 +17,7 @@ public record EntryMetadata(
         String id,
         OffsetDateTime createdAt,
         ParticipantId from,
-        @Nullable Role via,
+        @Nullable ParticipantId via,
         List<ParticipantId> to,
         MessageType type,
         Route route,

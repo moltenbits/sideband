@@ -16,6 +16,13 @@ public interface HostEnvironment {
     /** The client's identifier for the current session, when the client exposes it. */
     Optional<String> sessionId(Role role);
 
+    /**
+     * The client's host process, when the client names it: Claude Code sets {@code CLAUDE_PID}
+     * in every shell and hook it runs. Codex names none, so this is empty for Codex, and so it
+     * is when the named process is not running (REQUIREMENTS.md 9.5a).
+     */
+    Optional<HostProcess> process(Role role);
+
     /** The role, or a clear error naming the flag that overrides detection. */
     default Role requireRole(String flag) {
         return role().orElseThrow(() -> new IllegalArgumentException(

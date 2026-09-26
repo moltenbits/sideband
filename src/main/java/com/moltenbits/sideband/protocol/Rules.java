@@ -10,7 +10,7 @@ final class Rules {
     private Rules() {
     }
 
-    static void check(ParticipantId from, @Nullable Role via, List<ParticipantId> to, MessageType type,
+    static void check(ParticipantId from, @Nullable ParticipantId via, List<ParticipantId> to, MessageType type,
                       Route route, @Nullable String replyTo, boolean expectsReply) {
         if (to == null || to.isEmpty()) {
             throw new InvalidEntryException("'to' must name at least one recipient");
@@ -20,6 +20,9 @@ final class Rules {
         }
         if (from.isHuman() && via == null) {
             throw new InvalidEntryException("'via' is required when the author is a human");
+        }
+        if (via != null && via.isHuman()) {
+            throw new InvalidEntryException("'via' must be a client instance, never the operator");
         }
         if ((type == MessageType.REPLY || type == MessageType.ACK) && replyTo == null) {
             throw new InvalidEntryException("a " + type.id() + " must set 'reply_to'");

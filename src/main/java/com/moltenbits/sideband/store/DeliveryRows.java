@@ -7,11 +7,11 @@ import io.micronaut.data.repository.CrudRepository;
 import java.util.List;
 import java.util.Optional;
 
-/** The {@code deliveries} table: at most one row per entry and role. */
+/** The {@code deliveries} table: at most one row per entry and instance. */
 @JdbcRepository(dialect = Dialect.SQLITE)
 interface DeliveryRows extends CrudRepository<DeliveryRow, Long> {
 
-    Optional<DeliveryRow> findBySeqAndRole(long seq, String role);
+    Optional<DeliveryRow> findBySeqAndParticipant(long seq, String participant);
 
-    List<DeliveryRow> findByRoleAndSessionId(String role, String sessionId);
+    List<DeliveryRow> findByParticipantAndSessionId(String participant, String sessionId);
 }
