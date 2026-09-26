@@ -10,6 +10,7 @@ import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.pending.Pending
 import com.moltenbits.sideband.protocol.Draft
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.session.Sessions
 import io.micronaut.serde.ObjectMapper
 import picocli.CommandLine
@@ -206,9 +207,9 @@ class SessionCommandsSpec extends CommandSpec {
         HeldPrompts held = context.getBean(HeldPrompts)
         held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
-            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
-                Entry entry = held.adopt(dir, via, sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
+            Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
+                Entry entry = held.adopt(dir, via.role().get(), sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
                 throw CaptureFailedException.afterAppend(entry, new IOException("codex queue unreachable"))
             }
         }
@@ -238,8 +239,8 @@ class SessionCommandsSpec extends CommandSpec {
         HeldPrompts held = context.getBean(HeldPrompts)
         held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
-            Captured capture(Path dir, Role via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, Role via, String sessionId) {
+            Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
+            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
                 throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, new IOException("disk full"))
             }
         }

@@ -16,7 +16,7 @@ public final class Addressing {
      */
     public static boolean concerns(EntryMetadata metadata, Role role) {
         ParticipantId self = ParticipantId.of(role);
-        if (metadata.from().isHuman() && metadata.via() == role) {
+        if (metadata.from().isHuman() && self.equals(metadata.via())) {
             return false;
         }
         return metadata.addresses(self) && !metadata.from().equals(self);

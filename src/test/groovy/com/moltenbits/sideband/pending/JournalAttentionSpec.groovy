@@ -28,7 +28,7 @@ class JournalAttentionSpec extends Specification {
     Path dir = Files.createTempDirectory("attention")
 
     Entry human(String body = "do the thing", Role via = Role.CLAUDE, Role to = via) {
-        journal.append(dir, Fixtures.humanDraft(body, [ParticipantId.of(to)], via))
+        journal.append(dir, Fixtures.humanDraft(body, [ParticipantId.of(to)], ParticipantId.of(via)))
     }
 
     Entry agent(Role from, List<ParticipantId> to, MessageType type, Map more = [:]) {
@@ -315,7 +315,7 @@ class JournalAttentionSpec extends Specification {
 
     void "a broadcast is answered once per recipient: the second answer completes it, whoever answered first"() {
         given: "typed into Codex, addressed to both"
-        Entry h = journal.append(dir, Fixtures.humanDraft("@all review independently", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
+        Entry h = journal.append(dir, Fixtures.humanDraft("@all review independently", [Fixtures.CLAUDE, Fixtures.CODEX], Fixtures.CODEX))
         agent(Role.CODEX, [Fixtures.OPERATOR, Fixtures.CLAUDE], MessageType.REPLY, [replyTo: h.metadata().id()])
 
         expect: "Claude has not answered yet"

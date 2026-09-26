@@ -10,7 +10,6 @@ import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
-import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.protocol.Route;
 import com.moltenbits.sideband.protocol.Wire;
 import jakarta.inject.Singleton;
@@ -61,7 +60,7 @@ class SqliteJournal implements Journal {
     /** Inserts one complete entry on the current connection and returns it with the position the store assigned. */
     static Entry insert(EntryRows rows, EntryMetadata m, String body) {
         EntryRow saved = rows.save(new EntryRow(null, m.id(), TIMESTAMP.format(m.createdAt()), m.from().value(),
-                m.via() == null ? null : m.via().id(),
+                m.via() == null ? null : m.via().value(),
                 m.to().stream().map(ParticipantId::value).collect(Collectors.joining(",")),
                 m.type().id(), m.route().id(), m.replyTo(), m.causedBy(), m.expectsReply(),
                 m.delivery().live().id(), m.delivery().backlog().id(), body));
@@ -97,7 +96,7 @@ class SqliteJournal implements Journal {
                 row.messageId(),
                 OffsetDateTime.parse(row.createdAt(), TIMESTAMP),
                 new ParticipantId(row.sender()),
-                row.via() == null ? null : Wire.fromId(Role.class, row.via()),
+                row.via() == null ? null : new ParticipantId(row.via()),
                 Arrays.stream(row.recipients().split(",")).map(ParticipantId::new).toList(),
                 Wire.fromId(MessageType.class, row.type()),
                 Wire.fromId(Route.class, row.route()),

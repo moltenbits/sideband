@@ -53,11 +53,12 @@ public class AppendCommand implements Callable<Integer> {
             description = "Author: operator for the operator's own words (routed by their first token), otherwise the calling client")
     ParticipantId from;
 
-    @Option(names = "--via", hidden = true, description = "With --from operator: override the client detected from the environment")
-    Role via;
+    @Option(names = "--via", hidden = true, converter = ParticipantIdConverter.class,
+            description = "With --from operator: override the client instance detected from the environment")
+    ParticipantId via;
 
     @Option(names = "--to", arity = "1..*", converter = ParticipantIdConverter.class,
-            description = "Recipients: claude, codex, or operator. With --reply-to it defaults to the author of the entry being answered")
+            description = "Recipients: client instances (claude, codex, or a named one such as claude:fable) or operator. With --reply-to it defaults to the author of the entry being answered")
     List<ParticipantId> to;
 
     @Option(names = "--type", description = "request, reply, status, or ack (required unless --from operator, whose entries are requests)")
@@ -102,7 +103,10 @@ public class AppendCommand implements Callable<Integer> {
             throw new IllegalArgumentException("--via only applies with --from operator; an agent entry's author is --from or the calling client");
         }
         if (operator) {
-            return appendOperator(via != null ? via : host.requireRole("--via"));
+            if (via != null && via.isHuman()) {
+                throw new IllegalArgumentException("--via names the client instance the operator typed into, never the operator");
+            }
+            return appendOperator(via != null ? via : ParticipantId.of(host.requireRole("--via")));
         }
         Role author = from != null ? from.role().orElseThrow() : host.requireRole("--from");
         if (type == null) {
@@ -144,7 +148,7 @@ public class AppendCommand implements Callable<Integer> {
     }
 
     /** The operator's own words: routed by their first token, never linked, always a request. */
-    private int appendOperator(Role client) throws IOException {
+    private int appendOperator(ParticipantId client) throws IOException {
         if ((to != null && !to.isEmpty()) || replyTo != null || causedBy != null || expectsReply != null
                 || (type != null && type != MessageType.REQUEST)) {
             throw new IllegalArgumentException("--from operator takes only the body: recipients come from its first token, and it is always a request");

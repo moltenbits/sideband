@@ -7,6 +7,7 @@ import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.pending.Attention;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
 import com.moltenbits.sideband.pending.Pending;
@@ -288,7 +289,7 @@ public class HookCommand {
             if (!capturable) {
                 return ExitCode.OK;
             }
-            Captured captured = capture.capture(stateDirectory, role, prompt);
+            Captured captured = capture.capture(stateDirectory, ParticipantId.of(role), prompt);
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
             return ExitCode.OK;
         }

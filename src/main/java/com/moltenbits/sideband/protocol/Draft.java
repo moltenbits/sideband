@@ -11,7 +11,7 @@ import java.util.Objects;
  */
 public record Draft(
         ParticipantId from,
-        @Nullable Role via,
+        @Nullable ParticipantId via,
         List<ParticipantId> to,
         MessageType type,
         Route route,
@@ -41,7 +41,7 @@ public record Draft(
     }
 
     /** What the operator typed: a request whoever it is addressed to, entered through {@code via}. */
-    public static Draft humanRequest(Role via, List<ParticipantId> to, String body) {
+    public static Draft humanRequest(ParticipantId via, List<ParticipantId> to, String body) {
         return new Draft(ParticipantId.OPERATOR, via, to, MessageType.REQUEST, Route.forRecipients(to),
                 null, null, true, Delivery.DEFAULT, body);
     }

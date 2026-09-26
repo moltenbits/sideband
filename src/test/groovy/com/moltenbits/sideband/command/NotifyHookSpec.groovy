@@ -40,7 +40,7 @@ class NotifyHookSpec extends CommandSpec {
     }
 
     void human(String body = "fix the build", Role via = Role.CLAUDE) {
-        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [ParticipantId.of(via)], via))
+        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [ParticipantId.of(via)], ParticipantId.of(via)))
     }
 
     void "a turn end in the operator's client with nothing open passes, with nothing on stdout"() {

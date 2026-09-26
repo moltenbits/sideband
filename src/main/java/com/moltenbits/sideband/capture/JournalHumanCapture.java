@@ -3,7 +3,7 @@ package com.moltenbits.sideband.capture;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
-import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.routing.Destination;
 import com.moltenbits.sideband.routing.Routing;
@@ -29,7 +29,7 @@ class JournalHumanCapture implements HumanCapture {
     }
 
     @Override
-    public Captured capture(Path stateDirectory, Role via, String body) {
+    public Captured capture(Path stateDirectory, ParticipantId via, String body) {
         Destination destination;
         try {
             destination = routing.resolve(body, via);
@@ -48,10 +48,10 @@ class JournalHumanCapture implements HumanCapture {
     }
 
     @Override
-    public Optional<Captured> adopt(Path stateDirectory, Role via, String sessionId) {
+    public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, String sessionId) {
         Optional<Entry> entry;
         try {
-            entry = held.adopt(stateDirectory, via, sessionId,
+            entry = held.adopt(stateDirectory, via.role().orElseThrow(), sessionId,
                     prompt -> Draft.humanRequest(via, routing.resolve(prompt, via).to(), prompt));
         } catch (IllegalArgumentException e) {
             throw e;

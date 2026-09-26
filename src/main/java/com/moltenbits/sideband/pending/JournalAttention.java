@@ -69,8 +69,8 @@ class JournalAttention implements Attention {
             return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
         Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
-        Role via = prompt.metadata().via();
-        if (via != role) {
+        ParticipantId via = prompt.metadata().via();
+        if (!self.equals(via)) {
             return new Verdict(false, "the operator's last prompt was typed into "
                     + (via == null ? "no client" : via.displayName()) + ", not " + role.displayName());
         }

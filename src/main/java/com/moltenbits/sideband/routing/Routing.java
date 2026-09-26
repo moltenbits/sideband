@@ -1,6 +1,6 @@
 package com.moltenbits.sideband.routing;
 
-import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.protocol.ParticipantId;
 
 /** Resolves where a human's message goes from a directive at the start of its body. */
 public interface Routing {
@@ -10,5 +10,5 @@ public interface Routing {
      * and {@code @all} (case-insensitive) select recipients; anything else routes to
      * {@code via} alone. The body is never altered.
      */
-    Destination resolve(String body, Role via);
+    Destination resolve(String body, ParticipantId via);
 }

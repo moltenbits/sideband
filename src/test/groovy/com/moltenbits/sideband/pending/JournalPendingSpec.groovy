@@ -29,7 +29,7 @@ class JournalPendingSpec extends Specification {
     Path dir = Files.createTempDirectory("pending")
 
     Entry human(String body = "@codex review this", Role via = Role.CLAUDE, Role to = Role.CODEX) {
-        journal.append(dir, Fixtures.humanDraft(body, [ParticipantId.of(to)], via))
+        journal.append(dir, Fixtures.humanDraft(body, [ParticipantId.of(to)], ParticipantId.of(via)))
     }
 
     Entry agent(Role from, Role to, MessageType type, Map more = [:]) {

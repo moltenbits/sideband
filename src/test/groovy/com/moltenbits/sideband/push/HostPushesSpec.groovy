@@ -182,8 +182,8 @@ exit $(cat "''' + exitFile + '''")
 
     void "a Claude push lands in whichever registered session accepts it, recorded or not, and that is the session recorded"() {
         given: "the recorded Claude session is A, but the socket that accepts belongs to B; then no Claude has joined at all"
-        Entry first = journal.append(state, Fixtures.humanDraft("@claude one", [Fixtures.CLAUDE], Role.CODEX))
-        Entry third = journal.append(state, Fixtures.humanDraft("@claude three", [Fixtures.CLAUDE], Role.CODEX))
+        Entry first = journal.append(state, Fixtures.humanDraft("@claude one", [Fixtures.CLAUDE], Fixtures.CODEX))
+        Entry third = journal.append(state, Fixtures.humanDraft("@claude three", [Fixtures.CLAUDE], Fixtures.CODEX))
         String accepting = "claude-B"
         HostPusher socket = [role: { Role.CLAUDE },
                              push: { Path directory, ParticipantId from, String text ->
@@ -201,7 +201,7 @@ exit $(cat "''' + exitFile + '''")
 
         when: "no Claude role is recorded at all, and the push still lands somewhere known"
         Path unjoined = Files.createDirectories(TempRepo.init().resolve(".git/sideband"))
-        Entry elsewhere = journal.append(unjoined, Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE], Role.CODEX))
+        Entry elsewhere = journal.append(unjoined, Fixtures.humanDraft("@claude two", [Fixtures.CLAUDE], Fixtures.CODEX))
         accepting = "claude-C"
         wired.deliver(unjoined, elsewhere)
 
@@ -220,7 +220,7 @@ exit $(cat "''' + exitFile + '''")
 
     void "Claude is pushed to over its inbox socket; with no Claude Code session registered for the repository the entry waits"() {
         when:
-        List<PushResult> results = pushes.deliver(state, journal.append(state, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Role.CODEX)))
+        List<PushResult> results = pushes.deliver(state, journal.append(state, Fixtures.humanDraft("@claude hi", [Fixtures.CLAUDE], Fixtures.CODEX)))
 
         then:
         results == [new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)]
@@ -243,8 +243,8 @@ exit $(cat "''' + exitFile + '''")
     void "a broadcast pushes to each client recipient except the one the human typed into"() {
         given:
         sessions.join(state, Role.CODEX, "thread-123")
-        Entry viaClaude = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CLAUDE))
-        Entry viaCodex = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Role.CODEX))
+        Entry viaClaude = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Fixtures.CLAUDE))
+        Entry viaCodex = journal.append(state, Fixtures.humanDraft("@all go", [Fixtures.CLAUDE, Fixtures.CODEX], Fixtures.CODEX))
 
         expect:
         pushes.deliver(state, viaClaude) == [new PushResult(Role.CODEX, PushOutcome.PUSHED, "Queued message fake for thread thread-123.", "thread-123")]

@@ -11,7 +11,7 @@ class DirectiveRoutingSpec extends Specification {
 
     void "the first non-whitespace token selects the recipients"() {
         when:
-        Destination resolution = routing.resolve(body, Role.CLAUDE)
+        Destination resolution = routing.resolve(body, Fixtures.CLAUDE)
 
         then:
         resolution.to() == to
@@ -36,6 +36,6 @@ class DirectiveRoutingSpec extends Specification {
 
     void "an undirected message goes to the client it was typed into"() {
         expect:
-        routing.resolve("hello", Role.CODEX).to() == [Fixtures.CODEX]
+        routing.resolve("hello", Fixtures.CODEX).to() == [Fixtures.CODEX]
     }
 }

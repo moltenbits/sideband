@@ -1,9 +1,11 @@
 package com.moltenbits.sideband.command
 
+import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.host.HostEnvironment
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.pending.Pending
 import com.moltenbits.sideband.session.HeldPrompts
@@ -179,7 +181,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         entries.size() == 1
         entries[0].body() == prompt
-        entries[0].metadata().via() == Role.CODEX
+        entries[0].metadata().via() == Fixtures.CODEX
         entries[0].metadata().from().toString() == "operator"
 
         when:
@@ -528,7 +530,7 @@ class HookAndSkillSpec extends CommandSpec {
     void "a failure before the append says the prompt was not recorded"() {
         given:
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
-        captureOverride = { Path dir, Role via, String body ->
+        captureOverride = { Path dir, ParticipantId via, String body ->
             throw new com.moltenbits.sideband.capture.CaptureFailedException(
                     com.moltenbits.sideband.capture.CaptureFailedException.Stage.NOT_JOURNALED, null, new RuntimeException("routing exploded"))
         } as HumanCapture
@@ -547,7 +549,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = Role.CLAUDE
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         def journal = context.getBean(com.moltenbits.sideband.journal.Journal)
-        captureOverride = { Path dir, Role via, String body ->
+        captureOverride = { Path dir, ParticipantId via, String body ->
             def entry = journal.append(dir, com.moltenbits.sideband.protocol.Draft.humanRequest(via, [com.moltenbits.sideband.Fixtures.CODEX], body))
             throw new com.moltenbits.sideband.capture.CaptureFailedException(
                     com.moltenbits.sideband.capture.CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), new IOException("codex session unreadable"))

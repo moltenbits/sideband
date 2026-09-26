@@ -41,7 +41,7 @@ class AppendOperatorSpec extends CommandSpec {
             size() == 1
             it[0].body() == "fix the typo"
             it[0].metadata().from() == Fixtures.OPERATOR
-            it[0].metadata().via() == Role.CLAUDE
+            it[0].metadata().via() == Fixtures.CLAUDE
             it[0].metadata().to() == [Fixtures.CLAUDE]
         }
     }
@@ -98,9 +98,10 @@ class AppendOperatorSpec extends CommandSpec {
         run("append", "--repo", repo.toString(), "--from", "gemini", "--type", "status", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
     }
 
-    void "the via option is case-insensitive and validated"() {
+    void "the via option names a client instance and is validated"() {
         expect:
-        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "Claude", "--body-file", body("hi").toString()) == ExitCode.OK
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude:fable", "--body-file", body("hi").toString()) == ExitCode.OK
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "operator", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
         run("append", "--from", "operator", "--repo", repo.toString(), "--via", "gemini", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
     }
 

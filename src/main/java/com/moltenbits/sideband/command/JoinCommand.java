@@ -7,6 +7,7 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
@@ -92,7 +93,7 @@ public class JoinCommand implements Callable<Integer> {
      */
     private Captured adopt(Path stateDirectory, Role who, String id) {
         try {
-            return capture.adopt(stateDirectory, who, id).orElse(null);
+            return capture.adopt(stateDirectory, ParticipantId.of(who), id).orElse(null);
         } catch (CaptureFailedException e) {
             if (e.stage() != CaptureFailedException.Stage.JOURNALED || e.journaled() == null) {
                 throw e;

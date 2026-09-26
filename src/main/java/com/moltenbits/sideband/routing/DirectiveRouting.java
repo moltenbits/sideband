@@ -16,7 +16,7 @@ class DirectiveRouting implements Routing {
     private static final String ALL = "@all";
 
     @Override
-    public Destination resolve(String body, Role via) {
+    public Destination resolve(String body, ParticipantId via) {
         String token = firstToken(body).toLowerCase(Locale.ROOT);
         if (token.equals(ALL)) {
             return directed(Arrays.stream(Role.values()).map(ParticipantId::of).toList());
@@ -26,7 +26,7 @@ class DirectiveRouting implements Routing {
                 return directed(List.of(ParticipantId.of(role)));
             }
         }
-        return new Destination(List.of(ParticipantId.of(via)), Route.DIRECT, false);
+        return new Destination(List.of(via), Route.DIRECT, false);
     }
 
     private static Destination directed(List<ParticipantId> to) {
