@@ -43,8 +43,8 @@ class JournalAttentionSpec extends Specification {
 
     void "with nothing from the operator in the discussion there is nothing to hold back"() {
         expect:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
     }
 
     void "the client the operator typed into is done when nothing is open, and the other client stays quiet"() {
@@ -52,9 +52,9 @@ class JournalAttentionSpec extends Specification {
         human("fix the build", Role.CLAUDE)
 
         expect:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
-        attention.atTurnEnd(dir, Role.CODEX).reason().contains("typed into Claude")
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).reason().contains("typed into Claude")
     }
 
     void "a delegation keeps the operator's client quiet until the peer has answered and the client has had its turn"() {
@@ -63,23 +63,23 @@ class JournalAttentionSpec extends Specification {
         Entry ask = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         expect: "Claude's turn ends waiting; Codex's turn ends with the request taken up but unanswered"
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("1 open request")
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("1 open request")
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "Codex acknowledges: still open"
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.ACK, [replyTo: ask.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
 
         when: "Codex replies, copying the operator; the reply wakes Claude, so Codex's own turn end is not the moment"
         agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).reason() == "nothing is open"
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason() == "nothing is open"
     }
 
     void "a reply that only asks a question keeps the request open"() {
@@ -89,7 +89,7 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: ask.metadata().id(), expectsReply: true])
 
         expect:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "a request the operator addressed to the other client is open until that client answers"() {
@@ -97,15 +97,15 @@ class JournalAttentionSpec extends Specification {
         Entry h = human("@codex review the locking", Role.CLAUDE, Role.CODEX)
 
         expect: "Claude has nothing to do but is not done: Codex has not answered"
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when:
         agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: h.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
     }
 
     void "a client that addresses the operator alone wants attention in its own terminal, whichever client the operator typed into"() {
@@ -117,15 +117,15 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REQUEST, [causedBy: ask.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
-        attention.atTurnEnd(dir, Role.CODEX).reason().contains("went to the operator alone")
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).reason().contains("went to the operator alone")
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
 
         when: "and so does the operator's own client when it stops to ask, even with its request to Codex still open"
         agent(Role.CLAUDE, [Fixtures.OPERATOR], MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "a follow-up prompt while a delegation is open is part of the same task: the client stays quiet until the peer answers"() {
@@ -137,14 +137,14 @@ class JournalAttentionSpec extends Specification {
         human("how is the review going?", Role.CLAUDE)
 
         then:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("1 open request")
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("1 open request")
 
         when:
         agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "an acknowledgement to the operator is a receipt, never a word to the operator"() {
@@ -154,8 +154,8 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         expect:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "only the client's latest word counts: an earlier reply to the operator alone does not ring for later turns spent asking the peer"() {
@@ -166,7 +166,7 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: first.metadata().id()])
 
         expect: "Codex's latest word went to the operator alone"
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "a second review, and Codex asks Claude something and stops"
         Entry second = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
@@ -174,8 +174,8 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REQUEST, [causedBy: second.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "an agent's later request to the same client supersedes its earlier one, so an abandoned request never holds a notification back"() {
@@ -188,14 +188,14 @@ class JournalAttentionSpec extends Specification {
         Entry again = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
-        attention.atTurnEnd(dir, Role.CLAUDE).reason().contains("1 open request")
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("1 open request")
 
         when:
         agent(Role.CODEX, [Fixtures.CLAUDE, Fixtures.OPERATOR], MessageType.REPLY, [replyTo: again.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "an earlier prompt of the operator's that the other client never answered is not this task's business"() {
@@ -206,7 +206,7 @@ class JournalAttentionSpec extends Specification {
         human("fix the build", Role.CLAUDE)
 
         then:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "context arriving after a client's word to the operator does not ring again on the turn it starts"() {
@@ -217,19 +217,19 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         expect:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "Claude sends Codex a status, which Codex reads and answers with nothing"
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.STATUS)
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "Codex speaks to the operator again"
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.STATUS)
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
     }
 
     void "a request that expects nothing back is context and supersedes no work"() {
@@ -239,7 +239,7 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id(), expectsReply: false])
 
         expect:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "the operator's client rings once for done: on the turn that handled the completing reply, not on context that follows"() {
@@ -249,27 +249,27 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         expect: "the turn that handled Claude's reply"
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when:
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "Claude sends a status afterwards; Codex reads it and writes nothing"
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.STATUS)
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
-        attention.atTurnEnd(dir, Role.CODEX).reason().contains("context from Claude")
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).reason().contains("context from Claude")
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
 
         when: "Codex says something itself"
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.STATUS)
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
     }
 
     void "a reply to context, or a late reply to a request already closed, completes nothing and rings nothing"() {
@@ -281,19 +281,19 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.OPERATOR], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         expect:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "Claude replies to the status"
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: status.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when: "and then replies to the review request a second time"
         agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REPLY, [replyTo: ask.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
     }
 
     void "a reply that closes a request superseded meanwhile completes nothing either"() {
@@ -304,13 +304,13 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: second.metadata().id()])
 
         expect:
-        attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
 
         when: "Codex answers the superseded one late"
         agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.REPLY, [replyTo: first.metadata().id()])
 
         then:
-        !attention.atTurnEnd(dir, Role.CLAUDE).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
     }
 
     void "a broadcast is answered once per recipient: the second answer completes it, whoever answered first"() {
@@ -319,12 +319,38 @@ class JournalAttentionSpec extends Specification {
         agent(Role.CODEX, [Fixtures.OPERATOR, Fixtures.CLAUDE], MessageType.REPLY, [replyTo: h.metadata().id()])
 
         expect: "Claude has not answered yet"
-        !attention.atTurnEnd(dir, Role.CODEX).wanted()
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
 
         when:
         agent(Role.CLAUDE, [Fixtures.OPERATOR, Fixtures.CODEX], MessageType.REPLY, [replyTo: h.metadata().id()])
 
         then:
-        attention.atTurnEnd(dir, Role.CODEX).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+    }
+
+    void "a prompt typed into one instance is not another instance's business at its turn end"() {
+        given:
+        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        journal.append(dir, Fixtures.humanDraft("fable, do the thing", [fable], fable))
+
+        expect:
+        attention.atTurnEnd(dir, fable).wanted()
+        with(attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE))) {
+            !wanted()
+            reason() == "the operator's last prompt was typed into Claude (fable), not Claude"
+        }
+    }
+
+    void "a request to a named instance is open for the rule that holds the operator's bell"() {
+        given:
+        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        Entry prompt = human("have fable review it")
+        agent(Role.CLAUDE, [fable], MessageType.REQUEST, [causedBy: prompt.metadata().id()])
+
+        expect:
+        with(attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE))) {
+            !wanted()
+            reason() == "1 open request to a client"
+        }
     }
 }

@@ -46,7 +46,7 @@ class JournalPendingSpec extends Specification {
         agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: third.metadata().id(), to: [Fixtures.OPERATOR]])
 
         when:
-        PendingReport report = pending.report(dir, Role.CODEX)
+        PendingReport report = pending.report(dir, ParticipantId.of(Role.CODEX))
 
         then:
         report.open()*.entry()*.metadata()*.id() == [first.metadata().id()]
@@ -63,27 +63,27 @@ class JournalPendingSpec extends Specification {
         Entry before = human("@codex before")
 
         expect:
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.beforeSession() == [true]
 
         when:
-        sessions.join(dir, Role.CODEX, "s1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "s1")
         Entry after = human("@codex after")
 
         then:
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, false]
-        pending.report(dir, Role.CODEX).session().id() == "s1"
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.beforeSession() == [true, false]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).session().id() == "s1"
 
         when: "a resumed session with several requests waiting still confirms them"
-        sessions.join(dir, Role.CODEX, "s2", true)
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "s2", null, true)
 
         then:
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true, true]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.beforeSession() == [true, true]
 
         when: "one of them is answered, leaving a lone request: acted on without asking"
         agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: before.metadata().id(), to: [Fixtures.OPERATOR]])
 
         then:
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [false]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.beforeSession() == [false]
     }
 
     void "after --resume an acknowledged request still counts toward the several-requests rule"() {
@@ -91,53 +91,53 @@ class JournalPendingSpec extends Specification {
         Entry one = human("@codex one")
         Entry two = human("@codex two")
         agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: one.metadata().id(), to: [Fixtures.OPERATOR]])
-        sessions.join(dir, Role.CODEX, "s1", true)
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "s1", null, true)
 
         expect:
-        pending.report(dir, Role.CODEX).inProgress()*.beforeSession() == [true]
-        pending.report(dir, Role.CODEX).open()*.beforeSession() == [true]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress()*.beforeSession() == [true]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.beforeSession() == [true]
     }
 
     void "informational entries are updates until the read position passes them"() {
         given:
-        sessions.join(dir, Role.CLAUDE, "s1")
+        sessions.join(dir, ParticipantId.of(Role.CLAUDE), "s1")
         Entry status = agent(Role.CODEX, Role.CLAUDE, MessageType.STATUS)
 
         expect:
-        pending.report(dir, Role.CLAUDE).updates()*.metadata()*.id() == [status.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).updates()*.metadata()*.id() == [status.metadata().id()]
 
         when:
-        sessions.advance(dir, Role.CLAUDE, status.seq())
+        sessions.advance(dir, ParticipantId.of(Role.CLAUDE), status.seq())
 
         then:
-        pending.report(dir, Role.CLAUDE).updates().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).updates().isEmpty()
     }
 
     void "an update the writer pushed into this session says so, whether pending reads it before or after the envelope surfaces"() {
         given: "Codex is mid-turn: Claude's review was queued to its thread but not yet surfaced there"
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry h = human("@codex implement it", Role.CODEX, Role.CODEX)
         Entry ask = agent(Role.CODEX, Role.CLAUDE, MessageType.REQUEST, [causedBy: h.metadata().id()])
         Entry review = agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id()])
-        deliveries.record(dir, review.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, review.seq(), ParticipantId.of(Role.CODEX), "thread-1")
 
         when: "Codex reads pending inside the turn, before the envelope has surfaced"
-        PendingReport before = pending.report(dir, Role.CODEX)
+        PendingReport before = pending.report(dir, ParticipantId.of(Role.CODEX))
 
         then: "the entry is listed, marked as already pushed into this very conversation"
         before.updates()*.metadata()*.id() == [review.metadata().id()]
         before.updates()[0].pushedAt() != null
 
         when: "the read position passes it, as a plain pending does; the envelope surfaces later on its own"
-        sessions.advance(dir, Role.CODEX, review.seq())
+        sessions.advance(dir, ParticipantId.of(Role.CODEX), review.seq())
 
         then: "pending has nothing more to say about it; the journal state was never touched"
-        pending.report(dir, Role.CODEX).updates().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates().isEmpty()
 
         when: "the reverse order: an entry that surfaced as an envelope first, then a pending read"
         Entry later = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
-        deliveries.record(dir, later.seq(), Role.CODEX, "thread-1")
-        PendingReport after = pending.report(dir, Role.CODEX)
+        deliveries.record(dir, later.seq(), ParticipantId.of(Role.CODEX), "thread-1")
+        PendingReport after = pending.report(dir, ParticipantId.of(Role.CODEX))
 
         then: "the same marker: the report cannot know the order, and the reader recognizes the id either way"
         after.updates()*.metadata()*.id() == [later.metadata().id()]
@@ -146,25 +146,25 @@ class JournalPendingSpec extends Specification {
 
     void "an entry whose push failed or was never attempted is unmarked: pending is the only path it reaches the role by"() {
         given:
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry failed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
 
         expect:
-        pending.report(dir, Role.CODEX).updates()*.metadata()*.id() == [failed.metadata().id()]
-        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()*.metadata()*.id() == [failed.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()[0].pushedAt() == null
     }
 
     void "of several entries only the ones pushed into this session are marked"() {
         given:
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry pushed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
         Entry unpushed = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
         Entry pushedToo = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
-        deliveries.record(dir, pushed.seq(), Role.CODEX, "thread-1")
-        deliveries.record(dir, pushedToo.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, pushed.seq(), ParticipantId.of(Role.CODEX), "thread-1")
+        deliveries.record(dir, pushedToo.seq(), ParticipantId.of(Role.CODEX), "thread-1")
 
         when:
-        List<Handoff> updates = pending.report(dir, Role.CODEX).updates()
+        List<Handoff> updates = pending.report(dir, ParticipantId.of(Role.CODEX)).updates()
 
         then:
         updates*.metadata()*.id() == [pushed, unpushed, pushedToo]*.metadata()*.id()
@@ -173,69 +173,69 @@ class JournalPendingSpec extends Specification {
 
     void "a session that replaced the one pushed into has nothing in flight: after a restart or clear everything is shown plainly"() {
         given: "a review pushed into Codex's first thread, never read there"
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry review = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
-        deliveries.record(dir, review.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, review.seq(), ParticipantId.of(Role.CODEX), "thread-1")
 
         when: "Codex restarts and joins from a new thread, resuming its read position"
-        sessions.join(dir, Role.CODEX, "thread-2", true)
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-2", null, true)
 
         then: "the entry is recovered through pending, with no claim that it is also on its way in"
-        pending.report(dir, Role.CODEX).updates()*.metadata()*.id() == [review.metadata().id()]
-        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()*.metadata()*.id() == [review.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()[0].pushedAt() == null
 
         when: "the address moves without a join, as a clear does"
         Entry another = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
-        deliveries.record(dir, another.seq(), Role.CODEX, "thread-2")
-        sessions.relocate(dir, Role.CODEX, "thread-3")
+        deliveries.record(dir, another.seq(), ParticipantId.of(Role.CODEX), "thread-2")
+        sessions.follow(dir, Role.CODEX, "thread-3", null)
 
         then:
-        pending.report(dir, Role.CODEX).updates()*.pushedAt() == [null, null]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()*.pushedAt() == [null, null]
     }
 
     void "a pushed request is a receipt, not a completion: it stays open until answered and in progress once acknowledged"() {
         given:
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry request = human("@codex review this")
-        deliveries.record(dir, request.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, request.seq(), ParticipantId.of(Role.CODEX), "thread-1")
 
         expect: "consumed through pending or not, the request is open and marked"
-        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
-        pending.report(dir, Role.CODEX).open()[0].entry().pushedAt() != null
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()[0].entry().pushedAt() != null
 
         when: "the read position passes it, as a plain pending does"
-        sessions.advance(dir, Role.CODEX, request.seq())
+        sessions.advance(dir, ParticipantId.of(Role.CODEX), request.seq())
 
         then: "an unanswered request is not closed by having been shown"
-        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.entry()*.metadata()*.id() == [request.metadata().id()]
 
         when:
         agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: request.metadata().id(), to: [Fixtures.OPERATOR]])
 
         then:
-        pending.report(dir, Role.CODEX).open().isEmpty()
-        pending.report(dir, Role.CODEX).inProgress()*.entry()*.pushedAt().every { it != null }
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress()*.entry()*.pushedAt().every { it != null }
 
         when:
         agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: request.metadata().id(), to: [Fixtures.OPERATOR]])
 
         then:
-        pending.report(dir, Role.CODEX).inProgress().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress().isEmpty()
     }
 
     void "a pending read that lands between the append and the host accepting the push sees the entry unmarked, and the next read marked"() {
         given:
-        sessions.join(dir, Role.CODEX, "thread-1")
+        sessions.join(dir, ParticipantId.of(Role.CODEX), "thread-1")
         Entry status = agent(Role.CLAUDE, Role.CODEX, MessageType.STATUS)
 
         expect: "the entry is listed either way; the reader's rule that a repeated id is the same entry covers the gap"
-        pending.report(dir, Role.CODEX).updates()[0].pushedAt() == null
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()[0].pushedAt() == null
 
         when:
-        deliveries.record(dir, status.seq(), Role.CODEX, "thread-1")
+        deliveries.record(dir, status.seq(), ParticipantId.of(Role.CODEX), "thread-1")
 
         then:
-        pending.report(dir, Role.CODEX).updates()[0].pushedAt() != null
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()[0].pushedAt() != null
     }
 
     void "a reply addressed to the operator alone does not close an agent's request; one addressed to the agent does"() {
@@ -248,15 +248,15 @@ class JournalPendingSpec extends Specification {
         agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id(), to: [Fixtures.OPERATOR]])
 
         then: "Codex is still waiting, and Claude still has it in progress"
-        pending.report(dir, Role.CODEX).outgoing()*.id() == [ask.metadata().id()]
-        pending.report(dir, Role.CLAUDE).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).outgoing()*.id() == [ask.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
 
         when: "Claude replies to Codex, copying the operator"
         agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: ask.metadata().id(), to: [Fixtures.CODEX, Fixtures.OPERATOR]])
 
         then:
-        pending.report(dir, Role.CODEX).outgoing().isEmpty()
-        pending.report(dir, Role.CLAUDE).inProgress().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).outgoing().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).inProgress().isEmpty()
     }
 
     void "the role's own human turn, entries it authored, and acks are never listed"() {
@@ -267,10 +267,10 @@ class JournalPendingSpec extends Specification {
         agent(Role.CODEX, Role.CLAUDE, MessageType.STATUS)
 
         expect:
-        pending.report(dir, Role.CODEX).open().isEmpty()
-        pending.report(dir, Role.CODEX).inProgress()*.entry()*.metadata()*.id() == [request.metadata().id()]
-        pending.report(dir, Role.CODEX).updates().isEmpty()
-        pending.report(dir, Role.CLAUDE).updates()*.metadata()*.type() == [MessageType.STATUS]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress()*.entry()*.metadata()*.id() == [request.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).updates()*.metadata()*.type() == [MessageType.STATUS]
     }
 
     void "outgoing requests report the recipient's acks and silence, and disappear once replied, even through a clarification"() {
@@ -279,7 +279,7 @@ class JournalPendingSpec extends Specification {
         Entry ask = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         expect: "unacknowledged"
-        with(pending.report(dir, Role.CLAUDE).outgoing()) {
+        with(pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()) {
             size() == 1
             it[0].id() == ask.metadata().id()
             it[0].acknowledgedAt() == null
@@ -289,7 +289,7 @@ class JournalPendingSpec extends Specification {
         when:
         Entry ack = agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: ask.metadata().id()])
         Thread.sleep(1100)
-        OutgoingReport report = pending.report(dir, Role.CLAUDE).outgoing()[0]
+        OutgoingReport report = pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()[0]
 
         then: "the silence is measured from the latest ack"
         report.acknowledgedAt() != null
@@ -300,18 +300,18 @@ class JournalPendingSpec extends Specification {
         Entry clarify = agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: ask.metadata().id(), expectsReply: true])
 
         then: "a question is not an answer: Claude's request stays outgoing and Codex's stays in progress"
-        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [ask.metadata().id()]
-        pending.report(dir, Role.CODEX).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
-        pending.report(dir, Role.CLAUDE).open()*.entry()*.metadata()*.id() == [clarify.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()*.id() == [ask.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress()*.entry()*.metadata()*.id() == [ask.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).open()*.entry()*.metadata()*.id() == [clarify.metadata().id()]
 
         when: "Claude answers the clarification and Codex replies to the answer"
         Entry answer = agent(Role.CLAUDE, Role.CODEX, MessageType.REPLY, [replyTo: clarify.metadata().id()])
         agent(Role.CODEX, Role.CLAUDE, MessageType.REPLY, [replyTo: answer.metadata().id()])
 
         then:
-        pending.report(dir, Role.CLAUDE).outgoing().isEmpty()
-        pending.report(dir, Role.CODEX).outgoing().isEmpty()
-        pending.report(dir, Role.CODEX).inProgress().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).outgoing().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress().isEmpty()
     }
 
     void "an agent's later request to the same client supersedes its earlier one for both sides; the operator's prompts stack"() {
@@ -321,16 +321,16 @@ class JournalPendingSpec extends Specification {
         agent(Role.CODEX, Role.CLAUDE, MessageType.ACK, [replyTo: first.metadata().id()])
 
         expect:
-        pending.report(dir, Role.CODEX).inProgress()*.entry()*.metadata()*.id() == [first.metadata().id()]
-        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [first.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress()*.entry()*.metadata()*.id() == [first.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()*.id() == [first.metadata().id()]
 
         when: "Claude asks Codex something else before Codex has answered"
         Entry second = agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [causedBy: h.metadata().id()])
 
         then: "the first is dismissed on both sides"
-        pending.report(dir, Role.CODEX).inProgress().isEmpty()
-        pending.report(dir, Role.CODEX).open()*.entry()*.metadata()*.id() == [second.metadata().id()]
-        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [second.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).inProgress().isEmpty()
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.entry()*.metadata()*.id() == [second.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()*.id() == [second.metadata().id()]
 
         when: "a request that expects nothing back, a request to the other client, or a question in a reply supersedes nothing"
         agent(Role.CLAUDE, Role.CODEX, MessageType.REQUEST, [expectsReply: false])
@@ -339,8 +339,42 @@ class JournalPendingSpec extends Specification {
         human("@codex two", Role.CLAUDE, Role.CODEX)
 
         then:
-        pending.report(dir, Role.CLAUDE).outgoing()*.id() == [second.metadata().id()]
-        pending.report(dir, Role.CODEX).open()*.entry()*.body() == ["request", "@codex one", "@codex two"]
-        pending.report(dir, Role.CODEX).updates()*.body() == ["request"]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).outgoing()*.id() == [second.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).open()*.entry()*.body() == ["request", "@codex one", "@codex two"]
+        pending.report(dir, ParticipantId.of(Role.CODEX)).updates()*.body() == ["request"]
+    }
+
+    void "each instance's report holds only what is addressed to it, and a prompt typed into an instance is never listed for it"() {
+        given:
+        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        sessions.join(dir, ParticipantId.of(Role.CLAUDE), "s1")
+        sessions.join(dir, fable, "s2")
+        Entry forFable = journal.append(dir, Fixtures.humanDraft("@claude:fable look", [fable], Fixtures.CODEX))
+        Entry typedIntoFable = journal.append(dir, Fixtures.humanDraft("do it yourself", [fable], fable))
+        Entry forClaude = journal.append(dir, Fixtures.humanDraft("@claude look", [Fixtures.CLAUDE], fable))
+
+        expect:
+        pending.report(dir, fable).open()*.entry()*.metadata()*.id() == [forFable.metadata().id()]
+        pending.report(dir, ParticipantId.of(Role.CLAUDE)).open()*.entry()*.metadata()*.id() == [forClaude.metadata().id()]
+        typedIntoFable.metadata().via() == fable
+    }
+
+    void "a request from one instance to another of the same role is outgoing for the one and open for the other"() {
+        given:
+        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        Entry prompt = journal.append(dir, Fixtures.humanDraft("ask fable to review", [Fixtures.CLAUDE], Fixtures.CLAUDE))
+        Entry ask = journal.append(dir, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [fable], causedBy: prompt.metadata().id()))
+
+        expect:
+        pending.report(dir, Fixtures.CLAUDE).outgoing()*.id() == [ask.metadata().id()]
+        pending.report(dir, fable).open()*.entry()*.metadata()*.id() == [ask.metadata().id()]
+
+        when:
+        journal.append(dir, Fixtures.agentDraft(from: fable, to: [Fixtures.CLAUDE], type: MessageType.REPLY,
+                replyTo: ask.metadata().id(), causedBy: null, expectsReply: false, body: "reviewed"))
+
+        then:
+        pending.report(dir, Fixtures.CLAUDE).outgoing() == []
+        pending.report(dir, fable).open() == []
     }
 }

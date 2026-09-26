@@ -13,9 +13,9 @@ import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
-import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.protocol.Route;
+import com.moltenbits.sideband.session.Sessions;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.serde.ObjectMapper;
 import picocli.CommandLine.Command;
@@ -31,9 +31,10 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * Adds one entry to the discussion. The author is the calling client unless {@code --from
- * operator} says the entry is the operator's own words, which are routed by their first
- * token and recorded with the calling client as {@code via}. An agent's actionable entry to
+ * Adds one entry to the discussion. The author is the calling instance, by the commands' rule
+ * of REQUIREMENTS.md 9.5a, unless {@code --from operator} says the entry is the operator's own
+ * words, which are routed by their first token and recorded with the calling instance as
+ * {@code via}. A session that holds no instance is refused. An agent's actionable entry to
  * another client must trace to a human-authored one; the command refuses one that does not.
  */
 @Command(name = "append", description = "Add an entry to the Sideband discussion: a request, reply, status, or ack from this client, or with --from operator the operator's own words", mixinStandardHelpOptions = true)
@@ -83,12 +84,14 @@ public class AppendCommand implements Callable<Integer> {
     private final Ancestry ancestry;
     private final HumanCapture capture;
     private final Pushes pushes;
+    private final Sessions sessions;
     private final ObjectMapper json;
 
     AppendCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry, HumanCapture capture,
-                  Pushes pushes, ObjectMapper json) {
+                  Pushes pushes, Sessions sessions, ObjectMapper json) {
         this.home = home;
         this.host = host;
+        this.sessions = sessions;
         this.journal = journal;
         this.ancestry = ancestry;
         this.capture = capture;
@@ -103,12 +106,9 @@ public class AppendCommand implements Callable<Integer> {
             throw new IllegalArgumentException("--via only applies with --from operator; an agent entry's author is --from or the calling client");
         }
         if (operator) {
-            if (via != null && via.isHuman()) {
-                throw new IllegalArgumentException("--via names the client instance the operator typed into, never the operator");
-            }
-            return appendOperator(via != null ? via : ParticipantId.of(host.requireRole("--via")));
+            Path stateDirectory = repository.stateDirectory(home);
+            return appendOperator(stateDirectory, via != null ? Caller.client(via, "--via") : Caller.identify(host, sessions, stateDirectory, "--via"));
         }
-        Role author = from != null ? from.role().orElseThrow() : host.requireRole("--from");
         if (type == null) {
             throw new IllegalArgumentException("--type is required: request, reply, status, or ack");
         }
@@ -128,6 +128,7 @@ public class AppendCommand implements Callable<Integer> {
             body = Bodies.read(bodyFile);
         }
         Path stateDirectory = repository.stateDirectory(home);
+        ParticipantId author = from != null ? from : Caller.identify(host, sessions, stateDirectory, "--from");
         EntryIndex index = id -> journal.find(stateDirectory, id).map(Entry::metadata);
         EntryMetadata answered = replyTo == null ? null : index.find(replyTo).orElse(null);
         if (replyTo != null && answered == null) {
@@ -139,7 +140,7 @@ public class AppendCommand implements Callable<Integer> {
             }
             to = List.of(answered.from()); // an answer goes to whoever asked
         }
-        Draft draft = new Draft(ParticipantId.of(author), null, to, type, Route.forRecipients(to),
+        Draft draft = new Draft(author, null, to, type, Route.forRecipients(to),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
         checkLineage(index, draft);
         Entry entry = journal.append(stateDirectory, draft);
@@ -148,13 +149,13 @@ public class AppendCommand implements Callable<Integer> {
     }
 
     /** The operator's own words: routed by their first token, never linked, always a request. */
-    private int appendOperator(ParticipantId client) throws IOException {
+    private int appendOperator(Path stateDirectory, ParticipantId client) throws IOException {
         if ((to != null && !to.isEmpty()) || replyTo != null || causedBy != null || expectsReply != null
                 || (type != null && type != MessageType.REQUEST)) {
             throw new IllegalArgumentException("--from operator takes only the body: recipients come from its first token, and it is always a request");
         }
         String body = Bodies.read(bodyFile);
-        Output.print(spec, json, capture.capture(repository.stateDirectory(home), client, body));
+        Output.print(spec, json, capture.capture(stateDirectory, client, body));
         return ExitCode.OK;
     }
 

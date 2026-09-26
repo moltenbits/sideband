@@ -15,9 +15,10 @@ public interface HostPusher {
 
     /**
      * @param stateDirectory the repository's Sideband state, from which the recipient is found
+     * @param recipient the instance of this pusher's role the entry is for
      * @param from the entry's author, for a host that can attribute a message to its sender
      * @return the outcome, {@link PushOutcome#PUSHED} when the host accepted the text,
-     *         {@link PushOutcome#NO_SESSION} when no session of the role could be found
+     *         {@link PushOutcome#NO_SESSION} when no session of the instance could be found
      */
-    PushResult push(Path stateDirectory, ParticipantId from, String text);
+    PushResult push(Path stateDirectory, ParticipantId recipient, ParticipantId from, String text);
 }

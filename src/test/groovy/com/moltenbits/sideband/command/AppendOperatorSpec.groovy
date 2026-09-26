@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 
 import java.nio.file.Files
@@ -54,7 +55,7 @@ class AppendOperatorSpec extends CommandSpec {
         then:
         json().metadata.to == ["codex"]
         json().body == "@codex review the locking behavior."
-        json().pushes == [[role: "codex", outcome: "no-session", detail: null]]
+        json().pushes == [[recipient: "codex", outcome: "no-session", detail: null]]
     }
 
     void "@all is one broadcast entry naming both clients and the originating client"() {

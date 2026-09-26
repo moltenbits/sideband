@@ -41,7 +41,7 @@ import java.util.function.Supplier;
 final class Database {
 
     /** {@code PRAGMA user_version} once the latest migration has run. */
-    static final int SCHEMA_VERSION = 3;
+    static final int SCHEMA_VERSION = 4;
 
     /** The data source's busy timeout, repeated here for the contention message. */
     private final Duration busyTimeout;

@@ -5,7 +5,6 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
-import com.moltenbits.sideband.protocol.Role;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
@@ -39,7 +38,7 @@ class JournalAttention implements Attention {
     }
 
     @Override
-    public Verdict atTurnEnd(Path stateDirectory, Role role) {
+    public Verdict atTurnEnd(Path stateDirectory, ParticipantId self) {
         List<Entry> entries = journal.readAfter(stateDirectory, 0).entries();
         Entry prompt = null;
         for (Entry entry : entries) {
@@ -50,7 +49,6 @@ class JournalAttention implements Attention {
         if (prompt == null) {
             return new Verdict(true, "nothing from the operator in the discussion");
         }
-        ParticipantId self = ParticipantId.of(role);
         Entry latest = null;
         Entry heard = null; // the last entry that reached this client, acks aside
         for (Entry entry : entries) {
@@ -66,24 +64,21 @@ class JournalAttention implements Attention {
         }
         long heardAt = heard == null ? 0 : heard.seq();
         if (latest != null && latest.seq() > heardAt && operatorAlone(latest.metadata())) {
-            return new Verdict(true, role.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
+            return new Verdict(true, self.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
         }
         Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
         ParticipantId via = prompt.metadata().via();
         if (!self.equals(via)) {
             return new Verdict(false, "the operator's last prompt was typed into "
-                    + (via == null ? "no client" : via.displayName()) + ", not " + role.displayName());
+                    + (via == null ? "no client" : via.displayName()) + ", not " + self.displayName());
         }
         long open = 0;
         for (Entry entry : entries) {
             if (!entry.metadata().isAgentAuthored() && entry.seq() < prompt.seq()) {
                 continue; // an earlier prompt of the operator's is not this task's open question
             }
-            for (Role recipient : Role.values()) {
-                if (open(entry, recipient, entries, responses)) {
-                    open++;
-                    break;
-                }
+            if (entry.metadata().to().stream().anyMatch(recipient -> !recipient.isHuman() && open(entry, recipient, entries, responses))) {
+                open++;
             }
         }
         if (open > 0) {
@@ -92,7 +87,7 @@ class JournalAttention implements Attention {
         // Done rings once: on the turn that handled the peer's completing reply, or on the client's own
         // work. Context that arrives afterwards and closes nothing starts a turn that must stay quiet.
         if (heard != null && (latest == null || latest.seq() < heard.seq()) && !completes(heard, entries, responses)) {
-            return new Verdict(false, "nothing is open, but the last thing to reach " + role.displayName()
+            return new Verdict(false, "nothing is open, but the last thing to reach " + self.displayName()
                     + " was context from " + heard.metadata().from().displayName() + ", which already rang");
         }
         return new Verdict(true, "nothing is open");
@@ -124,7 +119,7 @@ class JournalAttention implements Attention {
             boolean answeredBefore = answered.getValue().stream().anyMatch(r -> !r.id().equals(m.id())
                     && r.from().equals(m.from()) && byId.containsKey(r.id()) && byId.get(r.id()).seq() < reply.seq()
                     && JournalPending.answers(r, request.metadata()));
-            boolean superseded = m.from().role().map(recipient -> JournalPending.superseded(request, recipient, before)).orElse(false);
+            boolean superseded = !m.from().isHuman() && JournalPending.superseded(request, m.from(), before);
             if (!answeredBefore && !superseded) {
                 return true;
             }
@@ -138,7 +133,7 @@ class JournalAttention implements Attention {
     }
 
     /** An actionable entry the recipient must still answer, by the rule {@code pending} lists it. */
-    private static boolean open(Entry entry, Role recipient, List<Entry> entries, Map<String, List<EntryMetadata>> responses) {
+    private static boolean open(Entry entry, ParticipantId recipient, List<Entry> entries, Map<String, List<EntryMetadata>> responses) {
         EntryMetadata metadata = entry.metadata();
         if (!Addressing.concerns(metadata, recipient) || metadata.type() == MessageType.ACK || !metadata.expectsReply()) {
             return false;
@@ -146,8 +141,7 @@ class JournalAttention implements Attention {
         if (JournalPending.superseded(entry, recipient, entries)) {
             return false;
         }
-        ParticipantId self = ParticipantId.of(recipient);
         return responses.getOrDefault(metadata.id(), List.of()).stream()
-                .noneMatch(r -> r.from().equals(self) && JournalPending.answers(r, metadata));
+                .noneMatch(r -> r.from().equals(recipient) && JournalPending.answers(r, metadata));
     }
 }

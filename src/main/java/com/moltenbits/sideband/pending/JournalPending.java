@@ -9,7 +9,6 @@ import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
-import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Deliveries;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
@@ -46,13 +45,12 @@ class JournalPending implements Pending {
     }
 
     @Override
-    public PendingReport report(Path stateDirectory, Role role) {
+    public PendingReport report(Path stateDirectory, ParticipantId self) {
         Read all = journal.readAfter(stateDirectory, 0);
-        Optional<Session> session = sessions.load(stateDirectory, role);
+        Optional<Session> session = sessions.load(stateDirectory, self);
         long watermark = session.map(Session::watermark).orElse(Long.MAX_VALUE);
         boolean resumed = session.map(Session::resumed).orElse(false);
         long offset = session.map(Session::offset).orElse(0L);
-        ParticipantId self = ParticipantId.of(role);
         Map<String, List<EntryMetadata>> responses = responses(all.entries());
         OffsetDateTime now = OffsetDateTime.now(clock);
 
@@ -63,11 +61,11 @@ class JournalPending implements Pending {
         List<OutgoingReport> outgoing = new ArrayList<>();
         for (Entry entry : all.entries()) {
             EntryMetadata m = entry.metadata();
-            if (Addressing.concerns(m, role) && m.type() != MessageType.ACK) {
+            if (Addressing.concerns(m, self) && m.type() != MessageType.ACK) {
                 if (m.expectsReply()) {
                     List<EntryMetadata> mine = responses.getOrDefault(m.id(), List.of()).stream()
                             .filter(r -> r.from().equals(self)).toList();
-                    if (mine.stream().anyMatch(r -> answers(r, m)) || superseded(entry, role, all.entries())) {
+                    if (mine.stream().anyMatch(r -> answers(r, m)) || superseded(entry, self, all.entries())) {
                         continue;
                     }
                     Optional<OffsetDateTime> acked = latest(mine, MessageType.ACK);
@@ -77,7 +75,7 @@ class JournalPending implements Pending {
                     updates.add(entry);
                 }
             }
-            if (Addressing.isOutgoingRequest(m, role)) {
+            if (Addressing.isOutgoingRequest(m, self)) {
                 List<EntryMetadata> theirs = responses.getOrDefault(m.id(), List.of()).stream()
                         .filter(r -> !r.from().equals(self)).toList();
                 if (theirs.stream().anyMatch(r -> answers(r, m)) || supersededForAnyRecipient(entry, all.entries())) {
@@ -97,9 +95,9 @@ class JournalPending implements Pending {
         // What the writer already pushed into this very session arrives by its other path too,
         // and the report says so on each such entry; a session that replaced the one pushed
         // into has nothing in flight and is shown everything plainly.
-        Map<Long, OffsetDateTime> pushed = session.map(s -> deliveries.pushedInto(stateDirectory, role, s.id())).orElse(Map.of());
+        Map<Long, OffsetDateTime> pushed = session.map(s -> deliveries.pushedInto(stateDirectory, self, s.id())).orElse(Map.of());
         return new PendingReport(
-                Handling.forRole(role),
+                Handling.forRole(self.role().orElseThrow()),
                 session.orElse(null),
                 items(stateDirectory, open, confirmOld ? watermark : 0L, acknowledged, pushed),
                 items(stateDirectory, inProgress, confirmOld ? watermark : 0L, acknowledged, pushed),
@@ -141,21 +139,20 @@ class JournalPending implements Pending {
      * however it was left. A request that expects nothing back is context and replaces no
      * work. A human's prompts are never superseded; the operator may stack instructions.
      */
-    static boolean superseded(Entry request, Role recipient, List<Entry> entries) {
+    static boolean superseded(Entry request, ParticipantId recipient, List<Entry> entries) {
         EntryMetadata m = request.metadata();
         if (!m.isAgentAuthored() || m.type() != MessageType.REQUEST) {
             return false;
         }
-        ParticipantId to = ParticipantId.of(recipient);
         return entries.stream().anyMatch(e -> e.seq() > request.seq()
                 && e.metadata().type() == MessageType.REQUEST && e.metadata().expectsReply()
                 && e.metadata().from().equals(m.from())
-                && e.metadata().addresses(to));
+                && e.metadata().addresses(recipient));
     }
 
     /** Superseded from the sender's side: a later request of theirs to any client this one addressed. */
     static boolean supersededForAnyRecipient(Entry request, List<Entry> entries) {
-        return request.metadata().to().stream().map(ParticipantId::role).flatMap(Optional::stream)
+        return request.metadata().to().stream().filter(recipient -> !recipient.isHuman())
                 .anyMatch(recipient -> superseded(request, recipient, entries));
     }
 

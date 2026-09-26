@@ -27,6 +27,7 @@ import static java.nio.charset.StandardCharsets.UTF_8
 /** Runs the real Claude pusher against a fake Claude Code session registry and a fake inbox socket. */
 class ClaudeSocketPusherSpec extends Specification {
 
+    static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
     static final ParticipantId CODEX = ParticipantId.of(Role.CODEX)
 
     @Shared Path registry = Files.createTempDirectory("claude-sessions")
@@ -106,11 +107,11 @@ class ClaudeSocketPusherSpec extends Specification {
         String text = "[Sideband message]\n{\"intent\":\"Sideband delivery\",\"entries\":[]}"
 
         when:
-        PushResult result = pusher.push(state, CODEX, text)
+        PushResult result = pusher.push(state, CLAUDE, CODEX, text)
         String wire = received.get()
 
         then:
-        result.role() == Role.CLAUDE
+        result.recipient() == CLAUDE
         result.outcome() == PushOutcome.PUSHED
         result.session() == sessionId
         result.detail().contains("session-4242")
@@ -131,7 +132,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(4243, repo, socket)
 
         when:
-        pusher.push(state, new ParticipantId(from), "hi")
+        pusher.push(state, CLAUDE, new ParticipantId(from), "hi")
         Map frame = context.getBean(ObjectMapper).readValue(received.get(), Map)
 
         then:
@@ -161,7 +162,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(4244, repo, socket)
 
         when:
-        pusher.push(state, CODEX, envelope)
+        pusher.push(state, CLAUDE, CODEX, envelope)
         String content = mapper.readValue(received.get(), Map).message.content
         def form = HOST_FORM.matcher(content)
 
@@ -201,7 +202,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(4245, repo, socket)
 
         when:
-        pusher.push(state, CODEX, envelope)
+        pusher.push(state, CLAUDE, CODEX, envelope)
         String content = mapper.readValue(received.get(), Map).message.content
 
         then:
@@ -214,7 +215,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(2, repo.resolveSibling("gone"), socketPath())
 
         expect:
-        pusher.push(state, CODEX, "hello") == new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null)
+        pusher.push(state, CLAUDE, CODEX, "hello") == new PushResult(CLAUDE, PushOutcome.NO_SESSION, null)
     }
 
     void "a session running in a worktree of the repository is found, because it shares the state directory"() {
@@ -225,7 +226,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(7, worktree, socket)
 
         expect:
-        pusher.push(state, CODEX, "hi").outcome() == PushOutcome.PUSHED
+        pusher.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.PUSHED
         received.get().contains('\\nhi\\n</cross-session-message>')
     }
 
@@ -237,7 +238,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(10, repo, live, 1000L, "alive")
 
         expect:
-        with(pusher.push(state, CODEX, "hi")) {
+        with(pusher.push(state, CLAUDE, CODEX, "hi")) {
             outcome() == PushOutcome.PUSHED
             detail().contains("alive")
         }
@@ -245,7 +246,7 @@ class ClaudeSocketPusherSpec extends Specification {
 
         when: "only stale registrations remain"
         Files.delete(registry.resolve("10.json"))
-        PushResult failed = pusher.push(state, CODEX, "hi")
+        PushResult failed = pusher.push(state, CLAUDE, CODEX, "hi")
 
         then:
         failed.outcome() == PushOutcome.FAILED
@@ -259,7 +260,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Files.writeString(registry.resolve("99.key"), '{"peerToken":"x"}')
 
         expect:
-        pusher.push(state, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+        pusher.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
     }
 
     void "nothing is posted when Claude Code would hold it: the listener delivers instead"() {
@@ -272,7 +273,7 @@ class ClaudeSocketPusherSpec extends Specification {
                 context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         when:
-        PushResult result = cautious.push(state, CODEX, "hi")
+        PushResult result = cautious.push(state, CLAUDE, CODEX, "hi")
 
         then:
         result.outcome() == PushOutcome.LISTENER_DELIVERS
@@ -294,7 +295,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Files.writeString(repo.resolve(".claude/settings.local.json"), '{"crossSessionInbound": "refuse"}')
 
         expect:
-        with(pusher.push(state, CODEX, "hi")) {
+        with(pusher.push(state, CLAUDE, CODEX, "hi")) {
             outcome() == PushOutcome.LISTENER_DELIVERS
             detail().contains("inbound refused per ")
             detail().contains("/.claude/settings.local.json); ")
@@ -307,14 +308,14 @@ class ClaudeSocketPusherSpec extends Specification {
                 context.getBean(com.moltenbits.sideband.install.Installer), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
-        lone.push(state, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+        lone.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
     }
     void "a frame over Claude Code's inbox cap is refused before any connection, counting the escaped form: #label"() {
         given: "a registration whose socket nothing is bound to: a connection attempt would fail with a different reason"
         register(5, repo, socketPath())
 
         when:
-        PushResult result = pusher.push(state, CODEX, text)
+        PushResult result = pusher.push(state, CLAUDE, CODEX, text)
 
         then:
         result.outcome() == PushOutcome.FAILED
@@ -340,8 +341,8 @@ class ClaudeSocketPusherSpec extends Specification {
         register(9, repo, socket)
 
         expect:
-        pusher.push(state, CODEX, largest + "w").outcome() == PushOutcome.FAILED
-        pusher.push(state, CODEX, largest).outcome() == PushOutcome.PUSHED
+        pusher.push(state, CLAUDE, CODEX, largest + "w").outcome() == PushOutcome.FAILED
+        pusher.push(state, CLAUDE, CODEX, largest).outcome() == PushOutcome.PUSHED
         context.getBean(ObjectMapper).readValue(received.get(30, TimeUnit.SECONDS), Map).message.content
                 == "<cross-session-message from-name=\"Codex\">\n" + largest + "\n</cross-session-message>"
     }
@@ -359,7 +360,7 @@ class ClaudeSocketPusherSpec extends Specification {
         long started = System.nanoTime()
 
         when:
-        PushResult result = impatient.push(state, CODEX, "z" * 900_000)
+        PushResult result = impatient.push(state, CLAUDE, CODEX, "z" * 900_000)
 
         then:
         result.outcome() == PushOutcome.FAILED
@@ -377,7 +378,7 @@ class ClaudeSocketPusherSpec extends Specification {
         register(20, repo, live, 1000L, "alive")
 
         expect:
-        with(pusher.push(state, CODEX, "hi")) {
+        with(pusher.push(state, CLAUDE, CODEX, "hi")) {
             outcome() == PushOutcome.PUSHED
             detail().contains("alive")
         }

@@ -1,6 +1,6 @@
 package com.moltenbits.sideband.store;
 
-import com.moltenbits.sideband.protocol.Role;
+import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.session.Deliveries;
 import jakarta.inject.Singleton;
 
@@ -12,7 +12,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-/** One row per entry and role in the {@code deliveries} table, replaced if the same entry is ever pushed again. */
+/** One row per entry and instance in the {@code deliveries} table, replaced if the same entry is ever pushed again. */
 @Singleton
 class SqliteDeliveries implements Deliveries {
 
@@ -29,21 +29,21 @@ class SqliteDeliveries implements Deliveries {
     }
 
     @Override
-    public void record(Path stateDirectory, long seq, Role role, String sessionId) {
+    public void record(Path stateDirectory, long seq, ParticipantId instance, String sessionId) {
         database.write(stateDirectory, () -> {
             String at = TIMESTAMP.format(OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS));
-            rows.findBySeqAndRole(seq, role.id()).ifPresentOrElse(
-                    existing -> rows.update(new DeliveryRow(existing.id(), seq, role.id(), sessionId, at)),
-                    () -> rows.save(new DeliveryRow(null, seq, role.id(), sessionId, at)));
+            rows.findBySeqAndParticipant(seq, instance.value()).ifPresentOrElse(
+                    existing -> rows.update(new DeliveryRow(existing.id(), seq, instance.value(), sessionId, at)),
+                    () -> rows.save(new DeliveryRow(null, seq, instance.value(), sessionId, at)));
             return null;
         });
     }
 
     @Override
-    public Map<Long, OffsetDateTime> pushedInto(Path stateDirectory, Role role, String sessionId) {
+    public Map<Long, OffsetDateTime> pushedInto(Path stateDirectory, ParticipantId instance, String sessionId) {
         return database.read(stateDirectory, Map.of(), () -> {
             Map<Long, OffsetDateTime> pushed = new LinkedHashMap<>();
-            for (DeliveryRow row : rows.findByRoleAndSessionId(role.id(), sessionId)) {
+            for (DeliveryRow row : rows.findByParticipantAndSessionId(instance.value(), sessionId)) {
                 pushed.put(row.seq(), OffsetDateTime.parse(row.pushedAt(), TIMESTAMP));
             }
             return pushed;

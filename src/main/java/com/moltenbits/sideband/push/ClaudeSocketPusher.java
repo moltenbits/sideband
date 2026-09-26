@@ -98,10 +98,10 @@ class ClaudeSocketPusher implements HostPusher {
     }
 
     @Override
-    public PushResult push(Path stateDirectory, ParticipantId from, String text) {
+    public PushResult push(Path stateDirectory, ParticipantId recipient, ParticipantId from, String text) {
         List<Registration> candidates = registered(stateDirectory);
         if (candidates.isEmpty()) {
-            return new PushResult(Role.CLAUDE, PushOutcome.NO_SESSION, null);
+            return new PushResult(recipient, PushOutcome.NO_SESSION, null);
         }
         // Claude Code holds a frame from a process that is not the session's child unless the
         // operator's settings accept cross-session messages, and a held frame is an approval
@@ -109,17 +109,17 @@ class ClaudeSocketPusher implements HostPusher {
         // posted while they say hold; Claude's own listener delivers then.
         InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
         if (!inbound.state().equals("installed")) {
-            return new PushResult(Role.CLAUDE, PushOutcome.LISTENER_DELIVERS,
+            return new PushResult(recipient, PushOutcome.LISTENER_DELIVERS,
                     "Claude Code would hold the push (inbound " + inbound.state() + " per " + inbound.path() + "); " + inbound.note());
         }
         String frame;
         try {
             frame = json.writeValueAsString(new Frame("user", new Message("user", attributed(from, text)))) + "\n";
         } catch (IOException e) {
-            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
+            return new PushResult(recipient, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
         }
         if (frame.length() > FRAME_CAP) {
-            return new PushResult(Role.CLAUDE, PushOutcome.FAILED, "the serialized frame is " + frame.length()
+            return new PushResult(recipient, PushOutcome.FAILED, "the serialized frame is " + frame.length()
                     + " characters, over Claude Code's inbox cap of " + FRAME_CAP + "; the entry stays in the journal and pending lists it");
         }
         byte[] bytes = frame.getBytes(UTF_8);
@@ -127,7 +127,7 @@ class ClaudeSocketPusher implements HostPusher {
         for (Registration candidate : candidates) {
             try {
                 post(Path.of(candidate.messagingSocketPath()), bytes);
-                return new PushResult(Role.CLAUDE, PushOutcome.PUSHED,
+                return new PushResult(recipient, PushOutcome.PUSHED,
                         "posted to " + candidate.messagingSocketPath() + " (session " + candidate.name() + ", pid " + candidate.pid() + ")",
                         candidate.sessionId());
             } catch (IOException e) {
@@ -135,7 +135,7 @@ class ClaudeSocketPusher implements HostPusher {
                         + " did not accept the connection: " + e.getMessage();
             }
         }
-        return new PushResult(Role.CLAUDE, PushOutcome.FAILED, failure);
+        return new PushResult(recipient, PushOutcome.FAILED, failure);
     }
 
     /**
