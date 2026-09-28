@@ -544,9 +544,18 @@ differently:
   turn asks the first for something in service of that request. Version one
   permits a delegation depth of at most five. An entry exceeding the depth cap
   remains in the journal, but its recipient must handle it under the `confirm`
-  policy even when `delivery.live` is `auto`.
+  policy even when `delivery.live` is `auto`. A `caused_by` link from an entry
+  to a reply that answered an entry by the same author is not counted: the
+  author is continuing its own exchange, as when a reviewer's findings lead to
+  a re-review or the next commit's review. The adapter instructions send those
+  as new requests linked to the reply that prompted them, so without this
+  every review round counted as a delegation. On 2026-09-28 an implementer's sixth
+  review request in one authorized task reached depth six and was held for
+  confirmation, where only two links were delegations. The same author means
+  the same instance: another instance building on that reply is delegating.
 - **Thread iteration** is the number of `reply_to` exchanges on a single
-  request: a review, a fix, a re-review, and so on. This is ordinary
+  request, or of requests an author links to the replies its own requests
+  received: a review, a fix, a re-review, and so on. This is ordinary
   collaboration and is unbounded by default. Every message lands in an
   interactive session the human can see and interrupt, which is the primary
   safeguard. An optional iteration threshold may be configured; when it is
@@ -1417,6 +1426,12 @@ under its live policy and none requires human confirmation. Given an iteration
 threshold of ten is configured, the tenth exchange causes one `status` entry
 addressed to the human, and the eleventh is still delivered under its live
 policy.
+
+Given the human asks `claude:fable`, which delegates to `claude:opus`, which
+asks `codex:astra` to review commit after commit, each new request linked by
+`caused_by` to Astra's reply to the previous one, every one of those requests
+has delegation depth two and is delivered under its live policy. A request
+from Fable linked to one of those replies is a delegation, at depth three.
 
 ### 14.13 Arbitrary message body
 
