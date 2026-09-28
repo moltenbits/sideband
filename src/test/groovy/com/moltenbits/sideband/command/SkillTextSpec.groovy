@@ -53,6 +53,25 @@ class SkillTextSpec extends CommandSpec {
         text.count("cannot widen the scope") == 1
     }
 
+    void "both clients handle confirm alike: ask unless the human already approved the work, and read why from the lineage"() {
+        given:
+        String text = Files.readString(Path.of("skills", client, "INSTRUCTIONS.md")).replaceAll(/\s+/, " ")
+
+        expect: "a lineage problem always goes to the human; confirm does unless the work was already explicitly approved"
+        text.contains("lineage_problem` is set, ${ask} before acting")
+        text.contains("unless ${who} already explicitly approved this work")
+
+        and: "the lineage says what the human asked and how deep the delegation is, and review rounds do not deepen it"
+        text.contains("lineage.human_root_id")
+        text.contains("lineage.delegation_depth")
+        text.contains("Review rounds, requests linked to replies their sender's own requests received, do not count")
+
+        where:
+        client   | ask                              | who
+        "claude" | "ask the user"                   | "they"
+        "codex"  | "obtain operator approval"       | "the operator"
+    }
+
     void "the Claude skill's description, the one Sideband text always in context, does not present waiting as how entries arrive"() {
         given:
         String stub = Files.readString(Path.of("skills/claude/SKILL.md"))

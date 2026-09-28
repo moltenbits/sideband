@@ -562,6 +562,17 @@ differently:
   set and reached, the executable appends a `status` entry addressed to the
   human noting the count, and delivery continues unchanged.
 
+A delivered entry the causal-path rule traced carries `lineage`: its
+delegation depth and the human-authored entry it reached. A recipient held
+to `confirm` can then see why, and read what the human asked. The adapters
+ask the human before acting on `confirm` unless the human already explicitly
+approved the work, in the recipient's conversation or in that entry; an
+entry with a `lineage_problem` traces to nothing the human said and always
+goes to the human first. On 2026-09-28 the two adapters disagreed: Codex's
+allowed prior approval and Claude's did not, and a Codex instance held to
+`confirm` asked the human about a review the task entry had already
+arranged.
+
 When an agent judges its part complete, the normal terminal action is to
 address the human rather than create another actionable peer message.
 

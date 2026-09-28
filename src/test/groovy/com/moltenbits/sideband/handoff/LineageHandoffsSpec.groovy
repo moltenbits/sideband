@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.handoff
 
 import com.moltenbits.sideband.Fixtures
+import com.moltenbits.sideband.ancestry.Lineage
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.DeliveryPolicy
@@ -35,6 +36,22 @@ class LineageHandoffsSpec extends Specification {
         prepared[0].lineageProblem() == null
         prepared[1].effectiveLive() == DeliveryPolicy.CONFIRM
         prepared[1].lineageProblem().contains("missing ancestor ghost")
+    }
+
+    void "a traced entry carries its delegation depth and the human entry it traces to, so a recipient held to confirm can see why and what was asked; others carry none"() {
+        given:
+        Entry h = journal.append(dir, Fixtures.humanDraft("@claude go", [Fixtures.CLAUDE]))
+        Entry rooted = journal.append(dir, Fixtures.agentDraft(causedBy: h.metadata().id()))
+        Entry orphan = journal.append(dir, Fixtures.agentDraft(causedBy: "ghost"))
+
+        when:
+        List<Handoff> prepared = handoffs.prepare(dir, [h, rooted, orphan])
+        String envelope = handoffs.envelope(Batch.forRole(Role.CODEX, h.seq(), orphan.seq(), prepared, false))
+
+        then:
+        prepared*.lineage() == [null, new Lineage.Rooted(1, h.metadata().id()), null]
+        envelope.contains('"lineage":{"delegation_depth":1,"human_root_id":"' + h.metadata().id() + '"}')
+        envelope.count('"lineage"') == 1
     }
 
     void "the envelope is the marker, a newline, and the batch as one JSON line"() {
