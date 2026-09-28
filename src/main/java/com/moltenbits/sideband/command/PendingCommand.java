@@ -41,7 +41,7 @@ import java.util.function.Predicate;
  * marks updates shown. Both forms sit under a host facility, Claude Code's Monitor or a
  * background task, that turns the output into a wake-up.
  */
-@Command(name = "pending", description = "List what is waiting for this client: unanswered requests, unseen updates, and your own unanswered requests. --wait blocks until something arrives; --stream keeps listening", mixinStandardHelpOptions = true)
+@Command(name = "pending", description = "List what is waiting for this client: unanswered requests, unseen updates, and your own unanswered requests. --wait and --stream are the listener for a Claude Code session whose pushes are held; pushed entries need no waiting", mixinStandardHelpOptions = true)
 @Prototype
 public class PendingCommand implements Callable<Integer> {
 
@@ -54,7 +54,7 @@ public class PendingCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--wait", description = "Block until something new for this client arrives, then report")
+    @Option(names = "--wait", description = "Listen for a Claude Code session whose pushes are held: block until something new for this client arrives, then report")
     boolean wait;
 
     @Option(names = "--timeout", paramLabel = "SECONDS", description = "With --wait (not --stream): give up after this long with the timed-out exit code, still printing the report")

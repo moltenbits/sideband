@@ -25,8 +25,19 @@ class ResourceInstallerSpec extends Specification {
         expect:
         installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE) == Files.readString(Path.of("skills/claude/INSTRUCTIONS.md"))
         installer.instructions(com.moltenbits.sideband.protocol.Role.CODEX) == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
-        Files.readString(Path.of("skills/claude/SKILL.md")).contains("Run `sideband skill`")
         Files.readString(Path.of("skills/codex/SKILL.md")).contains("Run `sideband skill`")
+    }
+
+    void "Claude Code renders the instructions into the skill itself, so a compaction re-attaches them rather than a pointer to them"() {
+        given:
+        String stub = Files.readString(Path.of("skills/claude/SKILL.md"))
+        String frontMatter = stub.substring(0, stub.indexOf("\n---\n", 4))
+
+        expect: "the executable's output is injected where the skill renders, from a line of its own"
+        stub.contains("\n!`sideband skill`\n")
+
+        and: "that one command is pre-approved, since an injected command that would ask aborts the skill outside bypass mode"
+        frontMatter.contains("\nallowed-tools: Bash(sideband skill)")
     }
 
     void "ejecting writes the full instructions under the stub's front matter, and install then leaves it alone"() {
@@ -44,7 +55,7 @@ class ResourceInstallerSpec extends Specification {
         text.startsWith("---\nname: sideband\n")
         text.contains("\n---\n\n" + ResourceInstaller.EJECTED_MARKER + "\n\n# Sideband (Claude Code adapter)")
         text.endsWith(installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE))
-        !text.contains("Run `sideband skill`")
+        !text.contains("!`sideband skill`")
 
         and: "a rerun of install reports it ejected and does not touch it; the other skill is untouched too"
         installer.install(home, project).skills()*.state() == ["ejected", "unchanged"]
@@ -54,7 +65,7 @@ class ResourceInstallerSpec extends Specification {
         and: "deleting it and reinstalling restores the stub"
         Files.delete(skill)
         installer.install(home, project).skills()*.state() == ["updated", "unchanged"]
-        Files.readString(skill).contains("Run `sideband skill`")
+        Files.readString(skill).contains("!`sideband skill`")
     }
 
     void "ejecting over an ejected skill is refused unless forced, so the operator's edits survive"() {

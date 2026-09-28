@@ -1043,6 +1043,24 @@ skill. The fallback costs a re-run of the skill after every restart and a
 `pending` read per delivery, which is why the push is used wherever the
 operator has accepted it.
 
+The instructions must outlive a compaction. Claude Code re-attaches an
+invoked skill's rendered text after compacting the conversation, keeping the
+first 5,000 tokens of each within a shared budget of 25,000, and it does not
+re-run anything to do so ([skills documentation](https://code.claude.com/docs/en/skills),
+2026-09-28). A skill that told Claude to run `sideband skill` therefore came
+back as that pointer alone, and a compacted Claude with no delivery rules in
+view took `pending --wait` from the help text for the way to wait on a peer.
+So the Claude skill renders the instructions into itself: its body injects
+the output of `sideband skill` (Claude Code's `` !`command` `` syntax) and its
+front matter pre-approves exactly that command, because an injected command
+that would ask for permission aborts the skill outside bypass mode. The
+instructions open with the rules that hold all conversation, where the cut
+cannot reach them: entries arrive on their own, nothing is polled or blocked
+on, and waiting on a peer ends the turn rather than counting as stopping
+early. The skill's description, which Claude Code keeps in context always,
+and the help text present `pending --wait` only as the listener for held
+pushes.
+
 ### 10.3 Codex
 
 Codex offers `codex queue --thread <thread id> --message <text>`, which

@@ -212,4 +212,18 @@ class PendingWaitSpec extends CommandSpec {
         expect:
         run("pending", "--repo", TempRepo.plainDirectory().toString(), "--role", "claude", "--wait", "--timeout", "0") == ExitCode.TIMED_OUT
     }
+
+    void "the help presents --wait as the listener for a Claude Code session whose pushes are held, not as the way to wait for a reply"() {
+        when:
+        run("--help")
+        String summary = stdout.toString().replaceAll(/\s+/, " ") // picocli wraps descriptions
+        stdout = new StringWriter()
+        run("pending", "--help")
+        String help = stdout.toString().replaceAll(/\s+/, " ")
+
+        then:
+        !summary.contains("blocks until something arrives")
+        summary.contains("pushes are held")
+        help.contains("pushes are held")
+    }
 }
