@@ -1897,7 +1897,9 @@ Status (2026-09-05): the shared hook supports both clients and `sideband init`
 registers it in `.claude/settings.json` and `.codex/hooks.json`, each naming
 its client with `--agent` (2026-09-06: James dropped the session and process
 ownership check in favour of the role alone, and the registration took over
-client identification from the session-matching fallback). The official
+client identification from the session-matching fallback; 2026-09-28: Claude
+Code's registrations moved to `.claude/settings.local.json`, the operator's own
+file, so teammates who do not use Sideband do not run them). The official
 [Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 confirms the event, stdin prompt/session fields and stdout context shape.
 

@@ -120,7 +120,7 @@ class ResourceInstaller implements Installer {
         for (String source : List.of("claude", "codex")) {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
-        Path settings = projectDir.resolve(SETTINGS);
+        Path settings = projectDir.resolve(LOCAL_SETTINGS);
         return new InstallReport(skills, installHook(settings, "claude-prompt-hook", Role.CLAUDE),
                 installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX),
                 inboundItem(homeDir, projectDir));
@@ -133,7 +133,7 @@ class ResourceInstaller implements Installer {
             Path target = homeDir.resolve(SKILLS.get(source));
             skills.add(new InstallReport.Item(client(source), target.toString(), skillState(source, target)));
         }
-        Path settings = projectDir.resolve(SETTINGS);
+        Path settings = projectDir.resolve(LOCAL_SETTINGS);
         Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
         return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings, Role.CLAUDE)),
                 new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)),

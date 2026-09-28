@@ -103,7 +103,7 @@ class ResourceInstallerSpec extends Specification {
         Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
 
         and: "the settings file is pretty JSON with exactly the hook entry"
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
         settings.contains('"UserPromptSubmit": [')
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
@@ -207,18 +207,18 @@ class ResourceInstallerSpec extends Specification {
     void "the hook installer preserves an inbound choice already in the repository file"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), '{"crossSessionInbound": "refuse"}')
+        Files.writeString(project.resolve(".claude/settings.local.json"), '{"crossSessionInbound": "refuse"}')
 
         when:
         InstallReport report = installer.install(home, project)
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
 
         then:
         report.hook().state() == "added"
         settings.contains('"crossSessionInbound": "refuse"')
         settings.contains("hook prompt --agent claude")
         report.inbound().state() == "refused"
-        report.inbound().path() == project.resolve(".claude/settings.json").toString()
+        report.inbound().path() == project.resolve(".claude/settings.local.json").toString()
     }
 
     void "an unreadable settings file is reported as such for the inbound verdict"() {
@@ -436,7 +436,7 @@ class ResourceInstallerSpec extends Specification {
     void "existing settings and unrelated hooks are preserved, and an old sideband hook path is updated"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), '''{
+        Files.writeString(project.resolve(".claude/settings.local.json"), '''{
   "permissions": {"allow": ["Bash(ls:*)"]},
   "hooks": {
     "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre"}]}],
@@ -446,7 +446,7 @@ class ResourceInstallerSpec extends Specification {
 
         when:
         InstallReport report = installer.install(home, project)
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
 
         then:
         report.hook().state() == "updated"
@@ -462,13 +462,13 @@ class ResourceInstallerSpec extends Specification {
     void "a settings file that is not JSON is refused rather than clobbered"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), "{ this is not json")
+        Files.writeString(project.resolve(".claude/settings.local.json"), "{ this is not json")
 
         when:
         installer.install(home, project)
 
         then:
         thrown(UncheckedIOException)
-        Files.readString(project.resolve(".claude/settings.json")) == "{ this is not json"
+        Files.readString(project.resolve(".claude/settings.local.json")) == "{ this is not json"
     }
 }

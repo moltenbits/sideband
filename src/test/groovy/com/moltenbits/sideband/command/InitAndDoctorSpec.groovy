@@ -35,7 +35,7 @@ class InitAndDoctorSpec extends CommandSpec {
         Files.isRegularFile(repo.resolve(".git/sideband/sideband.db"))
         Files.exists(home.resolve(".claude/skills/sideband/SKILL.md"))
         Files.exists(home.resolve(".agents/skills/sideband/SKILL.md"))
-        Files.exists(repo.resolve(".claude/settings.json"))
+        Files.exists(repo.resolve(".claude/settings.local.json"))
         Files.exists(repo.resolve(".codex/hooks.json"))
 
         when:
@@ -82,7 +82,7 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         initialised == ExitCode.OK
         Files.isDirectory(plain.resolve(".sideband"))
-        Files.exists(plain.resolve(".claude/settings.json"))
+        Files.exists(plain.resolve(".claude/settings.local.json"))
         Files.exists(plain.resolve(".codex/hooks.json"))
         !Files.exists(plain.getParent().resolve(".claude"))
         !Files.exists(plain.getParent().resolve(".codex"))
