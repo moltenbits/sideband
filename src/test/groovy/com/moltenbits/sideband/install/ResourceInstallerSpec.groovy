@@ -119,9 +119,9 @@ class ResourceInstallerSpec extends Specification {
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
 
-        and: "a clear moves the role to the new conversation, so the session-start hook is registered for that source only"
+        and: "a clear moves the role to the new conversation, and a compaction may drop the skill, so Claude's session-start hook is registered for those two sources only"
         settings.contains('"SessionStart": [')
-        settings.contains('"matcher": "clear"')
+        settings.contains('"matcher": "clear|compact"')
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"')
         settings.count("hook session-start") == 1
 
@@ -138,6 +138,7 @@ class ResourceInstallerSpec extends Specification {
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"')
         codexHooks.contains('"matcher": "clear"')
+        !codexHooks.contains("compact")
         !codexHooks.contains("crossSessionInbound")
     }
 
@@ -360,6 +361,27 @@ class ResourceInstallerSpec extends Specification {
         text.count("hook session-start") == 1
         !text.contains("/old/")
         installer.inspect(home, project).codexHook().state() == "installed"
+    }
+
+    void "a Claude session-start registration for clear alone misses compactions, so it is stale and init widens it"() {
+        given:
+        Path settings = project.resolve(".claude/settings.local.json")
+        Files.createDirectories(settings.parent)
+        Files.writeString(settings, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"}]}]}}')
+
+        expect:
+        installer.inspect(home, project).hook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(Files.readString(settings), Map)
+
+        then:
+        report.hook().state() == "updated"
+        parsed.hooks.SessionStart*.matcher == ["clear|compact"]
+        parsed.hooks.SessionStart[0].hooks*.command == ['"/opt/sideband/bin/sideband" hook session-start --agent claude']
+        installer.inspect(home, project).hook().state() == "installed"
+        installer.install(home, project).hook().state() == "unchanged"
     }
 
     void "a registration from before the session-start hook is stale until init adds it"() {

@@ -34,15 +34,19 @@ class ResourceInstaller implements Installer {
     static final String HOOK_EVENT = "UserPromptSubmit";
     /**
      * Each registration a client needs: the host event, the {@code hook} subcommand, and the
-     * matcher, which for a session start names the source. Only a clear is matched: it is
-     * the one event that replaces the operator's conversation while the old one may live on.
+     * matcher, which for a session start names the sources. A clear is matched: it is the one
+     * event that replaces the operator's conversation while the old one may live on. Claude
+     * Code's also matches a compaction, after which the conversation keeps its skills only
+     * within a budget, so the hook repeats who it is and how entries reach it.
      */
     private record Registration(String event, String subcommand, @Nullable String matcher) {
     }
 
-    private static final List<Registration> REGISTRATIONS = List.of(
-            new Registration(HOOK_EVENT, "prompt", null),
-            new Registration("SessionStart", "session-start", "clear"));
+    private static List<Registration> registrations(Role client) {
+        return List.of(
+                new Registration(HOOK_EVENT, "prompt", null),
+                new Registration("SessionStart", "session-start", client == Role.CLAUDE ? "clear|compact" : "clear"));
+    }
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");
     /** Marks a SKILL.md the operator ejected; the installer never overwrites one. */
@@ -216,7 +220,7 @@ class ResourceInstaller implements Installer {
         try {
             Map<String, Object> root = readSettings(settings);
             String state = "unchanged";
-            for (Registration registration : REGISTRATIONS) {
+            for (Registration registration : registrations(client)) {
                 String outcome = register(root, registration, client);
                 if (!outcome.equals("unchanged")) {
                     state = state.equals("unchanged") || outcome.equals("updated") ? outcome : state;
@@ -412,7 +416,7 @@ class ResourceInstaller implements Installer {
                 return "missing";
             }
             Object hooks = readSettings(settings).get("hooks");
-            boolean installed = hooks instanceof Map<?, ?> events && REGISTRATIONS.stream().allMatch(r ->
+            boolean installed = hooks instanceof Map<?, ?> events && registrations(client).stream().allMatch(r ->
                     events.get(r.event()) instanceof List<?> event && placed(event, r, registrationCommand(r, client)));
             if (installed) {
                 return "installed";

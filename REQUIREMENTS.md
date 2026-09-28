@@ -274,15 +274,26 @@ where a push addressed to it would run unseen. The session-start hook moves
 the instance the new conversation continues (9.5a) to it when the host runs it and tells it,
 through the context field, that Sideband is live there as that instance and how many entries addressed
 to it need attention, counting requests it acknowledged and has not yet
-answered, since the ack is the one thing the new conversation has forgotten.
+answered, since the ack is the one thing the new conversation has forgotten,
+and that those entries arrive on their own: nothing is polled or blocked on,
+and the turn ends when nothing is left until a reply comes.
 When several instances could be the one continued and none can be told
 apart, it moves none and tells the new conversation which instances those
 are and that joining again settles it.
-`init` places the handler under the `clear` matcher and moves one it finds
-under any other matcher, where it would never fire; `doctor` reports a
-handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
-record alone: they keep the conversation the role is in, or are a new client
-whose first prompt claims the role through the prompt hook.
+Claude Code's registration matches `compact` as well: a compaction keeps the
+conversation but its skills only within a budget (10.2), so the hook tells
+it the same again (verified 2026-09-28 on Claude Code 2.1.283: after
+`/compact`, a handler under `clear|compact` ran, its context reached the model,
+and the session identifier was unchanged). It moves nothing then, since an automatic compaction is
+not the operator's input, and names an instance only by the commands' rule
+of 9.5a, the record naming the calling session or process; a conversation
+that is no instance hears nothing. Codex's registration matches `clear`
+alone. `init` places the handler under the client's matcher and moves one
+it finds under any other matcher, where it would miss a source; `doctor`
+reports a handler anywhere else as stale. Other sources (`startup`,
+`resume`, and for Codex `compact`) leave the record alone: they keep the
+conversation the role is in, or are a new client whose first prompt claims
+the role through the prompt hook.
 
 The hooks cannot close the window between a clear and the first prompt in
 Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new
@@ -1059,7 +1070,10 @@ cannot reach them: entries arrive on their own, nothing is polled or blocked
 on, and waiting on a peer ends the turn rather than counting as stopping
 early. The skill's description, which Claude Code keeps in context always,
 and the help text present `pending --wait` only as the listener for held
-pushes.
+pushes. The host fills the budget from the most recently invoked skill and
+may drop an older one entirely, so the session-start hook also runs after a
+compaction and repeats which instance the conversation is and how entries
+reach it (7.1).
 
 ### 10.3 Codex
 
@@ -2031,7 +2045,7 @@ sideband pending --wait --stream                   # the listener: one report pe
 sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown, oldest first
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
-sideband hook session-start                        # both clients' SessionStart hook for a clear: move the instance to the new conversation
+sideband hook session-start                        # both clients' SessionStart hook: after a clear move the instance to the new conversation; after a Claude compaction remind it
 sideband hook notify [--agent <role>]              # the notifier's gate on Stop, Notification, PermissionRequest, and UserPromptSubmit: exit 0 lets it ring, 1 holds it
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```
