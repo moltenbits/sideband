@@ -74,7 +74,8 @@ sessions"; the same setting in `~/.claude/settings.json` is:
 
 Nothing else is needed: `init` installed the skill under
 `~/.claude/skills/sideband` and the hooks in the repository's
-`.claude/settings.json`.
+`.claude/settings.local.json`, your own settings for the repository, so
+teammates who do not use Sideband do not run them.
 
 ### 1.3 Codex
 
@@ -259,7 +260,7 @@ after it is live. A state directory from before the database still holds
 ### 3.2 Claude Code
 
 `init` installs the skill under `~/.claude/skills/sideband` and registers
-both hooks in the repository's `.claude/settings.json`. The hooks keep each
+both hooks in the repository's `.claude/settings.local.json`. The hooks keep each
 instance's record on the conversation you are in, and the writer reaches that
 conversation through the registry Claude Code keeps: Claude Code registers
 every session in `~/.claude/sessions/<pid>.json` with its working directory

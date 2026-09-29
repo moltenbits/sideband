@@ -5,6 +5,8 @@ import com.moltenbits.sideband.protocol.Delivery
 import com.moltenbits.sideband.protocol.DeliveryPolicy
 import com.moltenbits.sideband.protocol.EntryMetadata
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.ParticipantId
+import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.protocol.Route
 import spock.lang.Specification
 
@@ -86,6 +88,42 @@ class LinkedAncestrySpec extends Specification {
 
         expect:
         ancestry.trace(store["A3"], index) == new Lineage.Rooted(3, "H1")
+    }
+
+    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+    static final ParticipantId OPUS = ParticipantId.of(Role.CLAUDE, "opus")
+    static final ParticipantId ASTRA = ParticipantId.of(Role.CODEX, "astra")
+
+    void "a request linked to a reply to its own author's request continues that exchange, so review rounds add no depth"() {
+        given: "the human asks Fable, Fable delegates to Opus, and Opus asks Astra to review commit after commit, each round linked to Astra's last reply"
+        human("H1")
+        request("F1", [causedBy: "H1"], FABLE, OPUS)
+        request("R1", [causedBy: "F1"], OPUS, ASTRA)
+        String previous = "R1"
+        (1..6).each { i ->
+            reply("P$i", previous, ASTRA, OPUS)
+            request("R${i + 1}", [causedBy: "P$i"], OPUS, ASTRA)
+            previous = "R${i + 1}"
+        }
+
+        when:
+        Lineage lineage = ancestry.trace(store["R7"], index)
+
+        then: "only Fable's delegation and Opus's first request count"
+        lineage == new Lineage.Rooted(2, "H1")
+        lineage.effectiveLive(Delivery.DEFAULT) == DeliveryPolicy.AUTO
+    }
+
+    void "building on a reply that answered someone else's request is delegation, even from another instance of the same client"() {
+        given:
+        human("H1")
+        request("F1", [causedBy: "H1"], FABLE, OPUS)
+        request("R1", [causedBy: "F1"], OPUS, ASTRA)
+        reply("P1", "R1", ASTRA, OPUS)
+        request("X1", [causedBy: "P1"], FABLE, ASTRA)
+
+        expect:
+        ancestry.trace(store["X1"], index) == new Lineage.Rooted(3, "H1")
     }
 
     void "depth beyond five forces confirmation but stays valid"() {

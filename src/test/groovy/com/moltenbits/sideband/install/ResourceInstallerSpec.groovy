@@ -25,8 +25,19 @@ class ResourceInstallerSpec extends Specification {
         expect:
         installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE) == Files.readString(Path.of("skills/claude/INSTRUCTIONS.md"))
         installer.instructions(com.moltenbits.sideband.protocol.Role.CODEX) == Files.readString(Path.of("skills/codex/INSTRUCTIONS.md"))
-        Files.readString(Path.of("skills/claude/SKILL.md")).contains("Run `sideband skill`")
         Files.readString(Path.of("skills/codex/SKILL.md")).contains("Run `sideband skill`")
+    }
+
+    void "Claude Code renders the instructions into the skill itself, so a compaction re-attaches them rather than a pointer to them"() {
+        given:
+        String stub = Files.readString(Path.of("skills/claude/SKILL.md"))
+        String frontMatter = stub.substring(0, stub.indexOf("\n---\n", 4))
+
+        expect: "the executable's output is injected where the skill renders, from a line of its own"
+        stub.contains("\n!`sideband skill`\n")
+
+        and: "that one command is pre-approved, since an injected command that would ask aborts the skill outside bypass mode"
+        frontMatter.contains("\nallowed-tools: Bash(sideband skill)")
     }
 
     void "ejecting writes the full instructions under the stub's front matter, and install then leaves it alone"() {
@@ -44,7 +55,7 @@ class ResourceInstallerSpec extends Specification {
         text.startsWith("---\nname: sideband\n")
         text.contains("\n---\n\n" + ResourceInstaller.EJECTED_MARKER + "\n\n# Sideband (Claude Code adapter)")
         text.endsWith(installer.instructions(com.moltenbits.sideband.protocol.Role.CLAUDE))
-        !text.contains("Run `sideband skill`")
+        !text.contains("!`sideband skill`")
 
         and: "a rerun of install reports it ejected and does not touch it; the other skill is untouched too"
         installer.install(home, project).skills()*.state() == ["ejected", "unchanged"]
@@ -54,7 +65,7 @@ class ResourceInstallerSpec extends Specification {
         and: "deleting it and reinstalling restores the stub"
         Files.delete(skill)
         installer.install(home, project).skills()*.state() == ["updated", "unchanged"]
-        Files.readString(skill).contains("Run `sideband skill`")
+        Files.readString(skill).contains("!`sideband skill`")
     }
 
     void "ejecting over an ejected skill is refused unless forced, so the operator's edits survive"() {
@@ -103,14 +114,14 @@ class ResourceInstallerSpec extends Specification {
         Files.list(home.resolve(".claude/skills/sideband")).toList()*.fileName*.toString() == ["SKILL.md"]
 
         and: "the settings file is pretty JSON with exactly the hook entry"
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
         settings.contains('"UserPromptSubmit": [')
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"')
         settings.startsWith("{\n  \"hooks\": {")
 
-        and: "a clear moves the role to the new conversation, so the session-start hook is registered for that source only"
+        and: "a clear moves the role to the new conversation, and a compaction may drop the skill, so Claude's session-start hook is registered for those two sources only"
         settings.contains('"SessionStart": [')
-        settings.contains('"matcher": "clear"')
+        settings.contains('"matcher": "clear|compact"')
         settings.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"')
         settings.count("hook session-start") == 1
 
@@ -127,6 +138,7 @@ class ResourceInstallerSpec extends Specification {
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"')
         codexHooks.contains('"command": "\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"')
         codexHooks.contains('"matcher": "clear"')
+        !codexHooks.contains("compact")
         !codexHooks.contains("crossSessionInbound")
     }
 
@@ -207,18 +219,18 @@ class ResourceInstallerSpec extends Specification {
     void "the hook installer preserves an inbound choice already in the repository file"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), '{"crossSessionInbound": "refuse"}')
+        Files.writeString(project.resolve(".claude/settings.local.json"), '{"crossSessionInbound": "refuse"}')
 
         when:
         InstallReport report = installer.install(home, project)
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
 
         then:
         report.hook().state() == "added"
         settings.contains('"crossSessionInbound": "refuse"')
         settings.contains("hook prompt --agent claude")
         report.inbound().state() == "refused"
-        report.inbound().path() == project.resolve(".claude/settings.json").toString()
+        report.inbound().path() == project.resolve(".claude/settings.local.json").toString()
     }
 
     void "an unreadable settings file is reported as such for the inbound verdict"() {
@@ -351,6 +363,27 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
+    void "a Claude session-start registration for clear alone misses compactions, so it is stale and init widens it"() {
+        given:
+        Path settings = project.resolve(".claude/settings.local.json")
+        Files.createDirectories(settings.parent)
+        Files.writeString(settings, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"}]}]}}')
+
+        expect:
+        installer.inspect(home, project).hook().state() == "stale"
+
+        when:
+        InstallReport report = installer.install(home, project)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(Files.readString(settings), Map)
+
+        then:
+        report.hook().state() == "updated"
+        parsed.hooks.SessionStart*.matcher == ["clear|compact"]
+        parsed.hooks.SessionStart[0].hooks*.command == ['"/opt/sideband/bin/sideband" hook session-start --agent claude']
+        installer.inspect(home, project).hook().state() == "installed"
+        installer.install(home, project).hook().state() == "unchanged"
+    }
+
     void "a registration from before the session-start hook is stale until init adds it"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
@@ -436,7 +469,7 @@ class ResourceInstallerSpec extends Specification {
     void "existing settings and unrelated hooks are preserved, and an old sideband hook path is updated"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), '''{
+        Files.writeString(project.resolve(".claude/settings.local.json"), '''{
   "permissions": {"allow": ["Bash(ls:*)"]},
   "hooks": {
     "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre"}]}],
@@ -446,7 +479,7 @@ class ResourceInstallerSpec extends Specification {
 
         when:
         InstallReport report = installer.install(home, project)
-        String settings = Files.readString(project.resolve(".claude/settings.json"))
+        String settings = Files.readString(project.resolve(".claude/settings.local.json"))
 
         then:
         report.hook().state() == "updated"
@@ -462,13 +495,13 @@ class ResourceInstallerSpec extends Specification {
     void "a settings file that is not JSON is refused rather than clobbered"() {
         given:
         Files.createDirectories(project.resolve(".claude"))
-        Files.writeString(project.resolve(".claude/settings.json"), "{ this is not json")
+        Files.writeString(project.resolve(".claude/settings.local.json"), "{ this is not json")
 
         when:
         installer.install(home, project)
 
         then:
         thrown(UncheckedIOException)
-        Files.readString(project.resolve(".claude/settings.json")) == "{ this is not json"
+        Files.readString(project.resolve(".claude/settings.local.json")) == "{ this is not json"
     }
 }

@@ -2,6 +2,8 @@ package com.moltenbits.sideband.ancestry;
 
 import com.moltenbits.sideband.protocol.Delivery;
 import com.moltenbits.sideband.protocol.DeliveryPolicy;
+import io.micronaut.serde.annotation.Serdeable;
+import io.micronaut.serde.config.naming.SnakeCaseStrategy;
 
 /** What tracing an entry's causal links established. */
 public sealed interface Lineage {
@@ -22,11 +24,13 @@ public sealed interface Lineage {
     }
 
     /**
-     * The entry traces to a human-authored entry.
+     * The entry traces to a human-authored entry. Delivered with the entry, so a recipient held
+     * to {@code confirm} can see why and read what the human asked.
      *
-     * @param delegationDepth the number of {@code caused_by} links on the path
+     * @param delegationDepth the number of {@code caused_by} links on the path that count as delegations
      * @param humanRootId     the human-authored entry the path reached
      */
+    @Serdeable(naming = SnakeCaseStrategy.class)
     record Rooted(int delegationDepth, String humanRootId) implements Lineage {
 
         public boolean exceedsDepthCap() {

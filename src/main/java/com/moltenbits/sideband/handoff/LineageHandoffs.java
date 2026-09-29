@@ -3,6 +3,7 @@ package com.moltenbits.sideband.handoff;
 import com.moltenbits.sideband.ancestry.Ancestry;
 import com.moltenbits.sideband.ancestry.EntryIndex;
 import com.moltenbits.sideband.ancestry.InvalidLineageException;
+import com.moltenbits.sideband.ancestry.Lineage;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.DeliveryPolicy;
@@ -37,10 +38,11 @@ class LineageHandoffs implements Handoffs {
         List<Handoff> handoffs = new ArrayList<>();
         for (Entry entry : entries) {
             try {
-                DeliveryPolicy live = ancestry.trace(entry.metadata(), index).effectiveLive(entry.metadata().delivery());
-                handoffs.add(Handoff.of(entry, live, null));
+                Lineage lineage = ancestry.trace(entry.metadata(), index);
+                handoffs.add(Handoff.of(entry, lineage.effectiveLive(entry.metadata().delivery()), null,
+                        lineage instanceof Lineage.Rooted rooted ? rooted : null));
             } catch (InvalidLineageException e) {
-                handoffs.add(Handoff.of(entry, DeliveryPolicy.CONFIRM, e.getMessage()));
+                handoffs.add(Handoff.of(entry, DeliveryPolicy.CONFIRM, e.getMessage(), null));
             }
         }
         return handoffs;

@@ -274,15 +274,26 @@ where a push addressed to it would run unseen. The session-start hook moves
 the instance the new conversation continues (9.5a) to it when the host runs it and tells it,
 through the context field, that Sideband is live there as that instance and how many entries addressed
 to it need attention, counting requests it acknowledged and has not yet
-answered, since the ack is the one thing the new conversation has forgotten.
+answered, since the ack is the one thing the new conversation has forgotten,
+and that those entries arrive on their own: nothing is polled or blocked on,
+and the turn ends when nothing is left until a reply comes.
 When several instances could be the one continued and none can be told
 apart, it moves none and tells the new conversation which instances those
 are and that joining again settles it.
-`init` places the handler under the `clear` matcher and moves one it finds
-under any other matcher, where it would never fire; `doctor` reports a
-handler anywhere else as stale. Other sources (`startup`, `resume`, `compact`) leave the
-record alone: they keep the conversation the role is in, or are a new client
-whose first prompt claims the role through the prompt hook.
+Claude Code's registration matches `compact` as well: a compaction keeps the
+conversation but its skills only within a budget (10.2), so the hook tells
+it the same again (verified 2026-09-28 on Claude Code 2.1.283: after
+`/compact`, a handler under `clear|compact` ran, its context reached the model,
+and the session identifier was unchanged). It moves nothing then, since an automatic compaction is
+not the operator's input, and names an instance only by the commands' rule
+of 9.5a, the record naming the calling session or process; a conversation
+that is no instance hears nothing. Codex's registration matches `clear`
+alone. `init` places the handler under the client's matcher and moves one
+it finds under any other matcher, where it would miss a source; `doctor`
+reports a handler anywhere else as stale. Other sources (`startup`,
+`resume`, and for Codex `compact`) leave the record alone: they keep the
+conversation the role is in, or are a new client whose first prompt claims
+the role through the prompt hook.
 
 The hooks cannot close the window between a clear and the first prompt in
 Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new
@@ -533,14 +544,34 @@ differently:
   turn asks the first for something in service of that request. Version one
   permits a delegation depth of at most five. An entry exceeding the depth cap
   remains in the journal, but its recipient must handle it under the `confirm`
-  policy even when `delivery.live` is `auto`.
+  policy even when `delivery.live` is `auto`. A `caused_by` link from an entry
+  to a reply that answered an entry by the same author is not counted: the
+  author is continuing its own exchange, as when a reviewer's findings lead to
+  a re-review or the next commit's review. The adapter instructions send those
+  as new requests linked to the reply that prompted them, so without this
+  every review round counted as a delegation. On 2026-09-28 an implementer's sixth
+  review request in one authorized task reached depth six and was held for
+  confirmation, where only two links were delegations. The same author means
+  the same instance: another instance building on that reply is delegating.
 - **Thread iteration** is the number of `reply_to` exchanges on a single
-  request: a review, a fix, a re-review, and so on. This is ordinary
+  request, or of requests an author links to the replies its own requests
+  received: a review, a fix, a re-review, and so on. This is ordinary
   collaboration and is unbounded by default. Every message lands in an
   interactive session the human can see and interrupt, which is the primary
   safeguard. An optional iteration threshold may be configured; when it is
   set and reached, the executable appends a `status` entry addressed to the
   human noting the count, and delivery continues unchanged.
+
+A delivered entry the causal-path rule traced carries `lineage`: its
+delegation depth and the human-authored entry it reached. A recipient held
+to `confirm` can then see why, and read what the human asked. The adapters
+ask the human before acting on `confirm` unless the human already explicitly
+approved the work, in the recipient's conversation or in that entry; an
+entry with a `lineage_problem` traces to nothing the human said and always
+goes to the human first. On 2026-09-28 the two adapters disagreed: Codex's
+allowed prior approval and Claude's did not, and a Codex instance held to
+`confirm` asked the human about a review the task entry had already
+arranged.
 
 When an agent judges its part complete, the normal terminal action is to
 address the human rather than create another actionable peer message.
@@ -1043,6 +1074,27 @@ skill. The fallback costs a re-run of the skill after every restart and a
 `pending` read per delivery, which is why the push is used wherever the
 operator has accepted it.
 
+The instructions must outlive a compaction. Claude Code re-attaches an
+invoked skill's rendered text after compacting the conversation, keeping the
+first 5,000 tokens of each within a shared budget of 25,000, and it does not
+re-run anything to do so ([skills documentation](https://code.claude.com/docs/en/skills),
+2026-09-28). A skill that told Claude to run `sideband skill` therefore came
+back as that pointer alone, and a compacted Claude with no delivery rules in
+view took `pending --wait` from the help text for the way to wait on a peer.
+So the Claude skill renders the instructions into itself: its body injects
+the output of `sideband skill` (Claude Code's `` !`command` `` syntax) and its
+front matter pre-approves exactly that command, because an injected command
+that would ask for permission aborts the skill outside bypass mode. The
+instructions open with the rules that hold all conversation, where the cut
+cannot reach them: entries arrive on their own, nothing is polled or blocked
+on, and waiting on a peer ends the turn rather than counting as stopping
+early. The skill's description, which Claude Code keeps in context always,
+and the help text present `pending --wait` only as the listener for held
+pushes. The host fills the budget from the most recently invoked skill and
+may drop an older one entirely, so the session-start hook also runs after a
+compaction and repeats which instance the conversation is and how entries
+reach it (7.1).
+
 ### 10.3 Codex
 
 Codex offers `codex queue --thread <thread id> --message <text>`, which
@@ -1385,6 +1437,12 @@ under its live policy and none requires human confirmation. Given an iteration
 threshold of ten is configured, the tenth exchange causes one `status` entry
 addressed to the human, and the eleventh is still delivered under its live
 policy.
+
+Given the human asks `claude:fable`, which delegates to `claude:opus`, which
+asks `codex:astra` to review commit after commit, each new request linked by
+`caused_by` to Astra's reply to the previous one, every one of those requests
+has delegation depth two and is delivered under its live policy. A request
+from Fable linked to one of those replies is a delegation, at depth three.
 
 ### 14.13 Arbitrary message body
 
@@ -1897,7 +1955,9 @@ Status (2026-09-05): the shared hook supports both clients and `sideband init`
 registers it in `.claude/settings.json` and `.codex/hooks.json`, each naming
 its client with `--agent` (2026-09-06: James dropped the session and process
 ownership check in favour of the role alone, and the registration took over
-client identification from the session-matching fallback). The official
+client identification from the session-matching fallback; 2026-09-28: Claude
+Code's registrations moved to `.claude/settings.local.json`, the operator's own
+file, so teammates who do not use Sideband do not run them). The official
 [Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 confirms the event, stdin prompt/session fields and stdout context shape.
 
@@ -2011,7 +2071,7 @@ sideband pending --wait --stream                   # the listener: one report pe
 sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown, oldest first
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
-sideband hook session-start                        # both clients' SessionStart hook for a clear: move the instance to the new conversation
+sideband hook session-start                        # both clients' SessionStart hook: after a clear move the instance to the new conversation; after a Claude compaction remind it
 sideband hook notify [--agent <role>]              # the notifier's gate on Stop, Notification, PermissionRequest, and UserPromptSubmit: exit 0 lets it ring, 1 holds it
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```

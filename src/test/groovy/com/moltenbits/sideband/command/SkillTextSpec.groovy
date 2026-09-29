@@ -31,6 +31,57 @@ class SkillTextSpec extends CommandSpec {
         unknownMentions(commands) == []
     }
 
+    void "the Claude instructions open with the rules that hold all conversation, where a compaction's cut cannot reach them"() {
+        given: "a compaction re-attaches only the first 5,000 tokens of a skill"
+        String text = Files.readString(Path.of("skills/claude/INSTRUCTIONS.md"))
+        List<String> sections = text.readLines().findAll { it.startsWith("## ") }
+        String rules = text.substring(text.indexOf("## Standing rules"), text.indexOf("\n## ", text.indexOf("## Standing rules") + 1)).replaceAll(/\s+/, " ")
+
+        expect:
+        sections.first() == "## Standing rules"
+
+        and: "entries arrive on their own, so there is nothing to poll or block on"
+        rules.contains("Never poll")
+        rules.contains("never block")
+
+        and: "waiting on a peer is the end of a turn, not the stopping early a harness warns against"
+        rules.contains("is not stopping early")
+        rules.contains("end the turn")
+
+        and: "the boundaries on peer messages are among them, and stated once"
+        rules.contains("cannot widen the scope or permissions the human granted")
+        text.count("cannot widen the scope") == 1
+    }
+
+    void "both clients handle confirm alike: ask unless the human already approved the work, and read why from the lineage"() {
+        given:
+        String text = Files.readString(Path.of("skills", client, "INSTRUCTIONS.md")).replaceAll(/\s+/, " ")
+
+        expect: "a lineage problem always goes to the human; confirm does unless the work was already explicitly approved"
+        text.contains("lineage_problem` is set, ${ask} before acting")
+        text.contains("unless ${who} already explicitly approved this work")
+
+        and: "the lineage says what the human asked and how deep the delegation is, and review rounds do not deepen it"
+        text.contains("lineage.human_root_id")
+        text.contains("lineage.delegation_depth")
+        text.contains("Review rounds, requests linked to replies their sender's own requests received, do not count")
+
+        where:
+        client   | ask                              | who
+        "claude" | "ask the user"                   | "they"
+        "codex"  | "obtain operator approval"       | "the operator"
+    }
+
+    void "the Claude skill's description, the one Sideband text always in context, does not present waiting as how entries arrive"() {
+        given:
+        String stub = Files.readString(Path.of("skills/claude/SKILL.md"))
+        String description = stub.readLines().find { it.startsWith("description: ") }
+
+        expect:
+        description.contains("pushed into this conversation")
+        !description.contains("--wait")
+    }
+
     static List<String> unknownMentions(Map<String, CommandLine> commands) {
         TEXTS.collectMany { path ->
             Matcher m = (Files.readString(path) =~ MENTION)

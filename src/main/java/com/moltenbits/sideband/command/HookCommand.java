@@ -98,20 +98,28 @@ public class HookCommand {
     }
 
     /**
-     * Both clients' {@code SessionStart} hook, registered for the {@code clear} source only.
-     * A clear replaces the conversation on screen with a new one before any prompt is
-     * typed, so the prompt hook cannot move the instance until the operator speaks; this hook
-     * moves it at once and tells the new conversation that Sideband is live in it. Every
+     * Both clients' {@code SessionStart} hook, registered for the {@code clear} source, and in
+     * Claude Code for {@code compact} too. A clear replaces the conversation on screen with a
+     * new one before any prompt is typed, so the prompt hook cannot move the instance until
+     * the operator speaks; this hook moves it at once and tells the new conversation that
+     * Sideband is live in it. A compaction keeps the conversation but its skills only within a
+     * budget, so the hook tells it again; it moves nothing, since an automatic compaction is
+     * not the operator's input, and names only an instance the conversation already is. Every
      * other source keeps the conversation the instance is in, or is a new client whose first
      * prompt will claim an instance through the prompt hook. Never blocks the host: any problem
      * goes to stderr and the exit code is always 0.
      */
-    @Command(name = "session-start", description = "Claude Code/Codex SessionStart hook: after a clear, move the instance it continues to the new conversation", mixinStandardHelpOptions = true)
+    @Command(name = "session-start", description = "Claude Code/Codex SessionStart hook: after a clear, move the instance it continues to the new conversation; after a compaction, remind it how entries arrive", mixinStandardHelpOptions = true)
     @Prototype
     public static class SessionStart implements Callable<Integer> {
 
         static final String EVENT = "SessionStart";
-        static final String SOURCE = "clear";
+        static final String CLEAR = "clear";
+        static final String COMPACT = "compact";
+        /** What a conversation that may no longer hold the skill's instructions most needs to keep doing. */
+        static final String DELIVERY = "Entries addressed to it arrive in this conversation on their own: never poll with"
+                + " `sideband pending` to see whether anything arrived, or block waiting for a reply, and when nothing is left"
+                + " for you until one comes, end the turn.";
 
         @Spec
         CommandSpec spec;
@@ -136,14 +144,14 @@ public class HookCommand {
         @Override
         public Integer call() {
             try {
-                return followClear();
+                return announce();
             } catch (IOException | RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: session start ignored: " + e.getMessage());
                 return ExitCode.OK;
             }
         }
 
-        private int followClear() throws IOException {
+        private int announce() throws IOException {
             Payload payload;
             try {
                 payload = json.readValue(new String(System.in.readAllBytes(), UTF_8), Payload.class);
@@ -153,7 +161,8 @@ public class HookCommand {
             if (payload == null || (payload.hookEventName() != null && !payload.hookEventName().equals(EVENT))) {
                 return ExitCode.OK;
             }
-            if (!SOURCE.equals(payload.source())) {
+            boolean compacted = COMPACT.equals(payload.source());
+            if (!CLEAR.equals(payload.source()) && !compacted) {
                 return skipped("source " + payload.source() + " keeps the conversation the instance is in");
             }
             if (payload.sessionId() == null || payload.sessionId().isBlank()) {
@@ -170,23 +179,30 @@ public class HookCommand {
             if (role == null) {
                 return skipped("cannot tell which client this is; register the hook with --agent claude or --agent codex");
             }
-            InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory.get(), role,
-                    payload.sessionId(), host.process(role).orElse(null));
-            ParticipantId instance = followed.instance();
-            if (instance == null) {
-                if (followed.candidates().isEmpty()) {
-                    return skipped("this conversation continues no " + role.id() + " instance here");
+            HostProcess caller = host.process(role).orElse(null);
+            ParticipantId instance;
+            if (compacted) {
+                InstanceRule.Identified identified = sessions.identify(stateDirectory.get(), role, payload.sessionId(), caller);
+                instance = identified.records().isEmpty() ? null : identified.instance();
+            } else {
+                InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory.get(), role,
+                        payload.sessionId(), caller);
+                if (followed.instance() == null && !followed.candidates().isEmpty()) {
+                    Output.print(spec, json, new Response(new HookOutput(EVENT, ambiguous(role, followed))));
+                    return ExitCode.OK;
                 }
-                Output.print(spec, json, new Response(new HookOutput(EVENT, ambiguous(role, followed))));
-                return ExitCode.OK;
+                instance = followed.instance();
             }
-            // The new conversation remembers nothing, so an acknowledged request counts as
+            if (instance == null) {
+                return skipped("this conversation continues no " + role.id() + " instance here");
+            }
+            // The conversation may remember nothing, so an acknowledged request counts as
             // much as an open one: only the memory of taking it up was lost.
             int waiting = pending.report(stateDirectory.get(), instance).unfinished();
             String context = "Sideband is joined as " + instance.displayName() + " in this repository and delivers to this conversation"
                     + (waiting == 0 ? "" : "; " + waiting + (waiting == 1 ? " entry" : " entries") + " addressed to "
                     + instance.displayName() + " " + (waiting == 1 ? "is" : "are") + " waiting")
-                    + ". " + Handling.invocation(role) + " has the handling instructions.";
+                    + ". " + DELIVERY + " " + Handling.invocation(role) + " has the handling instructions.";
             Output.print(spec, json, new Response(new HookOutput(EVENT, context)));
             return ExitCode.OK;
         }

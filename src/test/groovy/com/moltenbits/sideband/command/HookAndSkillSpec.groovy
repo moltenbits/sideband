@@ -768,6 +768,45 @@ class HookAndSkillSpec extends CommandSpec {
         context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
     }
 
+    void "after a compaction the conversation hears again which instance it is and that entries arrive on their own, and no record moves"() {
+        given: "a compacted conversation may keep its skills only in part, or not at all"
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--as", "fable", "--session-id", "s1", "--pid", self.pid().toString())
+        context.getBean(Journal).append(stateDir, Fixtures.agentDraft(from: Fixtures.CODEX, to: [FABLE],
+                type: com.moltenbits.sideband.protocol.MessageType.STATUS, causedBy: null, expectsReply: false, body: "status"))
+        callerProcess = self
+        stdout = new StringWriter()
+
+        when:
+        int code = sessionStart("compact", "s1", repo.toString(), ["--agent", "claude"])
+        String note = json().hookSpecificOutput.additionalContext.replaceAll(/\s+/, " ")
+
+        then:
+        code == ExitCode.OK
+        note.startsWith("Sideband is joined as Claude (fable) in this repository and delivers to this conversation; 1 entry addressed to Claude (fable) is waiting.")
+        note.contains("arrive in this conversation on their own")
+        note.contains("never poll")
+        note.contains("end the turn")
+        note.contains("/sideband has the handling instructions")
+        context.getBean(Sessions).load(stateDir, FABLE).get().id() == "s1"
+    }
+
+    void "a compaction in a conversation that holds no instance says nothing and takes nothing over, unlike the operator's own input"() {
+        given: "the one Claude record names no running client, so a prompt typed here would take it over"
+        detectedAgent = Role.CLAUDE
+        context.getBean(Sessions).join(stateDir, ParticipantId.of(Role.CLAUDE), "s1")
+        callerProcess = self
+        stdout = new StringWriter()
+
+        when:
+        int code = sessionStart("compact", "s2", repo.toString(), ["--agent", "claude"])
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
+    }
+
     void "a second terminal does not take over an instance whose client runs elsewhere: its prompt waits for its own join"() {
         given:
         detectedAgent = Role.CLAUDE

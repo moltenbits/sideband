@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.ancestry;
 
 import com.moltenbits.sideband.protocol.EntryMetadata;
+import com.moltenbits.sideband.protocol.MessageType;
 import jakarta.inject.Singleton;
 
 import java.util.HashSet;
@@ -31,7 +32,7 @@ class LinkedAncestry implements Ancestry {
             }
             EntryMetadata parent = index.find(parentId).orElseThrow(() -> new InvalidLineageException(
                     "entry " + entry.id() + " references missing ancestor " + parentId));
-            if (delegation) {
+            if (delegation && !continuesOwnExchange(current, parent, index)) {
                 depth++;
             }
             if (!parent.isAgentAuthored()) {
@@ -39,6 +40,17 @@ class LinkedAncestry implements Ancestry {
             }
             current = parent;
         }
+    }
+
+    /**
+     * Whether {@code entry}, linked by {@code caused_by} to {@code cause}, continues its author's own
+     * exchange: the cause is a reply to something the same author wrote, as when a reviewer's
+     * findings lead to a re-review or the next commit's review. That is thread iteration, which
+     * is unbounded, not a delegation in service of someone else's request (REQUIREMENTS.md 8.3).
+     */
+    private static boolean continuesOwnExchange(EntryMetadata entry, EntryMetadata cause, EntryIndex index) {
+        return cause.type() == MessageType.REPLY && cause.replyTo() != null
+                && index.find(cause.replyTo()).map(answered -> answered.from().equals(entry.from())).orElse(false);
     }
 
     private static boolean applies(EntryMetadata entry) {
