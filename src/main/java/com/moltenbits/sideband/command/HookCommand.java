@@ -361,7 +361,7 @@ public class HookCommand {
             InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, role, sessionId,
                     host.process(role).orElse(null));
             if (followed.instance() == null) {
-                return capturable ? hold(stateDirectory, role, sessionId, prompt, followed) : dropped(stateDirectory, role, sessionId);
+                return capturable ? hold(stateDirectory, role, sessionId, prompt, turn.turn(), followed) : dropped(stateDirectory, role, sessionId);
             }
             // The session holds an instance now, so whatever it held from before no longer leads
             // to a join: a later one must not adopt a task the operator has since moved past.
@@ -369,14 +369,27 @@ public class HookCommand {
             if (!capturable) {
                 return ExitCode.OK;
             }
-            Captured captured = capture.capture(stateDirectory, followed.instance(), prompt);
+            Captured captured;
             try {
-                agentCapture.prompted(stateDirectory, turn, captured.metadata().id());
+                captured = capture.capture(stateDirectory, followed.instance(), prompt);
+            } catch (CaptureFailedException e) {
+                if (e.stage() == CaptureFailedException.Stage.JOURNALED && e.journaledId() != null) {
+                    causeOf(stateDirectory, turn, e.journaledId()); // recorded, only not delivered: still the turn's cause
+                }
+                throw e;
+            }
+            causeOf(stateDirectory, turn, captured.metadata().id());
+            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
+            return ExitCode.OK;
+        }
+
+        /** Makes the recorded prompt the cause of the agent's words in the turn it started; a failure only goes to stderr. */
+        private void causeOf(Path stateDirectory, AgentCapture.Hook turn, String entryId) {
+            try {
+                agentCapture.prompted(stateDirectory, turn, entryId);
             } catch (RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: could not link the turn to its prompt: " + e.getMessage());
             }
-            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
-            return ExitCode.OK;
         }
 
         /**
@@ -503,10 +516,11 @@ public class HookCommand {
          * reported on stderr only: the model is not told the prompt was not recorded, because
          * nothing was recording.
          */
-        private int hold(Path stateDirectory, Role role, String sessionId, String prompt, InstanceRule.Followed followed)
+        private int hold(Path stateDirectory, Role role, String sessionId, String prompt, @Nullable String turn,
+                         InstanceRule.Followed followed)
                 throws IOException {
             try {
-                held.hold(stateDirectory, role, sessionId, prompt);
+                held.hold(stateDirectory, role, sessionId, prompt, turn);
                 spec.commandLine().getErr().println("sideband hook: held for join by " + role.id() + " in session " + sessionId);
             } catch (RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: could not hold the prompt for join: " + e.getMessage());

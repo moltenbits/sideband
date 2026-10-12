@@ -50,6 +50,35 @@ class SqliteHeldPromptsSpec extends Specification {
         held.adopt(dir, Role.CLAUDE, "s1", toClaude).isEmpty()
     }
 
+    void "a hold keeps the turn the prompt was typed in, until a later hold replaces it or the join adopts it"() {
+        when:
+        held.hold(dir, Role.CLAUDE, "s1", "first", "p-1")
+
+        then:
+        held.turn(dir, Role.CLAUDE, "s1") == Optional.of("p-1")
+
+        when:
+        held.hold(dir, Role.CLAUDE, "s1", "second", "p-2")
+
+        then:
+        held.turn(dir, Role.CLAUDE, "s1") == Optional.of("p-2")
+        held.turn(dir, Role.CLAUDE, "s2").isEmpty()
+
+        when: "a host that names no turn"
+        held.hold(dir, Role.CLAUDE, "s1", "third")
+
+        then:
+        held.turn(dir, Role.CLAUDE, "s1").isEmpty()
+        held.held(dir, Role.CLAUDE, "s1") == Optional.of("third")
+
+        when:
+        held.hold(dir, Role.CLAUDE, "s1", "fourth", "p-4")
+        held.adopt(dir, Role.CLAUDE, "s1", toClaude)
+
+        then:
+        held.turn(dir, Role.CLAUDE, "s1").isEmpty()
+    }
+
     void "a failure while journaling keeps the hold, so a retried join can adopt it"() {
         given:
         held.hold(dir, Role.CLAUDE, "s1", "review this")

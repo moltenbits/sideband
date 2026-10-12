@@ -4,12 +4,14 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.capture.AgentCapture
 import com.moltenbits.sideband.capture.HumanCapture
+import com.moltenbits.sideband.capture.CaptureFailedException
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.host.HostProcess
 import com.moltenbits.sideband.host.HostProcesses
+import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.pending.Pending
@@ -79,6 +81,50 @@ class HookAndSkillSpec extends CommandSpec {
         entries*.body() == ["look around", "Halfway.", "actually, stop"]
         entries[1].metadata().isCapturedTurn()
         entries[1].metadata().causedBy() == entries[0].metadata().id()
+    }
+
+    void "a prompt recorded but not delivered still causes the turn it starts"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Path transcript = Files.createTempFile("transcript", ".jsonl")
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "p-1"]
+        Journal journal = context.getBean(Journal)
+        captureOverride = { Path dir, ParticipantId via, String body ->
+            def entry = journal.append(dir, Draft.humanRequest(via, [Fixtures.CODEX], body))
+            throw new CaptureFailedException(CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), new IOException("delivery failed"))
+        } as HumanCapture
+
+        when:
+        hook("@codex review this")
+        Entry prompt = journal.readAfter(stateDir, 0).entries().last()
+        List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
+                new AgentCapture.Hook(Role.CLAUDE, "s1", "p-1", null, null), "Delivery failed; the request is recorded.")
+
+        then: "the failure is still reported as before"
+        stderr.toString().contains("recorded " + prompt.metadata().id() + " but could not deliver it")
+        captured.size() == 1
+        captured[0].metadata().causedBy() == prompt.metadata().id()
+    }
+
+    void "a prompt held before the join and adopted by it causes the turn it started"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        Path transcript = Files.createTempFile("transcript", ".jsonl")
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "joining-turn"]
+        Journal journal = context.getBean(Journal)
+
+        when:
+        hook("Please join Sideband and review this")
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Entry prompt = journal.readAfter(stateDir, 0).entries().last()
+        List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
+                new AgentCapture.Hook(Role.CLAUDE, "s1", "joining-turn", null, null), "Joined and reviewed.")
+
+        then:
+        prompt.body() == "Please join Sideband and review this"
+        captured.size() == 1
+        captured[0].metadata().causedBy() == prompt.metadata().id()
     }
 
     void "a capture that fails never keeps the operator's prompt from being recorded"() {

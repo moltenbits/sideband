@@ -8,6 +8,11 @@
 -- identity its host gave it, which survives the transcript being copied or rewritten, so
 -- reading a turn again records only what was not recorded before.
 
+-- A prompt held for a session's join keeps the turn it was typed in, so the adopted entry
+-- becomes that turn's cause.
+
+ALTER TABLE held_prompts ADD COLUMN turn_id TEXT;
+
 CREATE TABLE capture_cursors (
     id         INTEGER PRIMARY KEY,
     role       TEXT NOT NULL,

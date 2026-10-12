@@ -4,6 +4,7 @@ import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.ParticipantId;
+import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.Pushes;
 import com.moltenbits.sideband.routing.Destination;
 import com.moltenbits.sideband.routing.Routing;
@@ -23,9 +24,11 @@ class JournalHumanCapture implements HumanCapture {
     private final Pushes pushes;
     private final HeldPrompts held;
     private final Sessions sessions;
+    private final AgentCapture agents;
 
-    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held, Sessions sessions) {
+    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held, Sessions sessions, AgentCapture agents) {
         this.sessions = sessions;
+        this.agents = agents;
         this.journal = journal;
         this.routing = routing;
         this.pushes = pushes;
@@ -53,17 +56,34 @@ class JournalHumanCapture implements HumanCapture {
 
     @Override
     public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, String sessionId) {
+        Role role = via.role().orElseThrow();
         Optional<Entry> entry;
+        Optional<String> turn;
         try {
             Set<ParticipantId> joined = sessions.all(stateDirectory).keySet();
-            entry = held.adopt(stateDirectory, via.role().orElseThrow(), sessionId,
+            turn = held.turn(stateDirectory, role, sessionId);
+            entry = held.adopt(stateDirectory, role, sessionId,
                     prompt -> Draft.humanRequest(via, routing.resolve(prompt, via, joined).to(), prompt));
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }
+        entry.ifPresent(e -> turn.ifPresent(t -> causeOf(stateDirectory, role, sessionId, t, e)));
         return entry.map(e -> deliver(stateDirectory, e));
+    }
+
+    /**
+     * Makes the adopted prompt the cause of the agent's words in the turn it started, as the
+     * prompt hook does for a prompt it records. The prompt is recorded either way; if this
+     * fails, that turn's words are recorded naming no cause, which is no reason to fail the join.
+     */
+    private void causeOf(Path stateDirectory, Role role, String sessionId, String turn, Entry prompt) {
+        try {
+            agents.prompted(stateDirectory, new AgentCapture.Hook(role, sessionId, turn, null, null), prompt.metadata().id());
+        } catch (RuntimeException e) {
+            // the entry stands; only its turn's link is missing
+        }
     }
 
     private Captured deliver(Path stateDirectory, Entry entry) {
