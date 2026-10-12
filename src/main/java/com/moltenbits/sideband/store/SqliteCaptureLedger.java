@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -29,14 +30,16 @@ class SqliteCaptureLedger implements CaptureLedger {
     private final Database database;
     private final CaptureCursorRows cursors;
     private final CapturedTurnRows turns;
+    private final CapturedMessageRows messages;
     private final SqliteJournal journal;
     private final SqliteSessions sessions;
 
-    SqliteCaptureLedger(Database database, CaptureCursorRows cursors, CapturedTurnRows turns, SqliteJournal journal,
-                        SqliteSessions sessions) {
+    SqliteCaptureLedger(Database database, CaptureCursorRows cursors, CapturedTurnRows turns, CapturedMessageRows messages,
+                        SqliteJournal journal, SqliteSessions sessions) {
         this.database = database;
         this.cursors = cursors;
         this.turns = turns;
+        this.messages = messages;
         this.journal = journal;
         this.sessions = sessions;
     }
@@ -47,9 +50,20 @@ class SqliteCaptureLedger implements CaptureLedger {
     }
 
     @Override
+    public Set<String> recorded(Path stateDirectory, Role client, String sessionId, Collection<String> messageIds) {
+        if (messageIds.isEmpty()) {
+            return Set.of();
+        }
+        return database.read(stateDirectory, Set.of(), () -> messages
+                .findByRoleAndSessionIdAndMessageIdInList(client.id(), sessionId, messageIds).stream()
+                .map(CapturedMessageRow::messageId)
+                .collect(Collectors.toUnmodifiableSet()));
+    }
+
+    @Override
     public Optional<List<Entry>> commit(Path stateDirectory, Role client, String sessionId, @Nullable HostProcess caller,
                                         State read, @Nullable ParticipantId author, List<Draft> drafts,
-                                        @Nullable Cursor cursor, Collection<Turn> changed) {
+                                        Collection<String> messageIds, @Nullable Cursor cursor, Collection<Turn> changed) {
         return database.write(stateDirectory, () -> {
             Optional<CaptureCursorRow> row = cursors.findByRoleAndSessionId(client.id(), sessionId);
             long version = row.map(CaptureCursorRow::version).orElse(0L);
@@ -60,6 +74,9 @@ class SqliteCaptureLedger implements CaptureLedger {
                 return Optional.empty();
             }
             List<Entry> entries = drafts.stream().map(journal::insert).toList();
+            for (String messageId : messageIds) {
+                messages.save(new CapturedMessageRow(null, client.id(), sessionId, messageId));
+            }
             CaptureCursorRow next = new CaptureCursorRow(row.map(CaptureCursorRow::id).orElse(null), client.id(), sessionId,
                     cursor == null ? null : cursor.transcript().toString(),
                     cursor == null ? null : cursor.position(),

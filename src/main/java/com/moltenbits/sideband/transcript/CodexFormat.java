@@ -15,7 +15,8 @@ import java.io.IOException;
  * {@code task_started} event naming the {@code turn_id} its hooks receive. What the model
  * said is a {@code response_item} message from the assistant, labelled {@code commentary}
  * when it goes on working and {@code final_answer} when the turn ends; the
- * {@code event_msg} copies of the same words are not read, so nothing is read twice.
+ * {@code event_msg} copies of the same words are not read, so nothing is read twice. Each
+ * message item has an {@code id}.
  */
 @Singleton
 class CodexFormat implements Format {
@@ -33,8 +34,8 @@ class CodexFormat implements Format {
     }
 
     @Serdeable(naming = SnakeCaseStrategy.class)
-    record Payload(@Nullable String type, @Nullable String role, @Nullable String phase, @Nullable String turnId,
-                   @Nullable JsonNode content) {
+    record Payload(@Nullable String type, @Nullable String id, @Nullable String role, @Nullable String phase,
+                   @Nullable String turnId, @Nullable JsonNode content) {
     }
 
     @Override
@@ -55,12 +56,12 @@ class CodexFormat implements Format {
             return Reading.NOTHING;
         }
         if ("event_msg".equals(line.type()) && "task_started".equals(payload.type())) {
-            return payload.turnId() == null ? Reading.NOTHING : new Reading(payload.turnId(), null, false);
+            return payload.turnId() == null ? Reading.NOTHING : Reading.turnStarted(payload.turnId());
         }
         if (!"response_item".equals(line.type()) || !"message".equals(payload.type()) || !"assistant".equals(payload.role())) {
             return Reading.NOTHING;
         }
         String said = Format.text(payload.content(), "output_text");
-        return said == null ? Reading.NOTHING : new Reading(null, said, FINAL_ANSWER.equals(payload.phase()));
+        return said == null ? Reading.NOTHING : new Reading(null, said, FINAL_ANSWER.equals(payload.phase()), payload.id());
     }
 }

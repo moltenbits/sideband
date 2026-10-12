@@ -48,7 +48,7 @@ class JsonLinesTranscripts implements Transcripts {
                     current = reading.turnStarted();
                 }
                 if (reading.said() != null) {
-                    messages.add(new Message(current, line.position(), reading.said(), reading.endsTurn()));
+                    messages.add(new Message(current, line.position(), reading.said(), reading.endsTurn(), reading.id()));
                 }
                 end = line.end();
             }

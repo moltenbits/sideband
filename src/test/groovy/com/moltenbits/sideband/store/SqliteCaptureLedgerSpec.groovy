@@ -54,12 +54,17 @@ class SqliteCaptureLedgerSpec extends Specification {
     void "a commit journals its drafts in order, keeps the cursor and turns, and advances the version"() {
         when:
         def entries = ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), Fixtures.CLAUDE,
-                [said("first"), said("second")], new Cursor(transcript, 120, "p-1"),
+                [said("first"), said("second")], ["u-1", "u-2"], new Cursor(transcript, 120, "p-1"),
                 [new Turn("p-1", "prompt-1", Mode.TRANSCRIPT, true)])
 
         then:
         entries.get()*.body() == ["first", "second"]
         journal.readAfter(dir, 0).entries()*.body() == ["first", "second"]
+
+        and: "the messages are kept as recorded, for this session only"
+        ledger.recorded(dir, Role.CLAUDE, "s1", ["u-1", "u-2", "u-3"]) == ["u-1", "u-2"] as Set
+        ledger.recorded(dir, Role.CLAUDE, "s2", ["u-1"]).isEmpty()
+        ledger.recorded(dir, Role.CLAUDE, "s1", []).isEmpty()
 
         and:
         State state = ledger.load(dir, Role.CLAUDE, "s1")
@@ -71,11 +76,11 @@ class SqliteCaptureLedgerSpec extends Specification {
 
     void "turns not named in a commit keep their receipts, and a named one is replaced"() {
         given:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], null,
+        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [], null,
                 [new Turn("p-1", "prompt-1", Mode.NONE, false), new Turn("p-2", "prompt-2", Mode.NONE, false)])
 
         when:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], null,
+        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [], null,
                 [new Turn("p-2", "prompt-2", Mode.PAYLOAD, true)])
 
         then:
@@ -89,11 +94,11 @@ class SqliteCaptureLedgerSpec extends Specification {
         State read = ledger.load(dir, Role.CLAUDE, "s1")
 
         when: "the first records a payload final without moving any cursor"
-        def first = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], null,
+        def first = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
                 [new Turn("p-1", null, Mode.PAYLOAD, true)])
 
         and: "the second decided the same from the same read"
-        def second = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], null,
+        def second = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
                 [new Turn("p-1", null, Mode.PAYLOAD, true)])
 
         then:
@@ -109,13 +114,14 @@ class SqliteCaptureLedgerSpec extends Specification {
 
         when: "another session takes the instance over between the read and the commit"
         sessions.join(dir, Fixtures.CLAUDE, "s2")
-        def entries = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("lost")],
+        def entries = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("lost")], ["u-lost"],
                 new Cursor(transcript, 10, "p-1"), [])
 
         then:
         entries.empty
         journal.end(dir) == 0
         ledger.load(dir, Role.CLAUDE, "s1").version() == 0
+        ledger.recorded(dir, Role.CLAUDE, "s1", ["u-lost"]).isEmpty()
     }
 
     void "a commit names the exact instance: another instance of the same client is not enough"() {
@@ -124,7 +130,7 @@ class SqliteCaptureLedgerSpec extends Specification {
         State read = ledger.load(dir, Role.CLAUDE, "s1")
 
         expect:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, read, fable, [said("as fable")], null, []).empty
+        ledger.commit(dir, Role.CLAUDE, "s1", null, read, fable, [said("as fable")], [], null, []).empty
         journal.end(dir) == 0
     }
 
@@ -138,7 +144,7 @@ class SqliteCaptureLedgerSpec extends Specification {
         def results = (1..8).collect { n ->
             pool.submit({
                 start.await()
-                ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")],
+                ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], ["u-done"],
                         new Cursor(transcript, 50, "p-1"), [new Turn("p-1", null, Mode.TRANSCRIPT, true)]).present
             } as Callable<Boolean>)
         }
@@ -153,7 +159,7 @@ class SqliteCaptureLedgerSpec extends Specification {
 
     void "sessions and clients keep separate state"() {
         when:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [],
+        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [],
                 new Cursor(transcript, 5, "p-1"), [])
 
         then:

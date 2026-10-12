@@ -14,9 +14,13 @@ interface Format {
     Role client();
 
     /** What a record means to the reader; null fields are absent. */
-    record Reading(@Nullable String turnStarted, @Nullable String said, boolean endsTurn) {
+    record Reading(@Nullable String turnStarted, @Nullable String said, boolean endsTurn, @Nullable String id) {
 
-        static final Reading NOTHING = new Reading(null, null, false);
+        static final Reading NOTHING = new Reading(null, null, false, null);
+
+        static Reading turnStarted(String turn) {
+            return new Reading(turn, null, false, null);
+        }
     }
 
     /** Reads one complete line; anything unrecognized, unparseable included, is {@link Reading#NOTHING}. */

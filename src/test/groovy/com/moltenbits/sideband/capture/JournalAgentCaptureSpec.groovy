@@ -58,14 +58,15 @@ class JournalAgentCaptureSpec extends Specification {
         toJson([type: "user", promptId: promptId, isSidechain: false, message: [role: "user", content: text]]) + "\n"
     }
 
-    String text(String said, String stopReason) {
-        toJson([type: "assistant", isSidechain: false, message: [model: "claude-opus-5-5", role: "assistant",
+    /** Each record has the uuid the host gave it; a file the host rewrites keeps them, so a test that rewrites one names them. */
+    String text(String said, String stopReason, String uuid) {
+        toJson([type: "assistant", uuid: uuid, isSidechain: false, message: [model: "claude-opus-5-5", role: "assistant",
                 stop_reason: stopReason, content: [[type: "text", text: said]]]]) + "\n"
     }
 
-    String commentary(String said) { text(said, "tool_use") }
+    String commentary(String said, String uuid = UUID.randomUUID().toString()) { text(said, "tool_use", uuid) }
 
-    String answer(String said) { text(said, "end_turn") }
+    String answer(String said, String uuid = UUID.randomUUID().toString()) { text(said, "end_turn", uuid) }
 
     String tool(String promptId) {
         toJson([type: "assistant", isSidechain: false, message: [model: "claude-opus-5-5", stop_reason: "tool_use",
@@ -80,7 +81,7 @@ class JournalAgentCaptureSpec extends Specification {
     }
 
     String codexSaid(String said, String phase) {
-        toJson([type: "response_item", payload: [type: "message", role: "assistant", phase: phase,
+        toJson([type: "response_item", payload: [type: "message", id: "msg_" + UUID.randomUUID(), role: "assistant", phase: phase,
                 content: [[type: "output_text", text: said]]]]) + "\n"
     }
 
@@ -322,10 +323,10 @@ class JournalAgentCaptureSpec extends Specification {
         and: "the commit itself refuses a session that holds no record, even for the unnamed instance"
         def state = ledger.load(nobody, Role.CLAUDE, "never-joined")
         ledger.commit(nobody, Role.CLAUDE, "never-joined", null, state, Fixtures.CLAUDE,
-                [com.moltenbits.sideband.protocol.Draft.capturedTurn(Fixtures.CLAUDE, null, "forced")], null, []).empty
+                [com.moltenbits.sideband.protocol.Draft.capturedTurn(Fixtures.CLAUDE, null, "forced")], [], null, []).empty
     }
 
-    void "a Stop replayed from the transcript a session used before records nothing and leaves the cursor where it is"() {
+    void "a Stop replayed from the transcript a session used before records nothing again"() {
         given: "p-1 is captured from one file, then the session's transcript is another, and p-2 is captured from it"
         operatorPrompts(claudeHook("p-1"), "prompt-1")
         write(claude, prompt("p-1"), answer("First file."))
@@ -333,11 +334,9 @@ class JournalAgentCaptureSpec extends Specification {
         Path other = dir.resolve("other.jsonl")
         write(other, prompt("p-2"), answer("Second file."))
         capture.turnEnded(dir, claudeHook("p-2", other), "Second file.")
-        def cursor = ledger.load(dir, Role.CLAUDE, "s1").cursor()
 
         expect: "replaying the old file's Stop, then the new one's"
         capture.turnEnded(dir, claudeHook("p-1"), "First file.").isEmpty()
-        ledger.load(dir, Role.CLAUDE, "s1").cursor() == cursor
         capture.turnEnded(dir, claudeHook("p-2", other), "Second file.").isEmpty()
         captured()*.body() == ["First file.", "Second file."]
 
@@ -351,15 +350,43 @@ class JournalAgentCaptureSpec extends Specification {
     void "a Stop for a turn already recorded, replayed after its file was cut short, records nothing again"() {
         given:
         operatorPrompts(claudeHook("p-1"), "prompt-1")
-        write(claude, prompt("p-1"), commentary("A long preamble before the answer."), tool("p-1"), answer("Answered."))
+        write(claude, prompt("p-1"), commentary("A long preamble before the answer."), tool("p-1"), answer("Answered.", "u-answer"))
         capture.turnEnded(dir, claudeHook("p-1"), "Answered.")
 
-        when: "the file is rewritten shorter, still holding the turn"
-        Files.writeString(claude, prompt("p-1") + answer("Answered."))
+        when: "the file is rewritten shorter, still holding the turn's final under the same identity"
+        Files.writeString(claude, prompt("p-1") + answer("Answered.", "u-answer"))
 
         then:
         capture.turnEnded(dir, claudeHook("p-1"), "Answered.").isEmpty()
         captured()*.body() == ["A long preamble before the answer.\n\nAnswered."]
+    }
+
+    void "a new transcript for a partly recorded turn still gives up the turn's unread final"() {
+        given:
+        operatorPrompts(claudeHook("p-1"), "prompt-1")
+        write(claude, prompt("p-1"), commentary("Starting.", "u-start"))
+        capture.flush(dir, claudeHook("p-1"))
+        Path nextFile = dir.resolve("continued.jsonl")
+        write(nextFile, prompt("p-1"), commentary("Starting.", "u-start"), answer("Finished."))
+
+        expect: "the message already recorded is recognized by its identity, and the new one is recorded"
+        capture.turnEnded(dir, claudeHook("p-1", nextFile), "Finished.")*.body() == ["Finished."]
+        captured()*.body() == ["Starting.", "Finished."]
+    }
+
+    void "a stale Stop cannot skip a new turn in a file that was cut short"() {
+        given:
+        operatorPrompts(claudeHook("p-1"), "prompt-1")
+        write(claude, prompt("p-1"), commentary("A long preamble." * 30), answer("First."))
+        capture.turnEnded(dir, claudeHook("p-1"), "First.")
+        Files.writeString(claude, prompt("p-2") + answer("Second."))
+
+        when:
+        capture.turnEnded(dir, claudeHook("p-1"), "First.")
+        capture.turnEnded(dir, claudeHook("p-2"), "Second.")
+
+        then:
+        captured()*.body() == ["A long preamble." * 30 + "\n\nFirst.", "Second."]
     }
 
     void "a capture with no cursor starts at its own turn's start, leaving earlier history out"() {

@@ -42,6 +42,9 @@ class TranscriptsSpec extends Specification {
         and: "the turn's final message is the one the host marks as ending it"
         excerpt.messages()*.endsTurn() == [false, true, true]
 
+        and: "each keeps the identity the host gave its record"
+        excerpt.messages()*.id() == ["a2", "a6", "a7"]
+
         and: "everything was consumed, and the reader ends inside the last turn"
         excerpt.end() == Files.size(file)
         excerpt.turn() == "p-2"
@@ -58,6 +61,7 @@ class TranscriptsSpec extends Specification {
         excerpt.messages()*.text() == ["I'll list the directory first.", "Only `.git` is here.", "Claude's review is clean."]
         excerpt.messages()*.turn() == ["turn-1", "turn-1", "turn-2"]
         excerpt.messages()*.endsTurn() == [false, true, true]
+        excerpt.messages()*.id() == ["msg_c1", "msg_f1", "msg_f2"]
         excerpt.turn() == "turn-2"
     }
 

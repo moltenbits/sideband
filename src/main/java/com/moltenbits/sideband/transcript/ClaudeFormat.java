@@ -17,7 +17,8 @@ import java.util.Set;
  * {@code promptId}, the {@code prompt_id} its hooks receive; assistant records do not.
  * Each assistant content block is its own record, and the block that ends the turn is the
  * one whose message stopped for any reason but to use a tool. Subagents' records are
- * marked as sidechains, and the host's own notices as a synthetic model.
+ * marked as sidechains, and the host's own notices as a synthetic model. Every record has a
+ * {@code uuid}.
  */
 @Singleton
 class ClaudeFormat implements Format {
@@ -32,7 +33,7 @@ class ClaudeFormat implements Format {
     }
 
     @Serdeable
-    record Line(@Nullable String type, @Nullable String promptId, @Nullable Boolean isSidechain,
+    record Line(@Nullable String type, @Nullable String uuid, @Nullable String promptId, @Nullable Boolean isSidechain,
                 @Nullable Boolean isApiErrorMessage, @Nullable Body message) {
     }
 
@@ -57,7 +58,7 @@ class ClaudeFormat implements Format {
             return Reading.NOTHING;
         }
         if ("user".equals(line.type())) {
-            return line.promptId() == null ? Reading.NOTHING : new Reading(line.promptId(), null, false);
+            return line.promptId() == null ? Reading.NOTHING : Reading.turnStarted(line.promptId());
         }
         Body body = line.message();
         if (!"assistant".equals(line.type()) || body == null || Boolean.TRUE.equals(line.isApiErrorMessage())
@@ -68,6 +69,6 @@ class ClaudeFormat implements Format {
         if (said == null) {
             return Reading.NOTHING;
         }
-        return new Reading(null, said, body.stopReason() != null && !CONTINUING.contains(body.stopReason()));
+        return new Reading(null, said, body.stopReason() != null && !CONTINUING.contains(body.stopReason()), line.uuid());
     }
 }

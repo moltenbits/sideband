@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * What the hooks have recorded of one client session's own words, kept as one versioned
@@ -67,14 +68,17 @@ public interface CaptureLedger {
 
     State load(Path stateDirectory, Role client, String sessionId);
 
+    /** Which of {@code messageIds}, the identities transcript records carry, were recorded for the session. */
+    Set<String> recorded(Path stateDirectory, Role client, String sessionId, Collection<String> messageIds);
+
     /**
      * Commits a decision made from {@code read}, in one transaction and only if the session's
-     * state is still at {@code read.version()} and, when {@code author} is given, the session
-     * is still that instance by the commands' rule: the drafts are journaled in order, the
-     * cursor replaced, the given turns written, and the version advanced. Empty, with nothing
-     * written, when either check fails.
+     * state is still at {@code read.version()} and, when {@code author} is given, a record
+     * names the session as that instance: the drafts are journaled in order, the messages
+     * they hold kept as recorded by {@code messageIds}, the cursor replaced, the given turns
+     * written, and the version advanced. Empty, with nothing written, when either check fails.
      */
     Optional<List<Entry>> commit(Path stateDirectory, Role client, String sessionId, @Nullable HostProcess caller,
                                  State read, @Nullable ParticipantId author, List<Draft> drafts,
-                                 @Nullable Cursor cursor, Collection<Turn> turns);
+                                 Collection<String> messageIds, @Nullable Cursor cursor, Collection<Turn> turns);
 }
