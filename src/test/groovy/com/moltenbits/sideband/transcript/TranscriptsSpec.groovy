@@ -116,6 +116,43 @@ class TranscriptsSpec extends Specification {
         finished.end() == Files.size(file)
     }
 
+    void "offsets count bytes, so a read resumes exactly after multibyte text"() {
+        given:
+        Path file = dir.resolve("multibyte.jsonl")
+        String first = '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Résumé → naïve 日本語 ✓"}]}}\n'
+        String second = '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done."}]}}\n'
+        Files.writeString(file, first)
+
+        when:
+        Excerpt before = transcripts.read(Role.CODEX, file, 0, "turn-1")
+
+        then:
+        before.messages()*.text() == ["Résumé → naïve 日本語 ✓"]
+        before.end() == first.getBytes("UTF-8").length
+
+        when:
+        Files.writeString(file, first + second)
+        Excerpt after = transcripts.read(Role.CODEX, file, before.end(), before.turn())
+
+        then:
+        after.messages()*.text() == ["Done."]
+        after.messages()[0].position() == before.end()
+    }
+
+    void "a complete record without its newline is still being written, so it is not read"() {
+        given:
+        Path file = dir.resolve("unterminated.jsonl")
+        Files.writeString(file, '{"type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Done."}]}}')
+
+        when:
+        Excerpt excerpt = transcripts.read(Role.CODEX, file, 0, "turn-1")
+
+        then:
+        excerpt.messages().isEmpty()
+        excerpt.end() == 0
+        transcripts.end(file) == 0
+    }
+
     void "nothing after the offset reads as nothing, at the same offset"() {
         given:
         Path file = fixture("claude-code-2.1.296.jsonl")
