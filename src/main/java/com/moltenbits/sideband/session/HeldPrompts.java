@@ -38,13 +38,19 @@ public interface HeldPrompts {
     /** The prompt the session holds for its role; nothing is changed. */
     Optional<String> held(Path stateDirectory, Role role, String sessionId);
 
-    /** The turn the held prompt started, when the host named one; nothing is changed. */
-    Optional<String> turn(Path stateDirectory, Role role, String sessionId);
+
+    /**
+     * A held prompt journaled by its adoption.
+     *
+     * @param turn the turn that prompt started, from the same hold: never another prompt's
+     */
+    record Adopted(Entry entry, @Nullable String turn) {
+    }
 
     /**
      * Removes the session's hold and journals the entry {@code draft} makes of it, both in
      * one transaction: a failure leaves the hold in place for the next join, and success
      * leaves exactly one entry. Other sessions' holds are left alone.
      */
-    Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft);
+    Optional<Adopted> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft);
 }

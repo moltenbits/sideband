@@ -11,6 +11,8 @@ import com.moltenbits.sideband.routing.Routing;
 import com.moltenbits.sideband.session.HeldPrompts;
 import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -18,6 +20,8 @@ import java.util.Set;
 
 @Singleton
 class JournalHumanCapture implements HumanCapture {
+
+    private static final Logger LOG = LoggerFactory.getLogger(JournalHumanCapture.class);
 
     private final Journal journal;
     private final Routing routing;
@@ -57,32 +61,31 @@ class JournalHumanCapture implements HumanCapture {
     @Override
     public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, String sessionId) {
         Role role = via.role().orElseThrow();
-        Optional<Entry> entry;
-        Optional<String> turn;
+        Optional<HeldPrompts.Adopted> adopted;
         try {
             Set<ParticipantId> joined = sessions.all(stateDirectory).keySet();
-            turn = held.turn(stateDirectory, role, sessionId);
-            entry = held.adopt(stateDirectory, role, sessionId,
+            adopted = held.adopt(stateDirectory, role, sessionId,
                     prompt -> Draft.humanRequest(via, routing.resolve(prompt, via, joined).to(), prompt));
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }
-        entry.ifPresent(e -> turn.ifPresent(t -> causeOf(stateDirectory, role, sessionId, t, e)));
-        return entry.map(e -> deliver(stateDirectory, e));
+        adopted.filter(a -> a.turn() != null).ifPresent(a -> causeOf(stateDirectory, role, sessionId, a.turn(), a.entry()));
+        return adopted.map(a -> deliver(stateDirectory, a.entry()));
     }
 
     /**
      * Makes the adopted prompt the cause of the agent's words in the turn it started, as the
      * prompt hook does for a prompt it records. The prompt is recorded either way; if this
-     * fails, that turn's words are recorded naming no cause, which is no reason to fail the join.
+     * fails, that turn's words are recorded naming no cause, which is reported on stderr but
+     * is no reason to fail the join.
      */
     private void causeOf(Path stateDirectory, Role role, String sessionId, String turn, Entry prompt) {
         try {
             agents.prompted(stateDirectory, new AgentCapture.Hook(role, sessionId, turn, null, null), prompt.metadata().id());
         } catch (RuntimeException e) {
-            // the entry stands; only its turn's link is missing
+            LOG.warn("could not link adopted prompt {} to its turn {}: {}", prompt.metadata().id(), turn, e.getMessage());
         }
     }
 

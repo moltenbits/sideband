@@ -210,7 +210,7 @@ class SessionCommandsSpec extends CommandSpec {
         HumanCapture failing = new HumanCapture() {
             Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
             Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
-                Entry entry = held.adopt(dir, via.role().get(), sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get()
+                Entry entry = held.adopt(dir, via.role().get(), sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get().entry()
                 throw CaptureFailedException.afterAppend(entry, new IOException("codex queue unreachable"))
             }
         }

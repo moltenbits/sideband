@@ -40,43 +40,32 @@ class SqliteHeldPromptsSpec extends Specification {
         held.hold(dir, Role.CLAUDE, "s1", "review this")
 
         when:
-        Optional<Entry> adopted = held.adopt(dir, Role.CLAUDE, "s1", toClaude)
+        Optional<HeldPrompts.Adopted> adopted = held.adopt(dir, Role.CLAUDE, "s1", toClaude)
 
         then:
-        adopted.get().body() == "review this"
-        adopted.get().seq() == 1
+        adopted.get().entry().body() == "review this"
+        adopted.get().entry().seq() == 1
         journal.end(dir) == 1
         held.held(dir, Role.CLAUDE, "s1").isEmpty()
         held.adopt(dir, Role.CLAUDE, "s1", toClaude).isEmpty()
     }
 
-    void "a hold keeps the turn the prompt was typed in, until a later hold replaces it or the join adopts it"() {
-        when:
+    void "adoption hands back the turn of the very hold it consumed"() {
+        when: "a later hold replaces an earlier one"
         held.hold(dir, Role.CLAUDE, "s1", "first", "p-1")
-
-        then:
-        held.turn(dir, Role.CLAUDE, "s1") == Optional.of("p-1")
-
-        when:
         held.hold(dir, Role.CLAUDE, "s1", "second", "p-2")
+        held.hold(dir, Role.CLAUDE, "s2", "other session", "q-1")
+        HeldPrompts.Adopted adopted = held.adopt(dir, Role.CLAUDE, "s1", toClaude).get()
 
         then:
-        held.turn(dir, Role.CLAUDE, "s1") == Optional.of("p-2")
-        held.turn(dir, Role.CLAUDE, "s2").isEmpty()
+        adopted.entry().body() == "second"
+        adopted.turn() == "p-2"
 
         when: "a host that names no turn"
         held.hold(dir, Role.CLAUDE, "s1", "third")
 
         then:
-        held.turn(dir, Role.CLAUDE, "s1").isEmpty()
-        held.held(dir, Role.CLAUDE, "s1") == Optional.of("third")
-
-        when:
-        held.hold(dir, Role.CLAUDE, "s1", "fourth", "p-4")
-        held.adopt(dir, Role.CLAUDE, "s1", toClaude)
-
-        then:
-        held.turn(dir, Role.CLAUDE, "s1").isEmpty()
+        held.adopt(dir, Role.CLAUDE, "s1", toClaude).get().turn() == null
     }
 
     void "a failure while journaling keeps the hold, so a retried join can adopt it"() {
@@ -101,10 +90,10 @@ class SqliteHeldPromptsSpec extends Specification {
         held.held(dir, Role.CLAUDE, "s1") == Optional.of("from s1")
 
         when: "s2 joins"
-        Optional<Entry> adopted = held.adopt(dir, Role.CLAUDE, "s2", toClaude)
+        Optional<HeldPrompts.Adopted> adopted = held.adopt(dir, Role.CLAUDE, "s2", toClaude)
 
         then: "only its own prompt is journaled, and s1's hold waits for s1's join"
-        adopted.get().body() == "from s2"
+        adopted.get().entry().body() == "from s2"
         journal.end(dir) == 1
         held.held(dir, Role.CLAUDE, "s1") == Optional.of("from s1")
 

@@ -1,6 +1,5 @@
 package com.moltenbits.sideband.store;
 
-import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.HeldPrompts;
@@ -49,16 +48,11 @@ class SqliteHeldPrompts implements HeldPrompts {
     }
 
     @Override
-    public Optional<String> turn(Path stateDirectory, Role role, String sessionId) {
-        return database.read(stateDirectory, Optional.empty(), () -> find(role, sessionId).map(HeldPromptRow::turnId));
-    }
-
-    @Override
-    public Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft) {
+    public Optional<Adopted> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft) {
         return database.write(stateDirectory, () -> {
             Optional<HeldPromptRow> held = find(role, sessionId);
             held.ifPresent(rows::delete);
-            return held.map(row -> journal.insert(draft.apply(row.prompt())));
+            return held.map(row -> new Adopted(journal.insert(draft.apply(row.prompt())), row.turnId()));
         });
     }
 
