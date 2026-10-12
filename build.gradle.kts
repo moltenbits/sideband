@@ -3,8 +3,15 @@ plugins {
     id("io.micronaut.application") version "5.0.2"
 }
 
-// The release workflow passes the tag as -Pversion; a build without one carries a marker instead.
-version = providers.gradleProperty("version").getOrElse("0.0.0-dev")
+// The release workflow passes the tag as -Pversion. A build without one is work built on the latest
+// release, so it carries that release's version marked -dev: 1.1.1-dev after v1.1.1. Version ordering
+// (`sort -V`) ranks it after 1.1.1 and before the next release; with no release tag it is 0.0.0-dev.
+version = providers.gradleProperty("version").orElse(
+    providers.exec {
+        commandLine("git", "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*")
+        isIgnoreExitValue = true
+    }.standardOutput.asText.map { tag -> tag.trim().removePrefix("v").ifEmpty { "0.0.0" } + "-dev" }
+).get()
 group = "com.moltenbits"
 
 repositories {
