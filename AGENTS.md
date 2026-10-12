@@ -94,6 +94,36 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   `SessionStart` sources (`startup`, `resume`, `clear`, `compact`, `fork`)
   were verified. Record the version checked in REQUIREMENTS.md section 17.
 
+## Transcripts (Claude Code 2.1.296, Codex 0.162.1, measured 2026-10-12)
+
+The capture hook reads each host's own transcript, the path its hook payloads
+name in `transcript_path`. Neither format is documented; REQUIREMENTS.md 7.5
+lists exactly what is read.
+
+- **Claude Code writes a turn's final message after its `Stop` hook starts.**
+  A `Stop` hook that copied the transcript at once found the final message
+  missing in 3 of 3 multi-tool turns; one that polled every 100 ms found it
+  after one or two polls. Everything said before a tool call was already
+  there, since it precedes the tool call's own record. The capture therefore
+  waits up to two seconds at `Stop`. `last_assistant_message` in the payload
+  is the same text, but the capture uses it only when the transcript cannot
+  be read.
+- **Codex had written everything by `Stop`**, final answer included, before
+  `task_complete`, in 3 of 3 runs.
+- **Both hosts mark the final message and identify every record.** Claude
+  Code: `stop_reason` other than `tool_use` on the final record, `uuid` on
+  every record, `promptId` on every record of a turn but the assistant's.
+  Codex: `phase` `final_answer` versus `commentary`, `id` on each message
+  item, `turn_id` on `task_started`. The hook payloads carry the same turn
+  identity: Claude Code's `prompt_id` on `UserPromptSubmit` and `Stop`,
+  Codex's `turn_id` on `UserPromptSubmit`, `Stop` and `Interrupt`.
+- **Probing a host's hooks headless.** `claude -p ... --settings <file>` runs
+  hooks from that file. For `codex exec`, a project `.codex/hooks.json` in a
+  scratch directory did not load even with the project trusted through `-c`,
+  but `-c 'hooks.Stop=[{hooks=[{type="command",command="..."}]}]'` did, with
+  `--dangerously-bypass-hook-trust` for a hook you wrote yourself. Codex's
+  question tool, `request_user_input`, is not available in `exec`.
+
 ## Build
 
 - **Changing the SQLite journal mode per connection fails under contention**

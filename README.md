@@ -24,6 +24,7 @@ native image, and everything a client runs is a subcommand of it.
   - [3.1 The journal](#31-the-journal)
   - [3.2 Claude Code](#32-claude-code)
   - [3.3 Codex](#33-codex)
+  - [3.4 What the hooks record](#34-what-the-hooks-record)
 - [4. Development](#4-development)
 - [5. License](#5-license)
 
@@ -116,9 +117,10 @@ you type meanwhile changes nothing; when Codex's reply wakes Claude and
 Claude's turn then ends with nothing open, it rings once, and clicking the
 notification lands in Claude's terminal. An agent's request is closed by an
 answer or by that agent's next request to the same client, so an abandoned
-one never holds a notification back. A client whose latest word went to you
-alone, a question or a result in its own terminal, rings whichever client
-you typed into. Permission prompts always ring, the idle reminder that
+one never holds a notification back. What an agent says to you in its own
+terminal is recorded for every turn (section 3.4), so it is not a reason to
+ring: an agent that stops to ask you something while the other client's work
+is still open does not ring for it yet (#27). Permission prompts always ring, the idle reminder that
 repeats a turn end never does, and on the dismiss hook a delivered envelope
 never clears a notification you have not seen.
 
@@ -168,8 +170,10 @@ takes the writer. Agree the interface first, then review each other's
 commits as you both work along and tell me when it is done.
 ```
 
-Everything you type on either side keeps being journaled, so a later prompt
-can redirect either agent, or `@all` can speak to both at once.
+Everything you type on either side keeps being journaled, and so does
+everything each agent says back to you, so a later prompt can redirect
+either agent, `@all` can speak to both at once, and either agent can read in
+`sideband log` what you discussed with the other.
 
 ### 2.4 Several sessions of one client
 
@@ -215,7 +219,10 @@ be, and `$sideband` or `$sideband as <name>` settles it.
   any model tokens spent waiting. Each client is reached the way its host
   allows, described in 3.2 and 3.3.
 - **The human is a participant, not a transport.** Every prompt typed into
-  either client is journaled verbatim and attributed to the human. Normally
+  either client is journaled verbatim and attributed to the human, and what
+  each agent says back to the human in its own terminal is journaled by the
+  client's hooks (3.4), so the journal holds the whole discussion without
+  any agent having to record it. Normally
   each agent is spoken to in its own session; `@codex` at the start of a
   prompt typed into Claude Code routes it to Codex anyway, `@claude` does the
   reverse, `@claude:fable` reaches a named session (2.4), and `@all`
@@ -260,7 +267,9 @@ after it is live. A state directory from before the database still holds
 ### 3.2 Claude Code
 
 `init` installs the skill under `~/.claude/skills/sideband` and registers
-both hooks in the repository's `.claude/settings.local.json`. The hooks keep each
+the hooks in the repository's `.claude/settings.local.json`: the prompt hook,
+the session-start hook, and the capture hook on `Stop` and `SessionEnd`
+(3.4). The hooks keep each
 instance's record on the conversation you are in, and the writer reaches that
 conversation through the registry Claude Code keeps: Claude Code registers
 every session in `~/.claude/sessions/<pid>.json` with its working directory
@@ -309,7 +318,9 @@ changing them takes effect the next time `/sideband` runs.
 ### 3.3 Codex
 
 `init` installs the skill under `~/.agents/skills/sideband` and registers
-both hooks in the repository's `.codex/hooks.json`. Codex runs a hook only
+the hooks in the repository's `.codex/hooks.json`: the prompt hook, the
+session-start hook, and the capture hook on `Stop`, `SessionEnd`, and
+`Interrupt` (3.4). Codex runs a hook only
 once you have trusted it through `/hooks` (section 1.3), and again whenever
 `init` adds or changes a definition: Codex binds trust to each definition's
 hash and skips an untrusted definition, while an unchanged, already trusted
@@ -339,6 +350,35 @@ A queued envelope waits for the turn Codex is running to end, so a review
 that lands mid-implementation surfaces when that turn finishes. `pending`
 inside the turn shows it sooner, and then marks it `pushed_at`, so the
 envelope that follows is recognized as the same entry rather than a new one.
+
+### 3.4 What the hooks record
+
+The journal holds the discussion as it appeared in each terminal, and the
+hooks write all of it, so no agent has to remember to:
+
+- **What you type**, recorded by the prompt hook before the model sees it.
+  Slash commands, `!` shell commands, and a subagent's prompts are not
+  your words and are left out.
+- **What each agent says to you**, recorded by the capture hook from the
+  client's own transcript: the final answer of every turn and anything it
+  says before going on to do more work, one entry per turn, linked to the
+  prompt that started the turn. Reasoning, tool calls, and tool output are
+  left out. In `sideband log` such an entry is headed `Claude → Operator`.
+
+The capture hook runs when a turn ends, before your next prompt is recorded
+(so a turn you interrupted lands before the prompt that followed it), when
+Codex is interrupted, and when the session ends. It reads the transcript from
+where it last stopped, so a message is recorded once however often the hook
+fires. Only a session that has joined is recorded, from the turn it joined
+in; what was said before that stays out.
+
+Both transcript formats are undocumented, and what is read from them was
+measured on Claude Code 2.1.296 and Codex 0.162.1. When a turn ends and its
+transcript cannot be read, the hook records the final answer the host hands
+it instead, and nothing more of that turn. A Claude Code turn you interrupt
+is recorded only by the next capture in that session, so one whose process is
+killed before then is lost. An agent asking you a question no longer makes
+the notifier ring for it (section 1.4); see #27.
 
 ## 4. Development
 

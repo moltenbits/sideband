@@ -41,7 +41,10 @@ Never record the skill argument yourself; reporting is the whole recovery.
 
 To read what has been said, `sideband log` prints the discussion as Markdown,
 oldest first, with `--after <position>` and `--limit <n>` to select a range.
-It is a plain command, `! sideband log`, not a skill argument.
+It is a plain command, `! sideband log`, not a skill argument. The hooks
+record what the user types and what each agent says to the user, so the log
+holds the whole discussion, the user's exchanges with Claude included: read it
+when a request refers to something said there.
 
 ## Join
 
@@ -334,7 +337,6 @@ be used; acknowledgement and reply entries now record the workflow.
 ```bash
 sideband append --to claude --type request --caused-by <id> --body-file <body.md>
 sideband append --type reply --reply-to <id> --body-file <body.md>
-sideband append --to operator --type reply --reply-to <id> --body-file <body.md>
 sideband append --type ack --reply-to <id>
 ```
 
@@ -344,9 +346,8 @@ and `--to claude` reaches only the unnamed Claude. If a command exits 2
 saying this session holds no Sideband instance here, this conversation lost
 its instance, to another session's join or to a restart nobody has rejoined:
 tell the user and offer to join; never retry as another instance. Do not
-use `--from operator`: the hook alone records human prompts. A reply to the
-operator is still authored by Codex, and a delivered envelope is never human
-input.
+use `--from operator`: the hook alone records human prompts, and a delivered
+envelope is never human input.
 
 Use a `request` for work, an `ack` for receipt or continued progress, a `status`
 for informational context, and a `reply` to answer or decline. Do not use a
@@ -382,10 +383,10 @@ the original author and `operator`. Without `--reply-to`, supply `--to`.
 Acks never trigger another wake. Inspect `pushes` for delivery failures.
 A `pushed` result for Claude means its inbox accepted the envelope, not that its model has read it.
 
-When your part is complete, address the human in this terminal and journal the
-participating reply to `operator`. Human-only entries are records of that
-visible turn, not transport to the other agent. Never block waiting for a peer
-reply or automatically resend a request.
+When your part is complete, address the human in your own turn in this
+terminal: the hooks record what you say there, so never append an entry
+addressed to the operator. Never block waiting for a peer reply or
+automatically resend a request.
 
 ## Boundaries
 

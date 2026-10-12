@@ -48,7 +48,10 @@ described below.
 
 To read what has been said, `sideband log` prints the discussion as Markdown,
 oldest first, with `--after <position>` and `--limit <n>` to select a range.
-It is a plain command, `! sideband log`, not a skill argument.
+It is a plain command, `! sideband log`, not a skill argument. The hooks
+record what the user types and what each agent says to the user, so the log
+holds the whole discussion, the user's exchanges with Codex included: read it
+when a request refers to something said there.
 
 ## Activate
 
@@ -334,5 +337,5 @@ joined (`pushed`), otherwise it waits in the journal until Codex next joins
 session's inbox socket. A `pushed` result means the host accepted the
 envelope, not that its model has read it; the recipient's ack is that
 evidence. An ack is never pushed. When your part is done, address the human,
-not Codex; a reply to the human is your own turn in this terminal, and the
-entry keeps the journal complete.
+not Codex, in your own turn in this terminal: the hooks record what you say
+there, so never append an entry addressed to the operator.

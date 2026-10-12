@@ -187,7 +187,11 @@ Every entry must include:
 The following fields are conditional:
 
 - `via`: required for human-authored messages and identifies the client
-  instance where the human entered the message; it is never `operator`.
+  instance where the human entered the message; it is never `operator`. A
+  captured turn (7.5) names its own author here: what the agent said in its
+  own terminal, recorded by that client's hooks. An agent entry may carry a
+  `via` naming itself for other reasons, so a captured turn is recognized by
+  its whole shape (7.5), never by `via` alone.
 - `reply_to`: identifies the immediate message to which this is a direct
   response, or the earlier peer message that a human-directed follow-up
   updates (section 9.7).
@@ -261,7 +265,13 @@ prompt the operator typed comes from the conversation the operator is
 looking at, so when the instance it belongs to is recorded at another
 session identifier, the hook moves that instance's address there and keeps
 everything else (9.5). A delivered envelope or a host notice says nothing
-about where the operator is and never moves anything. A
+about where the operator is and never moves anything. A prompt whose payload
+names a subagent (`agent_id`, which Codex 0.162.1's `UserPromptSubmit` may
+carry) comes from the parent agent, not the operator, and is neither
+recorded nor held. Before it records a prompt, the hook records what the
+agent said in the session since the last capture (7.5), so a turn the
+operator interrupted lands before the prompt that followed it; a failure
+there goes to stderr and never keeps the prompt from being recorded. A
 hook that cannot tell its client skips capture with a diagnostic. It then
 reads the payload, journals the prompt as a request from the human through
 that client, and answers in that client's response format. `sideband init` writes each registration, so
@@ -407,9 +417,12 @@ conversation. It must not record:
 - Routine tool calls or raw tool output.
 - Permission internals or authentication material.
 
-Text entered directly by the human is eligible for verbatim recording. Binary
-attachments and audit-grade byte-for-byte prompt capture are outside the
-version-one scope.
+Text entered directly by the human is eligible for verbatim recording, and so
+is what an agent says to the human in its own terminal: the text of its turns,
+the final answer and what it says before going on to do more work, read from
+its client's transcript without its reasoning, tool calls, or tool output
+(7.5). Binary attachments and audit-grade byte-for-byte prompt capture are
+outside the version-one scope.
 
 ### 7.4 Inbound message identity
 
@@ -464,17 +477,46 @@ to the inbox socket, whose frames carry the whole envelope.
 
 ### 7.5 Agent-to-human messages
 
-An agent addresses the human by placing `operator` in `to`. An agent may do this to request input, return a result, or report that
-its part of a workflow is complete.
+An agent speaks to the human in its own terminal, as it would without
+Sideband, and its client's hooks record what it said; the agent does not
+append anything to the operator. Each record is a captured turn: a `status`
+from the instance to `operator` alone, with `via` naming the instance itself,
+`expects_reply` false, and `caused_by` naming the prompt that started the turn
+when one did. That whole shape identifies a captured turn. It closes no
+request, since only a `reply` does (9.6), and it is never pushed: a client not
+named in `to` must not inject a human-only entry into its conversation merely
+because it can read the journal. It exists so the journal holds the whole
+discussion: `sideband log` shows either agent what the human discussed with
+the other.
 
-Delivery to the human is satisfied by the authoring client's visible turn; no
-listener forwards the entry. The agent addressing the human stops and puts the
-question or result to the human in its own terminal, as it would without
-Sideband; the entry exists so the journal stays a coherent record of the whole
-exchange, not as a transport. A client not named in `to` must not inject a
-human-only entry into its conversation merely because it can read the journal.
-The human may later answer from either client, which records that client in
-`via` and links the answer to the agent entry with `reply_to`.
+`sideband hook capture` is registered on both clients' `Stop` and
+`SessionEnd`, and on Codex's `Interrupt`; the prompt hook runs the same
+capture before it records a prompt (7.1). Each capture reads the session's
+transcript from where the last one stopped and records every message found
+there once, in transcript order, one entry per turn. Section 14.16a states the
+contract: how a session with no capture yet begins, the brief wait for a final
+message at a turn's end, the host's copy of the final when the transcript
+cannot be read, and what is lost when.
+
+The transcripts are each host's own JSON-lines files, undocumented, so what
+is read was measured (2026-10-12) and is kept to what was measured. Claude
+Code 2.1.296: a turn's records carry the `promptId` its hooks receive as
+`prompt_id`; each assistant content block is its own record, a `text` block
+is a message, and the one that ends the turn is the record whose message
+stopped for any reason but to use a tool; subagent records are marked as
+sidechains; each record has a `uuid`. Codex 0.162.1: a turn begins with a
+`task_started` event carrying the `turn_id` its hooks receive; a message is
+a `response_item` from the assistant, labelled `commentary` when the model
+goes on working and `final_answer` when the turn ends, with an `id`; its
+`event_msg` copies are not read. Probes with a hook that copied the
+transcript the moment `Stop` ran found Codex's final answer already written,
+and Claude Code's final message written after the hook began, within 200 ms.
+
+An agent that needs the human's decision asks in its own terminal. That
+question is captured like any other words of its turn, and is no longer an
+explicit entry to the operator; section 10.7 says what that costs the
+notifier, and moltenbits/sideband#27 tracks recording questions asked through
+each client's question tool.
 
 ## 8. Routing
 
@@ -1200,7 +1242,19 @@ operator counts only while nothing has since arrived for its author, and the
 operator's client is done only when the last thing to reach it was a reply
 that closed a request still open for that replier, or nothing at all, so a
 wake that brings context and draws no new word never rings again for what
-already did. Acknowledgements are receipts and count as a word to nobody.
+already did. Acknowledgements are receipts and count as a word to nobody, and
+neither do captured turns (7.5): every turn of every client is recorded for
+the operator to read, so a captured turn says nothing about whether the
+operator is wanted.
+
+Since agents no longer append entries to the operator, the first rule above
+is met only by an explicit agent entry addressed to the operator alone, which
+the adapters no longer write. A peer client that stops mid-delegation to ask
+the operator something in its own terminal therefore does not ring: its turn
+end is the middle of the work, and the operator's client is held while its
+request to that peer is open. The operator accepted this for #26 (2026-10-12);
+moltenbits/sideband#27 tracks ringing for, and recording, questions asked
+through each client's question tool.
 
 The gate holds only turn ends: `Stop`, and a `Notification` whose
 `notification_type` is `idle_prompt`, which repeats a turn end already
@@ -1415,11 +1469,12 @@ settles it.
 
 ### 14.11 Agent-to-human message
 
-Given Claude completes work requested through Sideband, when it records its
-result for the human, the entry uses `from: claude` and `to: [operator]` and
-is visible in Claude's existing turn. Codex does not inject the human-only entry
-into its conversation. The human may later reply through either client using
-the result entry's ID as `reply_to`.
+Given Claude completes work requested through Sideband, when it tells the
+human the result in its own terminal, its hooks record the turn as a captured
+turn: `from: claude`, `via: claude`, `to: [operator]`, `type: status`,
+`expects_reply: false`, `caused_by` the prompt that started the turn. Claude
+appends nothing itself. Codex does not inject the human-only entry into its
+conversation, and `sideband log` shows it to either client.
 
 ### 14.12 Delegation depth backstop
 
@@ -1544,6 +1599,61 @@ when a retained `claude:old` record names a dead process, and when A was
 instance a hook could continue by step 3 is never one a command writes as.
 Given no Claude instance record exists at all, a command from a Claude
 session acts as `claude`, as in version one.
+
+### 14.16a Turn capture
+
+Given a session that holds an instance by a record naming it or its process,
+when its client's hooks fire, the agent's words in that session are recorded
+from its transcript as captured turns (7.5). The commands' fallback to the
+unnamed instance when a client has no records does not count: a client that
+never joined records nothing.
+
+- **Once, in order.** Each capture reads the transcript from where the last
+  one stopped, at the end of a complete line, and records every message there
+  once, in transcript order, one entry per run of messages from one turn,
+  each linked by `caused_by` to the prompt that started its turn, if one did. A
+  replayed or repeated hook reads nothing new and records nothing. Each
+  message recorded is kept by the identity its host gave it (a Claude Code
+  record's `uuid`, a Codex item's `id`), so a transcript copied to another
+  file or rewritten is read again without recording twice. That holds only for
+  messages that carry such an identity: one without it is recorded whenever
+  it is read, so exactly-once recovery after a file changes depends on the
+  identities verified for the supported formats.
+- **Where a session begins.** A session that holds no instance records
+  nothing, and every prompt typed there moves where a later capture starts to
+  the end of its transcript, so nothing said before the session joined is
+  ever recorded; the turn it joins in is recorded whole. A capture with no
+  usable cursor (none yet, another file, or this one cut short) starts at the
+  earliest turn in the file the session took part in, one it holds a receipt
+  for or the hook's own, and history before it stays out. A file that starts
+  no such turn starts at its end if the session was never captured, and
+  otherwise leaves the cursor where it was rather than pass records nobody
+  has read.
+- **A turn's end.** At `Stop`, when the turn's final message, as the host marks
+  it, has been neither recorded nor read yet, the hook waits up to two seconds
+  for it. If it still is not there, it is recorded by the next capture in the
+  session, the next prompt's above all, after anything the turn said before
+  it.
+- **A transcript that cannot be read.** At `Stop`, for a turn nothing of
+  which has been recorded, the host's copy of the final message
+  (`last_assistant_message`) is recorded instead. The turn's receipt then
+  says so, nothing else of that turn is ever recorded, and its transcript
+  records are skipped when the transcript is readable again. A turn already
+  recorded from the transcript is never switched: its remaining words wait
+  for the transcript. A second final in a turn recorded this way, as after a
+  hook kept the turn going, cannot be told from a replay and is not recorded.
+- **Concurrency.** The cursor, each turn's receipt, and the identities
+  recorded are one versioned state per client session. A capture commits only
+  if that state is unchanged since it read it and the session is still the
+  instance it decided for, in the same transaction that journals the entries;
+  of several hooks firing at once for one turn, one records it.
+- **Losses.** Words are lost only when no capture follows them while the
+  transcript is readable: a Claude Code turn interrupted, which runs no
+  `Stop`, whose process then ends without `SessionEnd`; a turn recorded from
+  the payload; or a transcript that never becomes readable again. A message a
+  host writes after the final that `Stop` recorded from the payload is not
+  recorded in its place, and on-screen order holds as long as each message is
+  in the transcript by the next capture.
 
 ### 14.17a Acknowledgement
 
@@ -1957,7 +2067,9 @@ its client with `--agent` (2026-09-06: James dropped the session and process
 ownership check in favour of the role alone, and the registration took over
 client identification from the session-matching fallback; 2026-09-28: Claude
 Code's registrations moved to `.claude/settings.local.json`, the operator's own
-file, so teammates who do not use Sideband do not run them). The official
+file, so teammates who do not use Sideband do not run them; 2026-10-12: a
+capture hook joined it on both clients' `Stop` and `SessionEnd` and Codex's
+`Interrupt`, recording the agents' own words, 7.5 and 14.16a). The official
 [Codex hook contract](https://learn.chatgpt.com/docs/hooks#userpromptsubmit)
 confirms the event, stdin prompt/session fields and stdout context shape.
 
@@ -2040,8 +2152,8 @@ read (`init`: where the state lives, what was installed, and what to do next;
 `skill` without `--eject`, which prints the adapter
 instructions as Markdown, `log`, which prints the discussion as Markdown,
 `--help`, which prints text, `hook prompt`, whose
-output follows the host's hook contract, `hook notify`, which prints nothing
-and answers with its exit code, and `pending --wait --stream`, which
+output follows the host's hook contract, `hook capture`, which prints nothing,
+`hook notify`, which prints nothing and answers with its exit code, and `pending --wait --stream`, which
 prints one JSON report per line for as long as it runs. Errors go to stderr
 as text. Every command exits with a stable code: `0` ok, `2` invalid input, `4` lock
 contention, `5` corrupt state or I/O failure, `6` timed out; `hook notify`
@@ -2058,7 +2170,7 @@ command refuses because the session holds none, is the command rule of
 section 9.5a; only `join --as` names an instance explicitly.
 
 ```text
-sideband init [--skip-clients]                     # state directory and database, both skill stubs, both hook registrations
+sideband init [--skip-clients]                     # state directory and database, both skill stubs, both clients' hook registrations
 sideband join [--as <name>] [--resume]             # start this session as the unnamed or a named instance, taking it over; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
 sideband append --type request --to <instance> --caused-by <id> [--body-file <path>]
@@ -2072,6 +2184,7 @@ sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown,
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
 sideband hook session-start                        # both clients' SessionStart hook: after a clear move the instance to the new conversation; after a Claude compaction remind it
+sideband hook capture                              # both clients' Stop and SessionEnd, and Codex's Interrupt: record what the agent said since the last capture
 sideband hook notify [--agent <role>]              # the notifier's gate on Stop, Notification, PermissionRequest, and UserPromptSubmit: exit 0 lets it ring, 1 holds it
 sideband doctor                                    # paths, versions, discussion health, sessions, skill links
 ```
@@ -2091,7 +2204,9 @@ host's context field and names the recorded entry so a delegation can cite it
 the conversation the operator's own input came from when that conversation
 continues it, never on a delivered envelope or a host notice (7.1, 9.5,
 9.5a); `join` names the session it replaced and releases any other instance
-of the role recorded at the joining session (9.5a); `hook notify` holds a turn end only
+of the role recorded at the joining session (9.5a); `hook capture` and the prompt hook
+record an agent's words once each, in order, and only for a session an instance's
+record names (14.16a); `hook notify` holds a turn end only
 when the journal says the operator's attention is not wanted, and passes
 every other event (10.7); `skill --eject` refuses to overwrite an
 ejected skill unless forced (10.1).
