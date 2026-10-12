@@ -6,6 +6,7 @@ import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.CaptureLedger;
+import com.moltenbits.sideband.session.InstanceRule;
 import io.micronaut.core.annotation.Nullable;
 import jakarta.inject.Singleton;
 
@@ -55,7 +56,7 @@ class SqliteCaptureLedger implements CaptureLedger {
             if (version != read.version()) {
                 return Optional.empty();
             }
-            if (author != null && !author.equals(sessions.identifyHere(client, sessionId, caller).instance())) {
+            if (author != null && !holds(client, sessionId, caller, author)) {
                 return Optional.empty();
             }
             List<Entry> entries = drafts.stream().map(journal::insert).toList();
@@ -81,6 +82,16 @@ class SqliteCaptureLedger implements CaptureLedger {
             }
             return Optional.of(entries);
         });
+    }
+
+    /**
+     * Whether the session is {@code instance} by a record naming it or its process, on the
+     * current connection. The commands' fallback to the unnamed instance when the client has
+     * no records does not count: a session nothing has joined has no words to record.
+     */
+    private boolean holds(Role client, String sessionId, @Nullable HostProcess caller, ParticipantId instance) {
+        InstanceRule.Identified identified = sessions.identifyHere(client, sessionId, caller);
+        return !identified.records().isEmpty() && instance.equals(identified.instance());
     }
 
     /** The session's state on the current connection. */

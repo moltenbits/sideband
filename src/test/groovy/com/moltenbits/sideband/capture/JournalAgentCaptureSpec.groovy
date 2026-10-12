@@ -302,6 +302,66 @@ class JournalAgentCaptureSpec extends Specification {
         captured()*.body() == ["Joining.\n\nJoined as Claude."]
     }
 
+    void "a client that has never joined here records nothing, though commands would act as its unnamed instance"() {
+        given: "a repository where only Codex has joined, and one where nobody has"
+        Path codexOnly = Files.createTempDirectory("codex-only")
+        sessions.join(codexOnly, Fixtures.CODEX, "c1")
+        Path nobody = Files.createTempDirectory("nobody")
+        write(claude, prompt("p-1"), answer("Not joined."))
+        Path missing = dir.resolve("missing.jsonl")
+
+        expect: "neither from the transcript nor from the payload"
+        [codexOnly, nobody].every { repo ->
+            capture.beforePrompt(repo, claudeHook("p-1", claude, "never-joined")).isEmpty() &&
+                    capture.turnEnded(repo, claudeHook("p-1", claude, "never-joined"), "Not joined.").isEmpty() &&
+                    capture.flush(repo, claudeHook("p-1", claude, "never-joined")).isEmpty() &&
+                    capture.turnEnded(repo, claudeHook("p-2", missing, "never-joined"), "From the payload.").isEmpty() &&
+                    journal.end(repo) == 0
+        }
+
+        and: "the commit itself refuses a session that holds no record, even for the unnamed instance"
+        def state = ledger.load(nobody, Role.CLAUDE, "never-joined")
+        ledger.commit(nobody, Role.CLAUDE, "never-joined", null, state, Fixtures.CLAUDE,
+                [com.moltenbits.sideband.protocol.Draft.capturedTurn(Fixtures.CLAUDE, null, "forced")], null, []).empty
+    }
+
+    void "a Stop replayed from the transcript a session used before records nothing and leaves the cursor where it is"() {
+        given: "p-1 is captured from one file, then the session's transcript is another, and p-2 is captured from it"
+        operatorPrompts(claudeHook("p-1"), "prompt-1")
+        write(claude, prompt("p-1"), answer("First file."))
+        capture.turnEnded(dir, claudeHook("p-1"), "First file.")
+        Path other = dir.resolve("other.jsonl")
+        write(other, prompt("p-2"), answer("Second file."))
+        capture.turnEnded(dir, claudeHook("p-2", other), "Second file.")
+        def cursor = ledger.load(dir, Role.CLAUDE, "s1").cursor()
+
+        expect: "replaying the old file's Stop, then the new one's"
+        capture.turnEnded(dir, claudeHook("p-1"), "First file.").isEmpty()
+        ledger.load(dir, Role.CLAUDE, "s1").cursor() == cursor
+        capture.turnEnded(dir, claudeHook("p-2", other), "Second file.").isEmpty()
+        captured()*.body() == ["First file.", "Second file."]
+
+        when: "the new file goes on"
+        write(other, prompt("p-3"), answer("Third."))
+
+        then:
+        capture.turnEnded(dir, claudeHook("p-3", other), "Third.")*.body() == ["Third."]
+    }
+
+    void "a Stop for a turn already recorded, replayed after its file was cut short, records nothing again"() {
+        given:
+        operatorPrompts(claudeHook("p-1"), "prompt-1")
+        write(claude, prompt("p-1"), commentary("A long preamble before the answer."), tool("p-1"), answer("Answered."))
+        capture.turnEnded(dir, claudeHook("p-1"), "Answered.")
+
+        when: "the file is rewritten shorter, still holding the turn"
+        Files.writeString(claude, prompt("p-1") + answer("Answered."))
+
+        then:
+        capture.turnEnded(dir, claudeHook("p-1"), "Answered.").isEmpty()
+        captured()*.body() == ["A long preamble before the answer.\n\nAnswered."]
+    }
+
     void "a capture with no cursor starts at its own turn's start, leaving earlier history out"() {
         given: "a transcript from before Sideband was installed, which no prompt hook has seen"
         write(claude, prompt("p-1"), answer("Old history."), prompt("p-2"), commentary("Now."), tool("p-2"), answer("Current."))

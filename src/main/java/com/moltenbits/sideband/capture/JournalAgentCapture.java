@@ -8,6 +8,7 @@ import com.moltenbits.sideband.session.CaptureLedger.Cursor;
 import com.moltenbits.sideband.session.CaptureLedger.Mode;
 import com.moltenbits.sideband.session.CaptureLedger.State;
 import com.moltenbits.sideband.session.CaptureLedger.Turn;
+import com.moltenbits.sideband.session.InstanceRule;
 import com.moltenbits.sideband.session.Sessions;
 import com.moltenbits.sideband.transcript.Excerpt;
 import com.moltenbits.sideband.transcript.Message;
@@ -154,8 +155,19 @@ class JournalAgentCapture implements AgentCapture {
             }
             long size = Files.size(path);
             Cursor cursor = state.cursor();
-            if (cursor != null && (!cursor.transcript().equals(path) || size < cursor.position())) {
-                cursor = null; // another file, or this one cut short: nothing read before applies
+            boolean recorded = hook.turn() != null && state.turn(hook.turn()).mode() != Mode.NONE;
+            if (cursor != null && !cursor.transcript().equals(path)) {
+                if (hook.turn() == null || recorded) {
+                    // A hook from the file the session wrote before, replayed: what it holds was read from there.
+                    return new Decision(List.of(), cursor, List.of());
+                }
+                cursor = null; // a new turn in another file: start that file at the turn
+            } else if (cursor != null && size < cursor.position()) {
+                if (recorded) {
+                    // Rewritten shorter: resume after what it holds now, never reading a recorded turn again.
+                    return new Decision(List.of(), new Cursor(path, transcripts.end(path), hook.turn()), List.of());
+                }
+                cursor = null;
             }
             long from;
             String turnAt;
@@ -246,8 +258,14 @@ class JournalAgentCapture implements AgentCapture {
         }
     }
 
+    /**
+     * The instance whose record names the session or its process. The commands' rule also
+     * names the unnamed instance when the client has no records at all; that lets a command
+     * act before any join, but says nothing about a session's words, so it records nothing.
+     */
     private @Nullable ParticipantId instance(Path stateDirectory, Hook hook) {
-        return sessions.identify(stateDirectory, hook.client(), hook.sessionId(), hook.caller()).instance();
+        InstanceRule.Identified identified = sessions.identify(stateDirectory, hook.client(), hook.sessionId(), hook.caller());
+        return identified.records().isEmpty() ? null : identified.instance();
     }
 
     /** Waits one poll interval; false when interrupted, so the caller stops waiting. */
