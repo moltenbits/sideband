@@ -26,7 +26,9 @@ import java.util.Map;
  * while nothing has since arrived for its author, and the operator's client is done only
  * when the last thing to reach it was a completing reply or nothing at all, so a wake that
  * brings context and draws no new word never rings again for what already did.
- * Acknowledgements are receipts and never count as a word to anyone.
+ * Acknowledgements are receipts and never count as a word to anyone, and neither does a
+ * captured turn: every turn of every client is recorded for the operator to read, so it says
+ * nothing about whether the operator is wanted.
  */
 @Singleton
 class JournalAttention implements Attention {
@@ -53,7 +55,7 @@ class JournalAttention implements Attention {
         Entry heard = null; // the last entry that reached this client, acks aside
         for (Entry entry : entries) {
             EntryMetadata m = entry.metadata();
-            if (entry.seq() <= prompt.seq() || m.type() == MessageType.ACK) {
+            if (entry.seq() <= prompt.seq() || m.type() == MessageType.ACK || m.isCapturedTurn()) {
                 continue;
             }
             if (m.from().equals(self)) {

@@ -48,6 +48,11 @@ public record EntryMetadata(
         return !from.isHuman();
     }
 
+    /** True when an agent's hook recorded what it said in its own terminal ({@link Draft#capturedTurn}). */
+    public boolean isCapturedTurn() {
+        return isAgentAuthored() && from.equals(via);
+    }
+
     /** True when at least one recipient is a client role. */
     public boolean addressesAnyClient() {
         return to.stream().anyMatch(id -> !id.isHuman());

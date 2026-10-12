@@ -3,6 +3,7 @@ package com.moltenbits.sideband.pending
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
@@ -39,6 +40,26 @@ class JournalAttentionSpec extends Specification {
     void "the component is exposed only through its interface"() {
         expect:
         context.getBean(Attention) instanceof JournalAttention
+    }
+
+    void "a turn the hook captured is a record of what the agent said, not a word to the operator"() {
+        given: "the operator asks Claude, and Claude asks Codex for a review that Codex takes up"
+        Entry h = human("commit and get a review", Role.CLAUDE)
+        Entry ask = agent(Role.CLAUDE, [Fixtures.CODEX], MessageType.REQUEST, [causedBy: h.metadata().id()])
+        agent(Role.CODEX, [Fixtures.CLAUDE], MessageType.ACK, [replyTo: ask.metadata().id()])
+
+        when: "Codex's turn ends and its words are captured for the operator to read later"
+        journal.append(dir, Draft.capturedTurn(Fixtures.CODEX, null, "Reviewing the commit now."))
+
+        then: "Codex's turn end is still the middle of the work"
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CODEX)).wanted()
+
+        when: "Claude's turn ends the same way while the request is open"
+        journal.append(dir, Draft.capturedTurn(Fixtures.CLAUDE, h.metadata().id(), "Waiting on Codex's review."))
+
+        then:
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("1 open request")
     }
 
     void "with nothing from the operator in the discussion there is nothing to hold back"() {

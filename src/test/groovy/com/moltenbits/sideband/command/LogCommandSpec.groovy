@@ -4,6 +4,7 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.SidebandCommand
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
 import picocli.CommandLine
 
@@ -64,6 +65,17 @@ done
 ---
 
 """
+    }
+
+    void "a captured turn is headed by its author alone, since it was said in the author's own terminal"() {
+        given:
+        context.getBean(Journal).append(state, Draft.capturedTurn(Fixtures.CLAUDE, null, "Only `.git` is here."))
+
+        when:
+        run("log", "--repo", repo.toString())
+
+        then:
+        stdout.toString().startsWith("## Claude → Operator\n\n")
     }
 
     void "--after and --limit select a range of positions"() {

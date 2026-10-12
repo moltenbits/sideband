@@ -117,6 +117,37 @@ class EntryMetadataSpec extends Specification {
         !Fixtures.metadata().addresses(Fixtures.OPERATOR)
     }
 
+    void "a turn the hook captured is said by its instance in its own terminal, to the operator, asking nothing"() {
+        given:
+        ParticipantId fable = new ParticipantId("claude:fable")
+
+        when:
+        Draft turn = Draft.capturedTurn(fable, "019a", "I'll list the directory first.\n\nOnly `.git` is here.")
+
+        then:
+        turn.from() == fable
+        turn.via() == fable
+        turn.to() == [Fixtures.OPERATOR]
+        turn.type() == MessageType.STATUS
+        turn.route() == Route.DIRECT
+        turn.replyTo() == null
+        turn.causedBy() == "019a"
+        !turn.expectsReply()
+        turn.delivery() == Delivery.DEFAULT
+
+        and: "a turn not started by a prompt links to nothing"
+        Draft.capturedTurn(fable, null, "Codex says the review is clean.").causedBy() == null
+    }
+
+    void "only an agent's own words recorded from its terminal are a captured turn"() {
+        expect:
+        Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata().isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: null, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: false).isCapturedTurn()
+    }
+
     void "timestamps keep their offset"() {
         given:
         EntryMetadata utc = Fixtures.metadata(createdAt: OffsetDateTime.parse("2026-09-05T03:29:33Z"))
