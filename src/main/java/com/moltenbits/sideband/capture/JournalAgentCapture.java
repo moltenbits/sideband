@@ -27,7 +27,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -157,25 +156,24 @@ class JournalAgentCapture implements AgentCapture {
                 throw new IOException("the hook payload names no transcript");
             }
             Cursor cursor = state.cursor();
-            // Another file than the cursor's, or this one cut short: positions read before no longer apply.
-            boolean moved = cursor != null && (!cursor.transcript().equals(path) || Files.size(path) < cursor.position());
+            if (cursor != null && (!cursor.transcript().equals(path) || Files.size(path) < cursor.position())) {
+                cursor = null; // another file than the cursor's, or this one cut short: positions read before no longer apply
+            }
             long from;
             String turnAt = null;
-            if (cursor != null && !moved) {
+            if (cursor != null) {
                 from = cursor.position();
                 turnAt = cursor.turn();
             } else {
-                OptionalLong start = hook.turn() == null || state.turn(hook.turn()).mode() == Mode.PAYLOAD
-                        ? OptionalLong.empty() : transcripts.start(hook.client(), path, hook.turn());
-                if (start.isPresent()) {
-                    from = start.getAsLong();
-                } else if (moved) {
-                    from = 0; // read all of it: what was recorded before is recognized by its identity
-                } else {
-                    // Never captured here: what came before this turn is history from before Sideband.
-                    Cursor here = new Cursor(path, transcripts.end(path), hook.turn());
-                    return ending == null ? new Decision(List.of(), List.of(), here, List.of()) : fromPayload(state, instance, ending, here);
+                Long start = earliestKnown(transcripts.starts(hook.client(), path), state, hook.turn());
+                if (start == null) {
+                    // Nothing this session took part in is here. Never captured: what the file holds is history from
+                    // before capture began, so a later capture starts at its end. Captured elsewhere: the cursor stays,
+                    // never moved across records nobody has read, and a hook for a turn in this file reads it then.
+                    Cursor next = state.cursor() != null ? state.cursor() : new Cursor(path, transcripts.end(path), hook.turn());
+                    return ending == null ? new Decision(List.of(), List.of(), next, List.of()) : fromPayload(state, instance, ending, next);
                 }
+                from = start;
             }
             Excerpt excerpt = transcripts.read(hook.client(), path, from, turnAt);
             long deadline = System.nanoTime() + finalWait.toNanos();
@@ -241,6 +239,21 @@ class JournalAgentCapture implements AgentCapture {
         }
         return new Decision(List.of(Draft.capturedTurn(instance, turn.promptEntryId(), last)), List.of(), cursor,
                 List.of(new Turn(turn.id(), turn.promptEntryId(), Mode.PAYLOAD, true)));
+    }
+
+    /**
+     * Where reading a transcript without a usable cursor starts: the earliest turn in it this
+     * session took part in, the turns it holds a receipt for and the hook's own. Everything
+     * before that is history from before capture began, and stays out; everything after it
+     * is read, and what was recorded before is recognized by its identity. Null when the
+     * transcript starts none of them.
+     */
+    private static @Nullable Long earliestKnown(Map<String, Long> starts, State state, @Nullable String hookTurn) {
+        return starts.entrySet().stream()
+                .filter(start -> state.turns().containsKey(start.getKey()) || start.getKey().equals(hookTurn))
+                .map(Map.Entry::getValue)
+                .findFirst()
+                .orElse(null);
     }
 
     private static boolean finalSeen(State state, Excerpt excerpt, String turn) {

@@ -47,6 +47,11 @@ class ClaudeFormat implements Format {
     }
 
     @Override
+    public boolean mayStartTurn(String line) {
+        return line.contains("promptId");
+    }
+
+    @Override
     public Reading read(String text) {
         Line line;
         try {

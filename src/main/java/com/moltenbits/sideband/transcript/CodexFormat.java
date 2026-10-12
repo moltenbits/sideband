@@ -44,6 +44,11 @@ class CodexFormat implements Format {
     }
 
     @Override
+    public boolean mayStartTurn(String line) {
+        return line.contains("task_started");
+    }
+
+    @Override
     public Reading read(String text) {
         Line line;
         try {

@@ -14,9 +14,10 @@ import java.nio.channels.SeekableByteChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalLong;
+import java.util.SequencedMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -57,16 +58,18 @@ class JsonLinesTranscripts implements Transcripts {
     }
 
     @Override
-    public OptionalLong start(Role client, Path transcript, String turn) throws IOException {
+    public SequencedMap<String, Long> starts(Role client, Path transcript) throws IOException {
         Format format = format(client);
+        SequencedMap<String, Long> starts = new LinkedHashMap<>();
         try (Lines lines = new Lines(transcript, 0)) {
             for (Line line = lines.next(); line != null; line = lines.next()) {
-                if (format.mayStart(line.text(), turn) && turn.equals(format.read(line.text()).turnStarted())) {
-                    return OptionalLong.of(line.position());
+                String turn = format.mayStartTurn(line.text()) ? format.read(line.text()).turnStarted() : null;
+                if (turn != null) {
+                    starts.putIfAbsent(turn, line.position());
                 }
             }
         }
-        return OptionalLong.empty();
+        return starts;
     }
 
     /** Searches back from the end of the file for the last newline, so a long transcript costs a few reads. */

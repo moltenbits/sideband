@@ -170,18 +170,21 @@ class TranscriptsSpec extends Specification {
         excerpt.turn() == "p-2"
     }
 
-    void "a turn's start is found by the identity the host gives it, or not at all"() {
+    void "every turn a transcript starts is listed in order, by the identity the host gives it, at its first record"() {
         given:
         Path claude = fixture("claude-code-2.1.296.jsonl")
         Path codex = fixture("codex-0.162.1.jsonl")
 
-        expect:
-        transcripts.read(Role.CLAUDE, claude, transcripts.start(Role.CLAUDE, claude, "p-2").getAsLong(), null)
-                .messages()*.text() == ["Codex says the review is clean."]
-        transcripts.read(Role.CODEX, codex, transcripts.start(Role.CODEX, codex, "turn-2").getAsLong(), null)
-                .messages()*.text() == ["Claude's review is clean."]
-        !transcripts.start(Role.CODEX, codex, "turn-9").present
-        !transcripts.start(Role.CLAUDE, claude, "p-9").present
+        when:
+        Map<String, Long> claudeStarts = transcripts.starts(Role.CLAUDE, claude)
+        Map<String, Long> codexStarts = transcripts.starts(Role.CODEX, codex)
+
+        then: "a later record of the same turn, such as a tool result, does not move its start"
+        claudeStarts.keySet().toList() == ["p-1", "p-2"]
+        codexStarts.keySet().toList() == ["turn-1", "turn-2"]
+        transcripts.read(Role.CLAUDE, claude, claudeStarts["p-1"], null).messages()*.text()[0] == "I'll list the directory first."
+        transcripts.read(Role.CLAUDE, claude, claudeStarts["p-2"], null).messages()*.text() == ["Codex says the review is clean."]
+        transcripts.read(Role.CODEX, codex, codexStarts["turn-2"], null).messages()*.text() == ["Claude's review is clean."]
     }
 
     void "the end of a long transcript is the end of its last complete line"() {

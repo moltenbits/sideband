@@ -26,10 +26,8 @@ interface Format {
     /** Reads one complete line; anything unrecognized, unparseable included, is {@link Reading#NOTHING}. */
     Reading read(String line);
 
-    /** Whether {@code line} may start {@code turn}: a cheap test before parsing, so a scan parses few lines. */
-    default boolean mayStart(String line, String turn) {
-        return line.contains(turn);
-    }
+    /** Whether {@code line} may start a turn: a cheap test before parsing, so a scan of a whole transcript parses few lines. */
+    boolean mayStartTurn(String line);
 
     /** The text of a message's content blocks of {@code blockType}, joined; null when none has words in it. */
     static @Nullable String text(@Nullable JsonNode content, String blockType) {

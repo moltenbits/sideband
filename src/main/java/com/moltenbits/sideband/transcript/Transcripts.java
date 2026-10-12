@@ -5,7 +5,7 @@ import io.micronaut.core.annotation.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.OptionalLong;
+import java.util.SequencedMap;
 
 /**
  * The discussion in a client's own transcript: what the agent said to the operator, with
@@ -25,8 +25,8 @@ public interface Transcripts {
      */
     Excerpt read(Role client, Path transcript, long offset, @Nullable String turn) throws IOException;
 
-    /** The offset of the line that starts the turn the host identifies as {@code turn}; empty when there is none. */
-    OptionalLong start(Role client, Path transcript, String turn) throws IOException;
+    /** Every turn the transcript starts, in order, each with the offset of the line that first starts it. */
+    SequencedMap<String, Long> starts(Role client, Path transcript) throws IOException;
 
     /** The offset just past the last complete line. */
     long end(Path transcript) throws IOException;

@@ -389,6 +389,38 @@ class JournalAgentCaptureSpec extends Specification {
         captured()*.body() == ["A long preamble." * 30 + "\n\nFirst.", "Second."]
     }
 
+    void "a moved transcript gives up an earlier turn's unread final, not just the hook's own turn"() {
+        given:
+        operatorPrompts(claudeHook("p-1"), "prompt-1")
+        write(claude, prompt("p-1"), commentary("Starting.", "u-start"))
+        capture.flush(dir, claudeHook("p-1"))
+        Path moved = dir.resolve("moved.jsonl")
+        write(moved, prompt("p-1"), commentary("Starting.", "u-start"), answer("Finished one.", "u-final-1"),
+                prompt("p-2"), answer("Finished two.", "u-final-2"))
+
+        when:
+        List<Entry> entries = capture.turnEnded(dir, claudeHook("p-2", moved), "Finished two.")
+
+        then:
+        entries*.body() == ["Finished one.", "Finished two."]
+        entries*.metadata()*.causedBy() == ["prompt-1", null]
+    }
+
+    void "moving a transcript does not bring in the history its capture began after"() {
+        given:
+        write(claude, prompt("history"), answer("Before capture.", "u-history"),
+                prompt("p-1"), answer("Participating.", "u-current"))
+        capture.turnEnded(dir, claudeHook("p-1"), "Participating.")
+        Path moved = dir.resolve("moved.jsonl")
+        Files.copy(claude, moved)
+
+        when:
+        capture.flush(dir, claudeHook(null, moved))
+
+        then:
+        captured()*.body() == ["Participating."]
+    }
+
     void "a capture with no cursor starts at its own turn's start, leaving earlier history out"() {
         given: "a transcript from before Sideband was installed, which no prompt hook has seen"
         write(claude, prompt("p-1"), answer("Old history."), prompt("p-2"), commentary("Now."), tool("p-2"), answer("Current."))
