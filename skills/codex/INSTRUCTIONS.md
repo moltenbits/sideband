@@ -166,8 +166,8 @@ capture. A missing confirmation for a human prompt that should have been
 recorded is a missing confirmation to report, not permission to record it.
 
 When this human prompt directly causes a delegation, use its hook-provided ID
-as `append --caused-by`; use `--reply-to` with that ID when answering
-the prompt to `operator`. Never read the journal file, recapture a
+as `append --caused-by`. Answer the prompt itself in your own turn, never with
+an entry. Never read the journal file, recapture a
 recorded prompt, or guess an older ancestor to obtain an ID. If an older hook
 note lacks an ID and no supported result supplies it, report that limitation
 before attempting a linked send. A peer message remains the immediate cause
@@ -378,8 +378,8 @@ the body's wording alone.
 `--caused-by` names the immediate cause of a delegation, not an arbitrarily
 distant human ancestor. `--reply-to` names the message being answered.
 With `--reply-to`, omitted `--to` defaults to that entry's author. An explicit
-`--to` replaces the default recipient list; to copy the operator, include both
-the original author and `operator`. Without `--reply-to`, supply `--to`.
+`--to` replaces the default recipient list; never add `operator` to it, since
+the human reads your own turn. Without `--reply-to`, supply `--to`.
 Acks never trigger another wake. Inspect `pushes` for delivery failures.
 A `pushed` result for Claude means its inbox accepted the envelope, not that its model has read it.
 

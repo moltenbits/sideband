@@ -500,11 +500,13 @@ cannot be read, and what is lost when.
 
 The transcripts are each host's own JSON-lines files, undocumented, so what
 is read was measured (2026-10-12) and is kept to what was measured. Claude
-Code 2.1.296: a turn's records carry the `promptId` its hooks receive as
-`prompt_id`; each assistant content block is its own record, a `text` block
-is a message, and the one that ends the turn is the record whose message
-stopped for any reason but to use a tool; subagent records are marked as
-sidechains; each record has a `uuid`. Codex 0.162.1: a turn begins with a
+Code 2.1.296: the turn's user records, its prompt's and its tool results',
+carry the `promptId` its hooks receive as `prompt_id`, and its assistant
+records do not, so the reader carries the turn forward from the last user
+record; each assistant content block is its own record, a `text` block is a
+message, and the one that ends the turn is the record whose message stopped
+for a reason other than `tool_use` or `pause_turn`; subagent records are
+marked as sidechains; each record has a `uuid`. Codex 0.162.1: a turn begins with a
 `task_started` event carrying the `turn_id` its hooks receive; a message is
 a `response_item` from the assistant, labelled `commentary` when the model
 goes on working and `final_answer` when the turn ends, with an `id`; its
@@ -1621,8 +1623,10 @@ never joined records nothing.
   identities verified for the supported formats.
 - **Where a session begins.** A session that holds no instance records
   nothing, and every prompt typed there moves where a later capture starts to
-  the end of its transcript, so nothing said before the session joined is
-  ever recorded; the turn it joins in is recorded whole. A capture with no
+  the end of its transcript. So what is recorded begins with the turn of the
+  last prompt typed before the join: the turn the session joins in, or, when
+  the join comes later, the turn whose held prompt the join adopts, linked to
+  that prompt (7.1). Nothing said before that turn is recorded. A capture with no
   usable cursor (none yet, another file, or this one cut short) starts at the
   earliest turn in the file the session took part in, one it holds a receipt
   for or the hook's own, and history before it stays out. A file that starts
@@ -1647,13 +1651,14 @@ never joined records nothing.
   if that state is unchanged since it read it and the session is still the
   instance it decided for, in the same transaction that journals the entries;
   of several hooks firing at once for one turn, one records it.
-- **Losses.** Words are lost only when no capture follows them while the
-  transcript is readable: a Claude Code turn interrupted, which runs no
-  `Stop`, whose process then ends without `SessionEnd`; a turn recorded from
-  the payload; or a transcript that never becomes readable again. A message a
-  host writes after the final that `Stop` recorded from the payload is not
-  recorded in its place, and on-screen order holds as long as each message is
-  in the transcript by the next capture.
+- **Losses.** Two kinds, and nothing else. First, words no capture reads
+  while the transcript is readable: a final the host writes after the wait,
+  or a Claude Code turn interrupted (it runs no `Stop`), when the session then
+  ends without `SessionEnd` and no later capture; or anything in a transcript
+  that never becomes readable again. Second, by design, everything of a turn
+  recorded from the payload except that final, even when later captures read
+  the transcript: its commentary, and a second final. On-screen order holds
+  as long as each message is in the transcript by the next capture.
 
 ### 14.17a Acknowledgement
 

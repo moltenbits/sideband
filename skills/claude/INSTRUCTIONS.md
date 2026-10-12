@@ -317,7 +317,8 @@ sideband append --type ack --reply-to <id>
 
 `--caused-by` names the immediate communication that led to a delegation;
 `--reply-to` names the message being answered, and the answer goes to whoever
-wrote it unless you pass `--to` yourself (for instance to copy the user). A
+wrote it unless you pass `--to` yourself; never add `operator` to it, since the
+user reads your own turn. A
 named instance of either client is addressed as it is named, `--to codex:review`
 or `--to claude:fable`, and `--to claude` reaches only the unnamed Claude; the
 author is always the calling instance. An exit 2 saying this session holds no

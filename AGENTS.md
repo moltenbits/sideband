@@ -111,8 +111,9 @@ lists exactly what is read.
 - **Codex had written everything by `Stop`**, final answer included, before
   `task_complete`, in 3 of 3 runs.
 - **Both hosts mark the final message and identify every record.** Claude
-  Code: `stop_reason` other than `tool_use` on the final record, `uuid` on
-  every record, `promptId` on every record of a turn but the assistant's.
+  Code: a `stop_reason` other than `tool_use` or `pause_turn` on the final
+  record, `uuid` on every record, `promptId` on a turn's user records (its
+  prompt and its tool results) but not on its assistant records.
   Codex: `phase` `final_answer` versus `commentary`, `id` on each message
   item, `turn_id` on `task_started`. The hook payloads carry the same turn
   identity: Claude Code's `prompt_id` on `UserPromptSubmit` and `Stop`,

@@ -76,7 +76,9 @@ class SkillTextSpec extends CommandSpec {
         expect:
         ["claude", "codex"].every { client ->
             String text = Files.readString(Path.of("skills", client, "INSTRUCTIONS.md")).replaceAll(/\s+/, " ")
-            !text.contains("--to operator --type reply") &&
+            !(text =~ /--to [^`]*operator/) &&
+                    !(text =~ /(?i)copy (the )?(operator|user|human)/) &&
+                    !(text =~ /(?i)answering the prompt to `?operator/) &&
                     !text.contains("journal the participating reply") &&
                     !text.contains("the entry keeps the journal complete") &&
                     text.contains("never append an entry addressed to the operator") &&

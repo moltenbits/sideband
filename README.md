@@ -360,25 +360,37 @@ hooks write all of it, so no agent has to remember to:
   Slash commands, `!` shell commands, and a subagent's prompts are not
   your words and are left out.
 - **What each agent says to you**, recorded by the capture hook from the
-  client's own transcript: the final answer of every turn and anything it
-  says before going on to do more work, one entry per turn, linked to the
-  prompt that started the turn. Reasoning, tool calls, and tool output are
-  left out. In `sideband log` such an entry is headed `Claude → Operator`.
+  client's own transcript: its final answers and anything it says before
+  going on to do more work, in order, one entry for each stretch of a turn
+  read at once (usually the whole turn), linked to the prompt that started
+  the turn. Reasoning, tool calls, and tool output are left out. In
+  `sideband log` such an entry is headed `Claude → Operator`.
 
 The capture hook runs when a turn ends, before your next prompt is recorded
 (so a turn you interrupted lands before the prompt that followed it), when
 Codex is interrupted, and when the session ends. It reads the transcript from
 where it last stopped, so a message is recorded once however often the hook
 fires. Only a session that has joined is recorded, from the turn it joined
-in; what was said before that stays out.
+in, or the turn whose prompt the join took up; what was said before that
+stays out.
 
 Both transcript formats are undocumented, and what is read from them was
-measured on Claude Code 2.1.296 and Codex 0.162.1. When a turn ends and its
-transcript cannot be read, the hook records the final answer the host hands
-it instead, and nothing more of that turn. A Claude Code turn you interrupt
-is recorded only by the next capture in that session, so one whose process is
-killed before then is lost. An agent asking you a question no longer makes
-the notifier ring for it (section 1.4); see #27.
+measured on Claude Code 2.1.296 and Codex 0.162.1. Some words can arrive late
+or not at all:
+
+- A final answer the host has not written within two seconds of the turn's
+  end is recorded by the next capture in that session, and is lost if none
+  follows, as when the session is killed. The same holds for a Claude Code
+  turn you interrupt, which runs no turn-end hook.
+- When a turn ends with its transcript unreadable and nothing of that turn
+  recorded yet, the hook records the final answer the host hands it instead,
+  and nothing more of that turn, ever. A turn already partly recorded waits
+  for the transcript instead.
+
+REQUIREMENTS.md section 14.16a has the full contract, including how a
+transcript copied or rewritten elsewhere is read again without recording
+twice. An agent asking you a question no longer makes the notifier ring for
+it (section 1.4); see #27.
 
 ## 4. Development
 
