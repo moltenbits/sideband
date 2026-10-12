@@ -17,8 +17,8 @@ final class Heading {
         String recipients = metadata.to().stream()
                 .map(ParticipantId::displayName)
                 .collect(Collectors.joining(" + "));
-        // A captured turn's via is its author: said in the author's own terminal, which the heading already names.
-        String via = metadata.via() == null || metadata.isCapturedTurn() ? "" : " (via " + metadata.via().displayName() + ")";
+        // A via that names the author, as a captured turn's does, adds nothing the heading does not already say.
+        String via = metadata.via() == null || metadata.via().equals(metadata.from()) ? "" : " (via " + metadata.via().displayName() + ")";
         return PREFIX + sanitize(metadata.from().displayName()) + " → " + sanitize(recipients) + via;
     }
 

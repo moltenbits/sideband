@@ -48,9 +48,16 @@ public record EntryMetadata(
         return !from.isHuman();
     }
 
-    /** True when an agent's hook recorded what it said in its own terminal ({@link Draft#capturedTurn}). */
+    /**
+     * True when an agent's hook recorded what it said in its own terminal: exactly the shape
+     * {@link Draft#capturedTurn} writes, a status from the instance, via itself, to the
+     * operator alone, asking nothing. {@code via} naming the author is not enough on its
+     * own: an agent entry may carry it, and one that does is still a message to whoever
+     * it addresses.
+     */
     public boolean isCapturedTurn() {
-        return isAgentAuthored() && from.equals(via);
+        return isAgentAuthored() && from.equals(via) && type == MessageType.STATUS && !expectsReply
+                && to.equals(List.of(ParticipantId.OPERATOR));
     }
 
     /** True when at least one recipient is a client role. */

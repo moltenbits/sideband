@@ -3,10 +3,12 @@ package com.moltenbits.sideband.pending
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Delivery
 import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
+import com.moltenbits.sideband.protocol.Route
 import io.micronaut.context.ApplicationContext
 import spock.lang.AutoCleanup
 import spock.lang.Shared
@@ -60,6 +62,19 @@ class JournalAttentionSpec extends Specification {
         then:
         !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
         attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("1 open request")
+    }
+
+    void "an agent's message that names itself in via still counts unless it has the captured turn's shape"() {
+        given: "the operator asks Claude, whose turn ends with nothing open"
+        human("tidy the readme", Role.CLAUDE)
+
+        when: "Codex sends Claude context naming Codex in via, as the requirements' own examples do"
+        journal.append(dir, new Draft(Fixtures.CODEX, Fixtures.CODEX, [Fixtures.CLAUDE], MessageType.STATUS, Route.DIRECT,
+                null, null, false, Delivery.DEFAULT, "fyi: the readme moved"))
+
+        then: "it is context that reached Claude, so the turn it starts stays quiet"
+        !attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).wanted()
+        attention.atTurnEnd(dir, ParticipantId.of(Role.CLAUDE)).reason().contains("context from Codex")
     }
 
     void "with nothing from the operator in the discussion there is nothing to hold back"() {

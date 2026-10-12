@@ -148,6 +148,20 @@ class EntryMetadataSpec extends Specification {
                 route: Route.DIRECT, expectsReply: false).isCapturedTurn()
     }
 
+    void "an agent entry that names itself in via is a captured turn only in the captured turn's whole shape"() {
+        expect: "a request or reply to a peer, a broadcast status, or a status that asks for an answer is communication, not a capture"
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.REQUEST,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CODEX, via: Fixtures.CODEX, to: [Fixtures.CLAUDE, Fixtures.OPERATOR], type: MessageType.REPLY,
+                route: Route.BROADCAST, replyTo: "rev-0002", expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.CODEX, Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.BROADCAST, expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.REQUEST,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+    }
+
     void "timestamps keep their offset"() {
         given:
         EntryMetadata utc = Fixtures.metadata(createdAt: OffsetDateTime.parse("2026-09-05T03:29:33Z"))

@@ -4,8 +4,10 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.SidebandCommand
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.protocol.Delivery
 import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.Route
 import picocli.CommandLine
 
 import java.nio.file.Files
@@ -65,6 +67,18 @@ done
 ---
 
 """
+    }
+
+    void "a via that only repeats the author is left out of the heading, whatever the entry is"() {
+        given:
+        context.getBean(Journal).append(state, new Draft(Fixtures.CODEX, Fixtures.CODEX, [Fixtures.CLAUDE], MessageType.STATUS,
+                Route.DIRECT, null, null, false, Delivery.DEFAULT, "fyi"))
+
+        when:
+        run("log", "--repo", repo.toString())
+
+        then:
+        stdout.toString().startsWith("## Codex → Claude\n\n")
     }
 
     void "a captured turn is headed by its author alone, since it was said in the author's own terminal"() {
