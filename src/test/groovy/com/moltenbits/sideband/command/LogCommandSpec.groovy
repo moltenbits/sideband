@@ -119,7 +119,7 @@ done
         expect:
         run("log", "--repo", repo.toString()) == ExitCode.OK
         positions() == (25..6).collect { it as String }
-        stdout.toString().endsWith("---\n\nEarlier entries: `sideband log --before 6`\n")
+        stdout.toString().endsWith("---\n\nEarlier entries: `sideband log --before 6 --repo '$repo'`\n")
     }
 
     void "--before pages back, and the last page names no page before it"() {
@@ -149,7 +149,7 @@ done
         expect:
         run("log", "--repo", repo.toString(), "--limit", "3") == ExitCode.OK
         positions() == ["10", "9", "8"]
-        stdout.toString().endsWith("Earlier entries: `sideband log --before 8 --limit 3`\n")
+        stdout.toString().endsWith("Earlier entries: `sideband log --before 8 --limit 3 --repo '$repo'`\n")
 
         when:
         stdout = new StringWriter()
@@ -157,7 +157,7 @@ done
         then:
         run("log", "--repo", repo.toString(), "--before", "8", "--limit", "3") == ExitCode.OK
         positions() == ["7", "6", "5"]
-        stdout.toString().endsWith("Earlier entries: `sideband log --before 5 --limit 3`\n")
+        stdout.toString().endsWith("Earlier entries: `sideband log --before 5 --limit 3 --repo '$repo'`\n")
 
         when:
         stdout = new StringWriter()
@@ -166,6 +166,49 @@ done
         run("log", "--repo", repo.toString(), "--limit", "${Integer.MAX_VALUE}") == ExitCode.OK
         positions() == (10..1).collect { it as String }
         !stdout.toString().contains("Earlier entries")
+    }
+
+    void "the next page's command names the repository it read, quoted for the shell, so it reads the same one from anywhere"() {
+        given:
+        Path target = TempRepo.init(Files.createDirectories(Files.createTempDirectory("sideband").resolve("it's a \$HOME `dir`")))
+        Path targetState = Files.createDirectories(target.resolve(".git/sideband"))
+        Journal journal = context.getBean(Journal)
+        (1..3).each { journal.append(targetState, Fixtures.humanDraft("target entry $it", [Fixtures.CODEX])) }
+
+        when:
+        run("log", "--repo", target.toString(), "--limit", "2")
+        String command = (stdout.toString() =~ /Earlier entries: `sideband (log .*)`\n\z/)[0][1]
+        stdout = new StringWriter()
+
+        then:
+        run(shellWords(command)) == ExitCode.OK
+        positions() == ["1"]
+        stdout.toString().contains("target entry 1")
+    }
+
+    void "a repository found from the working directory is left out of the next page's command"() {
+        given:
+        entries(3)
+        String workingDirectory = System.getProperty("user.dir")
+        System.setProperty("user.dir", repo.toString())
+
+        when:
+        int code = run("log", "--limit", "2")
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().endsWith("Earlier entries: `sideband log --before 2 --limit 2`\n")
+
+        cleanup:
+        System.setProperty("user.dir", workingDirectory)
+    }
+
+    /** Splits the words of a command the way the shell would. */
+    private static String[] shellWords(String command) {
+        Process shell = new ProcessBuilder("/bin/sh", "-c", 'eval "set -- $1"; for word; do printf "%s\\0" "$word"; done', "sh", command).start()
+        String words = shell.inputStream.text
+        assert shell.waitFor() == 0
+        words.split("\u0000") as String[]
     }
 
     void "a page with nothing to show prints nothing at all"() {

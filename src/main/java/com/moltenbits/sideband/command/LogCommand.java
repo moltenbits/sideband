@@ -118,7 +118,10 @@ public class LogCommand implements Callable<Integer> {
             page.entries().forEach(entry -> text.append(render(entry)));
             if (page.older()) {
                 text.append("Earlier entries: `sideband log --before ").append(page.entries().getLast().seq())
-                        .append(limit == null ? "" : " --limit " + limit).append("`\n");
+                        .append(limit == null ? "" : " --limit " + limit)
+                        .append(spec.commandLine().getParseResult().hasMatchedOption("--repo")
+                                ? " --repo " + shellQuoted(repository.directory.toAbsolutePath().normalize().toString()) : "")
+                        .append("`\n");
             }
         }
         PrintWriter out = spec.commandLine().getOut();
@@ -129,6 +132,11 @@ public class LogCommand implements Callable<Integer> {
             return ExitCode.IO_FAILURE;
         }
         return ExitCode.OK;
+    }
+
+    /** The text as one POSIX shell word, so the command it is part of can be pasted as it is. */
+    private static String shellQuoted(String text) {
+        return "'" + text.replace("'", "'\\''") + "'";
     }
 
     private Entry lookUp(Path stateDirectory, String id) {

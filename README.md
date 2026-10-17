@@ -151,8 +151,8 @@ $sideband
 Once both have joined, hand out work from either session by starting a
 prompt with the agent's name. The prompt is journaled as your words, the
 agent it names is woken in its own session, and from there the two delegate
-to each other and reply on their own; `sideband log` shows the whole
-discussion.
+to each other and reply on their own; `sideband log` shows the discussion,
+newest first, and `sideband log --after 0` all of it from the start.
 
 Give Claude the task and make Codex the reviewer, one commit at a time:
 
