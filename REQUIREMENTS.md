@@ -337,12 +337,16 @@ command the shell would expand, such as this repository's launcher; and
 `another hook; not run` for anything else. An event whose Sideband handler
 is absent, under another matcher, registered more than once, names the other
 client or none, or runs a path that gives no version, says so on its line,
-and the file is `broken`: `init` fixes it, and `doctor` ends by saying so. A
-file whose every event has one working Sideband handler is `installed` when
-all are this executable's own registration and `custom` otherwise; custom
-means configured differently, not proven to work, and neither state shows
-whether Codex trusts the definitions. A file with no Sideband handler is
-`missing`.
+and the file is `broken`. A file whose every event has one working Sideband
+handler is `installed` when all are this executable's own registration and
+`custom` otherwise; custom means configured differently, not proven to work,
+and neither state shows whether Codex trusts the definitions. A file with no
+Sideband handler is `missing`. When either file is `missing` or `broken`,
+`doctor` ends by naming the `init` that installs or fixes it. Since `init`
+rewrites both files, that line also counts the custom Sideband handlers in
+either file, those not known to run this executable, launchers included,
+which `init` replaces with this executable's registration or removes as
+duplicates; other hooks are left alone.
 
 The hooks cannot close the window between a clear and the first prompt in
 Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new

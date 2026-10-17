@@ -110,8 +110,10 @@ something said there.
    `stale` or `missing`, or a hook that is `broken` or `missing`, will not
    work as this executable needs, so tell the user to run `sideband init` in
    this repository and then `/sideband` again, and stop here; the lines under
-   a broken hook say what is wrong. A `custom` hook runs another command, such
-   as a launcher, and needs nothing. Then read the state on its
+   a broken hook say what is wrong. When `doctor`'s last line says `init` also
+   replaces or removes custom Sideband handlers, pass that on with it, so the
+   user can decide. A `custom` hook runs another command, such as a launcher,
+   and needs nothing. Then read the state on its
    `claude inbound` line. The executable makes the same check
    from the same files every time it appends an entry for Claude, so the
    two sides agree as long as the user's settings do not change under a

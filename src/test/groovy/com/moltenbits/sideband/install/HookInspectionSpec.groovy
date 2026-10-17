@@ -77,6 +77,7 @@ touch "$marker"
         item.events()*.problem() == [null] * 5
         item.events()[0].handlers()*.command() == ["\"$THIS\" hook prompt --agent codex", "touch '$marker'"]
         item.events()[0].handlers()*.runs() == ["this executable", "another hook; not run"]
+        item.events()*.handlers().flatten()*.custom().every { !it }
         item.events()[1].handlers()*.matcher() == ["clear"]
         item.events()[2].handlers()*.runs() == ["this executable", "another hook; not run"]
         !Files.exists(marker)
@@ -94,6 +95,7 @@ touch "$marker"
         item.state() == expected
         item.events()*.problem().every { it == problem }
         item.events()*.handlers().flatten()*.runs().every { it == runs }
+        item.events()*.handlers().flatten()*.custom().every { it }
         !Files.exists(marker)
 
         where:
@@ -114,6 +116,7 @@ touch "$marker"
         then:
         item.state() == "custom"
         item.events()*.handlers().flatten()*.runs().every { it == "not resolved" }
+        item.events()*.handlers().flatten()*.custom().every { it }
         !Files.exists(marker)
         !Files.exists(bin.resolve("sideband.probes"))
 
@@ -133,6 +136,7 @@ touch "$marker"
         then:
         item.state() == "broken"
         item.events()*.problem().every { it == problem.replace("TARGET", target.toString()) }
+        item.events()*.handlers().flatten()*.custom().every { it }
 
         where:
         problem                                         | setup

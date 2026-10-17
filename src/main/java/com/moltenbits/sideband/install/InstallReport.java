@@ -59,8 +59,10 @@ public record InstallReport(String executable, List<Item> skills, Item hook, Ite
      *                the version a literal path to a Sideband reports, {@code not resolved} for a Sideband command
      *                the shell would expand, or {@code another hook; not run} for a handler that is not this event's
      *                Sideband registration
+     * @param custom  whether this is a Sideband handler whose command is not known to run this executable, so that
+     *                {@code init} replaces or removes it
      */
     @Serdeable(naming = SnakeCaseStrategy.class)
-    public record Handler(@Nullable String matcher, String command, String runs) {
+    public record Handler(@Nullable String matcher, String command, String runs, boolean custom) {
     }
 }

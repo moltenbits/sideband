@@ -100,8 +100,9 @@ public class DoctorCommand implements Callable<Integer> {
         }
         text.append("\nClients:\n");
         ReportLines.clients(text, clients, !"installed".equals(clients.inbound().state()));
-        if (ReportLines.hooksBroken(clients)) {
-            text.append("\nRun sideband init here to fix the hooks marked above; it points them at this executable.\n");
+        String next = ReportLines.hooksNext(clients);
+        if (next != null) {
+            text.append('\n').append(next).append('\n');
         }
         PrintWriter out = spec.commandLine().getOut();
         out.print(text);

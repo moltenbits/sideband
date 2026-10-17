@@ -451,7 +451,7 @@ class ResourceInstaller implements Installer {
                         }
                         String command = String.valueOf(handler.get("command"));
                         if (!isSidebandHook(command, registration.subcommand())) {
-                            handlers.add(new InstallReport.Handler(matcher, command, ANOTHER_HOOK));
+                            handlers.add(new InstallReport.Handler(matcher, command, ANOTHER_HOOK, false));
                             continue;
                         }
                         Path target = literalTarget(command);
@@ -463,7 +463,7 @@ class ResourceInstaller implements Installer {
                         if (result != null && result.failure() != null) {
                             failure = target + " " + result.failure();
                         }
-                        InstallReport.Handler found = new InstallReport.Handler(matcher, command, runs);
+                        InstallReport.Handler found = new InstallReport.Handler(matcher, command, runs, target == null || result != null);
                         handlers.add(found);
                         sideband.add(found);
                         exact &= command.equals(registrationCommand(registration, client));

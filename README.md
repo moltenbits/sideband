@@ -338,7 +338,9 @@ one keeps running. Codex warns at startup when hooks need review, but
 `doctor` checks registration, not host trust, so a skipped hook looks
 installed to it. It lists every hook under its file with what it runs; a
 hook running another command, such as a launcher script, is `custom`, and
-only a `broken` one needs `init`. The trust entries land in your Codex `config.toml`.
+only a `missing` or `broken` one needs `init`. `init` points every Sideband
+hook in both files at itself, so when one needs it `doctor` also says how many
+custom ones it would replace or remove; your other hooks are left alone. The trust entries land in your Codex `config.toml`.
 
 Codex has no session registry. It records its thread id when it joins, and
 the writer pushes the envelope into that thread with `codex queue`. That

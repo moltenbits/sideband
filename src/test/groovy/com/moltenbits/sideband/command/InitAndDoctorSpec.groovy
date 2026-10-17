@@ -240,7 +240,7 @@ class InitAndDoctorSpec extends CommandSpec {
                 "        echo stopped  (another hook; not run)",
         ]
         lines.contains("      Interrupt: no Sideband handler")
-        lines.last() == "Run sideband init here to fix the hooks marked above; it points them at this executable."
+        lines.last() == "Run sideband init here to fix the broken hooks."
     }
 
     void "a hook run through a launcher is custom, and needs nothing done"() {
@@ -257,6 +257,88 @@ class InitAndDoctorSpec extends CommandSpec {
         lines[start].contains(" custom ")
         lines[start + 2] == '        "$(git rev-parse --show-toplevel)/scripts/sideband" hook prompt --agent codex  (not resolved)'
         !lines.any { it.startsWith("Run sideband init") }
+    }
+
+    static final String LAUNCHER = '"$(git rev-parse --show-toplevel)/scripts/sideband"'
+
+    /** Edits a hook file init wrote, through its parsed JSON. */
+    void edit(String file, Closure change) {
+        ObjectMapper json = context.getBean(ObjectMapper)
+        Path hooks = repo.resolve(file)
+        Map parsed = json.readValue(Files.readString(hooks), Map)
+        change(parsed)
+        Files.writeString(hooks, json.writeValueAsString(parsed))
+    }
+
+    /** Points every Sideband handler in the Codex file at the launcher. */
+    void codexThroughLauncher() {
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Files.writeString(hooks, Files.readString(hooks).replace("\\\"$EXECUTABLE\\\"", LAUNCHER.replace('"', '\\"')))
+    }
+
+    String closing() {
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines().last()
+    }
+
+    void "a hook file with no Sideband handler ends doctor with the init that installs it"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+
+        expect:
+        closing() == "Run sideband init here to install the missing hooks."
+    }
+
+    void "missing and broken hooks share one closing line"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+        edit(".codex/hooks.json") { it.hooks.remove("Interrupt") }
+
+        expect:
+        closing() == "Run sideband init here to install the missing hooks and fix the broken ones."
+    }
+
+    void "when init would also lose custom Sideband handlers in either file, the closing line counts them"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        codexThroughLauncher()
+        if (claude == "missing") {
+            Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+        } else {
+            edit(".claude/settings.local.json") { it.hooks.remove("Stop") }
+        }
+
+        expect:
+        closing() == "Run sideband init here to ${action}. It also replaces or removes the 5 custom Sideband handlers " +
+                "shown above, registering $EXECUTABLE instead; other hooks are left alone."
+
+        where:
+        claude    || action
+        "missing" || "install the missing hooks"
+        "broken"  || "fix the broken hooks"
+    }
+
+    void "a custom handler init would remove as a duplicate or move off the wrong matcher counts, and other hooks do not"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        edit(".codex/hooks.json", change)
+
+        expect:
+        closing() == "Run sideband init here to fix the broken hooks. It also replaces or removes the 1 custom Sideband " +
+                "handler shown above, registering $EXECUTABLE instead; other hooks are left alone."
+
+        where:
+        change << [
+                { Map hooks ->
+                    hooks.hooks.Stop[0].hooks << [type: "command", command: "$LAUNCHER hook capture --agent codex".toString()]
+                    hooks.hooks.Stop[0].hooks << [type: "command", command: "echo stopped"]
+                },
+                { Map hooks ->
+                    hooks.hooks.SessionStart[0].matcher = "startup"
+                    hooks.hooks.SessionStart[0].hooks[0].command = "$LAUNCHER hook session-start --agent codex".toString()
+                },
+        ]
     }
 
     void "init says which executable, and which version, the hooks it registered run"() {

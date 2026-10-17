@@ -5,7 +5,9 @@ import com.moltenbits.sideband.install.InstallReport.Event;
 import com.moltenbits.sideband.install.InstallReport.Handler;
 import com.moltenbits.sideband.install.InstallReport.Item;
 import com.moltenbits.sideband.store.StoreHealth;
+import io.micronaut.core.annotation.Nullable;
 
+import java.util.List;
 import java.util.Objects;
 
 /** The lines {@code init} and {@code doctor} share: the database in one line, and the client items one per line. */
@@ -62,8 +64,25 @@ final class ReportLines {
         }
     }
 
-    /** Whether either client's hook file needs {@code init} to work as it should. */
-    static boolean hooksBroken(InstallReport clients) {
-        return "broken".equals(clients.hook().state()) || "broken".equals(clients.codexHook().state());
+    /**
+     * The {@code init} that installs missing hooks or fixes broken ones, and the custom Sideband handlers it would lose
+     * in either file, since it rewrites both; null when neither file needs it.
+     */
+    static @Nullable String hooksNext(InstallReport clients) {
+        List<Item> files = List.of(clients.hook(), clients.codexHook());
+        boolean missing = files.stream().anyMatch(file -> file.state().equals("missing"));
+        boolean broken = files.stream().anyMatch(file -> file.state().equals("broken"));
+        if (!missing && !broken) {
+            return null;
+        }
+        String next = "Run sideband init here to " + (missing && broken ? "install the missing hooks and fix the broken ones"
+                : missing ? "install the missing hooks" : "fix the broken hooks") + ".";
+        long custom = files.stream().flatMap(file -> file.events().stream()).flatMap(event -> event.handlers().stream())
+                .filter(Handler::custom).count();
+        if (custom == 0) {
+            return next;
+        }
+        return next + " It also replaces or removes the " + custom + " custom Sideband handler" + (custom == 1 ? "" : "s")
+                + " shown above, registering " + clients.executable() + " instead; other hooks are left alone.";
     }
 }
