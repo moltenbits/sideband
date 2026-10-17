@@ -384,6 +384,44 @@ class ResourceInstallerSpec extends Specification {
         installer.install(home, project).hook().state() == "unchanged"
     }
 
+    void "each client's turn ends and session ends are captured, and Codex's interruptions too, which Claude Code has no event for"() {
+        when:
+        installer.install(home, project)
+        Map claude = context.getBean(io.micronaut.serde.ObjectMapper).readValue(Files.readString(project.resolve(".claude/settings.local.json")), Map)
+        Map codex = context.getBean(io.micronaut.serde.ObjectMapper).readValue(Files.readString(project.resolve(".codex/hooks.json")), Map)
+
+        then:
+        ["Stop", "SessionEnd"].every { event ->
+            claude.hooks[event]*.hooks*.command.flatten() == ['"/opt/sideband/bin/sideband" hook capture --agent claude'] &&
+                    codex.hooks[event]*.hooks*.command.flatten() == ['"/opt/sideband/bin/sideband" hook capture --agent codex']
+        }
+        codex.hooks.Interrupt*.hooks*.command.flatten() == ['"/opt/sideband/bin/sideband" hook capture --agent codex']
+        !claude.hooks.containsKey("Interrupt")
+
+        and: "no matcher: every turn end, session end, and interruption is one"
+        [claude.hooks.Stop, claude.hooks.SessionEnd, codex.hooks.Stop, codex.hooks.SessionEnd, codex.hooks.Interrupt].every { it*.matcher == [null] }
+    }
+
+    void "a registration from before the capture hook is stale until init adds it beside the operator's own handlers"() {
+        given:
+        Path hooksFile = project.resolve(".codex/hooks.json")
+        Files.createDirectories(hooksFile.parent)
+        Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}],"Stop":[{"hooks":[{"type":"command","command":"grrr hook notify --codex"}]}]}}''')
+
+        expect:
+        installer.inspect(home, project).codexHook().state() == "stale"
+
+        when:
+        installer.install(home, project)
+        Map parsed = context.getBean(io.micronaut.serde.ObjectMapper).readValue(Files.readString(hooksFile), Map)
+
+        then:
+        parsed.hooks.Stop*.hooks*.command.flatten() == ["grrr hook notify --codex", '"/opt/sideband/bin/sideband" hook capture --agent codex']
+        parsed.hooks.SessionEnd*.hooks*.command.flatten() == ['"/opt/sideband/bin/sideband" hook capture --agent codex']
+        parsed.hooks.Interrupt*.hooks*.command.flatten() == ['"/opt/sideband/bin/sideband" hook capture --agent codex']
+        installer.inspect(home, project).codexHook().state() == "installed"
+    }
+
     void "a registration from before the session-start hook is stale until init adds it"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")

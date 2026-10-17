@@ -40,6 +40,19 @@ public record Draft(
         }
     }
 
+    /**
+     * What an agent said in its own terminal during one turn, as its client's hooks recorded
+     * it: addressed to the operator, who read it there, asking nothing of anyone. {@code via}
+     * names the instance itself, as a prompt's names the client it was typed into: both are
+     * the hook's record of that terminal, not a message one participant sent another.
+     * {@code causedBy} is the prompt that started the turn, when one did.
+     */
+    public static Draft capturedTurn(ParticipantId instance, @Nullable String causedBy, String body) {
+        List<ParticipantId> to = List.of(ParticipantId.OPERATOR);
+        return new Draft(instance, instance, to, MessageType.STATUS, Route.forRecipients(to),
+                null, causedBy, false, Delivery.DEFAULT, body);
+    }
+
     /** What the operator typed: a request whoever it is addressed to, entered through {@code via}. */
     public static Draft humanRequest(ParticipantId via, List<ParticipantId> to, String body) {
         return new Draft(ParticipantId.OPERATOR, via, to, MessageType.REQUEST, Route.forRecipients(to),

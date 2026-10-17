@@ -107,6 +107,11 @@ class SqliteSessions implements Sessions {
         });
     }
 
+    /** {@link #identify}, on the current connection, so a caller can decide inside its own transaction. */
+    InstanceRule.Identified identifyHere(Role role, @Nullable String sessionId, @Nullable HostProcess caller) {
+        return rule.identify(role, records(role), sessionId, caller);
+    }
+
     /** Every record on the current connection. */
     private SortedMap<ParticipantId, Session> all() {
         SortedMap<ParticipantId, Session> records = new TreeMap<>();

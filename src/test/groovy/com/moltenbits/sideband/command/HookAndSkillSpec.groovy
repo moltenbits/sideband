@@ -2,13 +2,16 @@ package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.capture.AgentCapture
 import com.moltenbits.sideband.capture.HumanCapture
+import com.moltenbits.sideband.capture.CaptureFailedException
 import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.host.HostProcess
 import com.moltenbits.sideband.host.HostProcesses
+import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.pending.Pending
@@ -29,6 +32,7 @@ class HookAndSkillSpec extends CommandSpec {
     HostProcess callerProcess
     Map extraPayload = [:]
     HumanCapture captureOverride
+    AgentCapture agentCaptureOverride
 
     def setup() {
         run("init", "--repo", repo.toString(), "--skip-clients")
@@ -46,7 +50,8 @@ class HookAndSkillSpec extends CommandSpec {
                 process(_) >> Optional.ofNullable(callerProcess)
             }
             def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
-                    context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), context.getBean(HeldPrompts), context.getBean(ObjectMapper))
+                    context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), agentCaptureOverride ?: context.getBean(AgentCapture),
+                    context.getBean(HeldPrompts), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
             cli.err = new PrintWriter(stderr, true)
@@ -54,6 +59,111 @@ class HookAndSkillSpec extends CommandSpec {
         } finally {
             System.in = original
         }
+    }
+
+    void "words from a turn the operator interrupted are recorded before the prompt that follows it, under that turn's prompt"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Path transcript = Files.createTempFile("transcript", ".jsonl")
+        ObjectMapper json = context.getBean(ObjectMapper)
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "p-1"]
+        hook("look around")
+
+        when: "the turn says something, is interrupted before it ends, and the operator types again"
+        Files.writeString(transcript, json.writeValueAsString([type: "user", promptId: "p-1", message: [content: "look around"]]) + "\n"
+                + json.writeValueAsString([type: "assistant", message: [model: "m", stop_reason: "tool_use", content: [[type: "text", text: "Halfway."]]]]) + "\n")
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "p-2"]
+        hook("actually, stop")
+        List<Entry> entries = context.getBean(Journal).readAfter(stateDir, 0).entries()
+
+        then:
+        entries*.body() == ["look around", "Halfway.", "actually, stop"]
+        entries[1].metadata().isCapturedTurn()
+        entries[1].metadata().causedBy() == entries[0].metadata().id()
+    }
+
+    void "a prompt recorded but not delivered still causes the turn it starts"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Path transcript = Files.createTempFile("transcript", ".jsonl")
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "p-1"]
+        Journal journal = context.getBean(Journal)
+        captureOverride = { Path dir, ParticipantId via, String body ->
+            def entry = journal.append(dir, Draft.humanRequest(via, [Fixtures.CODEX], body))
+            throw new CaptureFailedException(CaptureFailedException.Stage.JOURNALED, entry.metadata().id(), new IOException("delivery failed"))
+        } as HumanCapture
+
+        when:
+        hook("@codex review this")
+        Entry prompt = journal.readAfter(stateDir, 0).entries().last()
+        List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
+                new AgentCapture.Hook(Role.CLAUDE, "s1", "p-1", null, null), "Delivery failed; the request is recorded.")
+
+        then: "the failure is still reported as before"
+        stderr.toString().contains("recorded " + prompt.metadata().id() + " but could not deliver it")
+        captured.size() == 1
+        captured[0].metadata().causedBy() == prompt.metadata().id()
+    }
+
+    void "a prompt held before the join and adopted by it causes the turn it started"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        Path transcript = Files.createTempFile("transcript", ".jsonl")
+        extraPayload = [transcript_path: transcript.toString(), prompt_id: "joining-turn"]
+        Journal journal = context.getBean(Journal)
+
+        when:
+        hook("Please join Sideband and review this")
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        Entry prompt = journal.readAfter(stateDir, 0).entries().last()
+        List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
+                new AgentCapture.Hook(Role.CLAUDE, "s1", "joining-turn", null, null), "Joined and reviewed.")
+
+        then:
+        prompt.body() == "Please join Sideband and review this"
+        captured.size() == 1
+        captured[0].metadata().causedBy() == prompt.metadata().id()
+    }
+
+    void "a capture that fails never keeps the operator's prompt from being recorded"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+        agentCaptureOverride = Stub() {
+            beforePrompt(*_) >> { throw new UncheckedIOException(new IOException("transcript unreadable")) }
+            prompted(*_) >> { throw new IllegalStateException("store busy") }
+        }
+        extraPayload = [transcript_path: "/nowhere.jsonl", prompt_id: "p-1"]
+
+        when:
+        int code = hook("record me anyway")
+
+        then:
+        code == ExitCode.OK
+        bodies() == ["record me anyway"]
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband recorded this prompt as")
+        stderr.toString().contains("transcript unreadable")
+        stderr.toString().contains("store busy")
+    }
+
+    void "a prompt a Codex subagent receives is not the operator's, so it is neither recorded nor held"() {
+        given:
+        detectedAgent = Role.CODEX
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
+        stdout = new StringWriter()
+        extraPayload = [agent_id: "agent-7", agent_type: "explorer", turn_id: "t-9"]
+
+        when:
+        int code = hook("search the codebase for the parser")
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        bodies().isEmpty()
+        !context.getBean(HeldPrompts).held(stateDir, Role.CODEX, "s1").present
     }
 
     void "the hook journals a prompt for the joined Claude role and tells the model so"() {

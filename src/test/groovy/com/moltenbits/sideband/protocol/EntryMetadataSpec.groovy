@@ -117,6 +117,51 @@ class EntryMetadataSpec extends Specification {
         !Fixtures.metadata().addresses(Fixtures.OPERATOR)
     }
 
+    void "a turn the hook captured is said by its instance in its own terminal, to the operator, asking nothing"() {
+        given:
+        ParticipantId fable = new ParticipantId("claude:fable")
+
+        when:
+        Draft turn = Draft.capturedTurn(fable, "019a", "I'll list the directory first.\n\nOnly `.git` is here.")
+
+        then:
+        turn.from() == fable
+        turn.via() == fable
+        turn.to() == [Fixtures.OPERATOR]
+        turn.type() == MessageType.STATUS
+        turn.route() == Route.DIRECT
+        turn.replyTo() == null
+        turn.causedBy() == "019a"
+        !turn.expectsReply()
+        turn.delivery() == Delivery.DEFAULT
+
+        and: "a turn not started by a prompt links to nothing"
+        Draft.capturedTurn(fable, null, "Codex says the review is clean.").causedBy() == null
+    }
+
+    void "only an agent's own words recorded from its terminal are a captured turn"() {
+        expect:
+        Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata().isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: null, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: false).isCapturedTurn()
+    }
+
+    void "an agent entry that names itself in via is a captured turn only in the captured turn's whole shape"() {
+        expect: "a request or reply to a peer, a broadcast status, or a status that asks for an answer is communication, not a capture"
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.REQUEST,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CODEX, via: Fixtures.CODEX, to: [Fixtures.CLAUDE, Fixtures.OPERATOR], type: MessageType.REPLY,
+                route: Route.BROADCAST, replyTo: "rev-0002", expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.CODEX, Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.BROADCAST, expectsReply: false).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.STATUS,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+        !Fixtures.metadata(from: Fixtures.CLAUDE, via: Fixtures.CLAUDE, to: [Fixtures.OPERATOR], type: MessageType.REQUEST,
+                route: Route.DIRECT, expectsReply: true).isCapturedTurn()
+    }
+
     void "timestamps keep their offset"() {
         given:
         EntryMetadata utc = Fixtures.metadata(createdAt: OffsetDateTime.parse("2026-09-05T03:29:33Z"))

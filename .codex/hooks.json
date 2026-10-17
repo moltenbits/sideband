@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook prompt --agent codex"
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/sideband\" hook prompt --agent codex"
           }
         ]
       }
@@ -16,7 +16,37 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Users/jamesdh/.local/bin/sideband\" hook session-start --agent codex"
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/sideband\" hook session-start --agent codex"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/sideband\" hook capture --agent codex"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/sideband\" hook capture --agent codex"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/scripts/sideband\" hook capture --agent codex"
           }
         ]
       }

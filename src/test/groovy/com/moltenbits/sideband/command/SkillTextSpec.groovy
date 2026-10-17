@@ -72,6 +72,21 @@ class SkillTextSpec extends CommandSpec {
         "codex"  | "obtain operator approval"       | "the operator"
     }
 
+    void "neither client is told to record what it says to the human: the hooks record it, and the log holds it"() {
+        expect:
+        ["claude", "codex"].every { client ->
+            String text = Files.readString(Path.of("skills", client, "INSTRUCTIONS.md")).replaceAll(/\s+/, " ")
+            !(text =~ /--to [^`]*operator/) &&
+                    !(text =~ /(?i)copy (the )?(operator|user|human)/) &&
+                    !(text =~ /(?i)answering the prompt to `?operator/) &&
+                    !text.contains("journal the participating reply") &&
+                    !text.contains("the entry keeps the journal complete") &&
+                    text.contains("never append an entry addressed to the operator") &&
+                    text.contains("the hooks record what you say there") &&
+                    text.contains("the whole discussion")
+        }
+    }
+
     void "the Claude skill's description, the one Sideband text always in context, does not present waiting as how entries arrive"() {
         given:
         String stub = Files.readString(Path.of("skills/claude/SKILL.md"))

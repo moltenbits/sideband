@@ -1,0 +1,45 @@
+#!/bin/sh
+# Run the newest Sideband installed, so this repository's hooks name no absolute
+# path. Candidates, in order: the directory `just install` uses, Homebrew's bin
+# (only $HOMEBREW_PREFIX when it is set, otherwise /opt/homebrew and /usr/local),
+# then every sideband on PATH. A candidate counts only when `--version` succeeds
+# and prints exactly one line, `sideband X.Y.Z (protocol vN)` or
+# `sideband X.Y.Z-dev (protocol vN)`; sort -V puts X.Y.Z-dev after X.Y.Z and
+# before the next release. An equal version keeps the earlier candidate. With
+# none installed it exits 0 without output, so a hook does nothing.
+
+self=$0
+best=
+best_version=
+
+consider() {
+    [ -f "$1" ] && [ -x "$1" ] || return 0
+    [ "$1" -ef "$self" ] && return 0
+    line=$("$1" --version </dev/null 2>/dev/null) || return 0
+    printf '%s\n' "$line" | grep -Eqx 'sideband [0-9]+\.[0-9]+\.[0-9]+(-dev)? \(protocol v[0-9]+\)' || return 0
+    [ "$(printf '%s\n' "$line" | wc -l)" -eq 1 ] || return 0
+    version=${line#sideband }
+    version=${version%% *}
+    if [ -z "$best" ] || { [ "$version" != "$best_version" ] &&
+        [ "$(printf '%s\n%s\n' "$best_version" "$version" | LC_ALL=C sort -V | tail -n 1)" = "$version" ]; }; then
+        best=$1
+        best_version=$version
+    fi
+}
+
+consider "${SIDEBAND_INSTALL_DIR:-$HOME/.local/bin}/sideband"
+if [ -n "${HOMEBREW_PREFIX:-}" ]; then
+    consider "$HOMEBREW_PREFIX/bin/sideband"
+else
+    consider /opt/homebrew/bin/sideband
+    consider /usr/local/bin/sideband
+fi
+remaining=$PATH:
+while [ -n "$remaining" ]; do
+    directory=${remaining%%:*}
+    remaining=${remaining#*:}
+    consider "${directory:-.}/sideband"
+done
+
+[ -n "$best" ] || exit 0
+exec "$best" "$@"

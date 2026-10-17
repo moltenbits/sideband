@@ -1,0 +1,14 @@
+{"timestamp":"2026-10-12T14:00:00Z","type":"session_meta","payload":{"id":"t1","cwd":"/repo","cli_version":"0.162.1"}}
+{"timestamp":"2026-10-12T14:00:01Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-1","root_turn_id":"turn-1","started_at":1791816000}}
+{"timestamp":"2026-10-12T14:00:01Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/repo","model":"gpt-6-astra"}}
+{"timestamp":"2026-10-12T14:00:01Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"system instructions"}]}}
+{"timestamp":"2026-10-12T14:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Look around, then tell me."}]}}
+{"timestamp":"2026-10-12T14:00:02Z","type":"response_item","payload":{"type":"reasoning","summary":[],"content":null,"encrypted_content":"opaque"}}
+{"timestamp":"2026-10-12T14:00:02Z","type":"response_item","payload":{"type":"message","id":"msg_c1","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"I'll list the directory first."}]}}
+{"timestamp":"2026-10-12T14:00:02Z","type":"event_msg","payload":{"type":"agent_message","message":"I'll list the directory first.","phase":"commentary"}}
+{"timestamp":"2026-10-12T14:00:03Z","type":"response_item","payload":{"type":"custom_tool_call","call_id":"call_1","name":"exec","input":"ls -a"}}
+{"timestamp":"2026-10-12T14:00:03Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"call_1","output":".\n..\n.git"}}
+{"timestamp":"2026-10-12T14:00:04Z","type":"response_item","payload":{"type":"message","id":"msg_f1","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Only `.git` is here."}]}}
+{"timestamp":"2026-10-12T14:00:04Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"Only `.git` is here."}}
+{"timestamp":"2026-10-12T14:00:10Z","type":"event_msg","payload":{"type":"task_started","turn_id":"turn-2","root_turn_id":"turn-2"}}
+{"timestamp":"2026-10-12T14:00:11Z","type":"response_item","payload":{"type":"message","id":"msg_f2","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Claude's review is clean."}]}}

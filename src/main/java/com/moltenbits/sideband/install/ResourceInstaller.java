@@ -37,15 +37,23 @@ class ResourceInstaller implements Installer {
      * matcher, which for a session start names the sources. A clear is matched: it is the one
      * event that replaces the operator's conversation while the old one may live on. Claude
      * Code's also matches a compaction, after which the conversation keeps its skills only
-     * within a budget, so the hook repeats who it is and how entries reach it.
+     * within a budget, so the hook repeats who it is and how entries reach it. Every turn
+     * end, session end, and Codex interruption runs the capture.
      */
     private record Registration(String event, String subcommand, @Nullable String matcher) {
     }
 
     private static List<Registration> registrations(Role client) {
-        return List.of(
+        List<Registration> registrations = new ArrayList<>(List.of(
                 new Registration(HOOK_EVENT, "prompt", null),
-                new Registration("SessionStart", "session-start", client == Role.CLAUDE ? "clear|compact" : "clear"));
+                new Registration("SessionStart", "session-start", client == Role.CLAUDE ? "clear|compact" : "clear"),
+                new Registration("Stop", "capture", null),
+                new Registration("SessionEnd", "capture", null)));
+        if (client == Role.CODEX) {
+            // Codex reports an interruption; Claude Code does not, so its interrupted turns wait for the next capture.
+            registrations.add(new Registration("Interrupt", "capture", null));
+        }
+        return registrations;
     }
     /** Only the stub is installed; everything else the skill needs comes from the executable. */
     private static final List<String> INSTALLED_FILES = List.of("SKILL.md");

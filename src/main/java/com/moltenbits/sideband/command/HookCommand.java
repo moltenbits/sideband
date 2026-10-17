@@ -1,9 +1,11 @@
 package com.moltenbits.sideband.command;
 
+import com.moltenbits.sideband.capture.AgentCapture;
 import com.moltenbits.sideband.capture.CaptureFailedException;
 import com.moltenbits.sideband.capture.Captured;
 import com.moltenbits.sideband.capture.HumanCapture;
 import com.moltenbits.sideband.handoff.Handling;
+import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.handoff.Handoffs;
 import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
@@ -31,6 +33,7 @@ import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -42,7 +45,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /** Entry points a client host calls directly, never a person. */
 @Command(name = "hook", description = "Entry points for client hooks", mixinStandardHelpOptions = true,
-        subcommands = {HookCommand.Prompt.class, HookCommand.SessionStart.class, HookCommand.Notify.class})
+        subcommands = {HookCommand.Prompt.class, HookCommand.SessionStart.class, HookCommand.Capture.class, HookCommand.Notify.class})
 public class HookCommand {
 
     /**
@@ -84,9 +87,28 @@ public class HookCommand {
                 + " as <name> joins as " + role.id() + ":<name>.";
     }
 
+    /**
+     * What the hosts send a hook, as far as Sideband reads it. A turn is named {@code turn_id}
+     * by Codex and {@code prompt_id} by Claude Code; {@code agent_id} is set only when the
+     * hook fires for a subagent rather than the session's own agent.
+     */
     @Serdeable(naming = SnakeCaseStrategy.class)
     record Payload(@Nullable String prompt, @Nullable String cwd, @Nullable String hookEventName,
-                   @Nullable String sessionId, @Nullable String source, @Nullable String notificationType) {
+                   @Nullable String sessionId, @Nullable String source, @Nullable String notificationType,
+                   @Nullable String transcriptPath, @Nullable String turnId, @Nullable String promptId,
+                   @Nullable String lastAssistantMessage, @Nullable String agentId) {
+    }
+
+    /** What a capture needs from a payload; a transcript path that is not a path is no transcript. */
+    static AgentCapture.Hook turnHook(Role role, String sessionId, Payload payload, HostEnvironment host) {
+        Path transcript;
+        try {
+            transcript = payload.transcriptPath() == null ? null : Path.of(payload.transcriptPath());
+        } catch (InvalidPathException e) {
+            transcript = null;
+        }
+        return new AgentCapture.Hook(role, sessionId, payload.turnId() != null ? payload.turnId() : payload.promptId(),
+                transcript, host.process(role).orElse(null));
     }
 
     @Serdeable
@@ -236,16 +258,18 @@ public class HookCommand {
         private final Sessions sessions;
         private final Pending pending;
         private final HumanCapture capture;
+        private final AgentCapture agentCapture;
         private final HeldPrompts held;
         private final ObjectMapper json;
 
         Prompt(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture,
-               HeldPrompts held, ObjectMapper json) {
+               AgentCapture agentCapture, HeldPrompts held, ObjectMapper json) {
             this.home = home;
             this.host = host;
             this.sessions = sessions;
             this.pending = pending;
             this.capture = capture;
+            this.agentCapture = agentCapture;
             this.held = held;
             this.json = json;
         }
@@ -283,6 +307,9 @@ public class HookCommand {
             if (payload == null || (payload.hookEventName() != null
                     && !payload.hookEventName().equals("UserPromptSubmit"))) {
                 return ExitCode.OK;
+            }
+            if (payload.agentId() != null) {
+                return ExitCode.OK; // a subagent's prompt comes from its parent agent, never the operator
             }
             String prompt = payload.prompt() == null ? "" : payload.prompt();
             String trimmed = prompt.stripLeading();
@@ -322,6 +349,8 @@ public class HookCommand {
                 String reason = "cannot tell which " + role.id() + " instance this is: the hook payload names no session";
                 return sessions.records(stateDirectory, role).isEmpty() ? skipped(reason) : failed(reason);
             }
+            AgentCapture.Hook turn = turnHook(role, sessionId, payload, host);
+            capturedBefore(stateDirectory, turn);
             if (isJoinInvocation(trimmed)) {
                 // The join that follows names the instance itself; inferring one first would move
                 // another instance here, only for the join to release it from this session.
@@ -332,7 +361,7 @@ public class HookCommand {
             InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, role, sessionId,
                     host.process(role).orElse(null));
             if (followed.instance() == null) {
-                return capturable ? hold(stateDirectory, role, sessionId, prompt, followed) : dropped(stateDirectory, role, sessionId);
+                return capturable ? hold(stateDirectory, role, sessionId, prompt, turn.turn(), followed) : dropped(stateDirectory, role, sessionId);
             }
             // The session holds an instance now, so whatever it held from before no longer leads
             // to a join: a later one must not adopt a task the operator has since moved past.
@@ -340,9 +369,40 @@ public class HookCommand {
             if (!capturable) {
                 return ExitCode.OK;
             }
-            Captured captured = capture.capture(stateDirectory, followed.instance(), prompt);
+            Captured captured;
+            try {
+                captured = capture.capture(stateDirectory, followed.instance(), prompt);
+            } catch (CaptureFailedException e) {
+                if (e.stage() == CaptureFailedException.Stage.JOURNALED && e.journaledId() != null) {
+                    causeOf(stateDirectory, turn, e.journaledId()); // recorded, only not delivered: still the turn's cause
+                }
+                throw e;
+            }
+            causeOf(stateDirectory, turn, captured.metadata().id());
             Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
             return ExitCode.OK;
+        }
+
+        /** Makes the recorded prompt the cause of the agent's words in the turn it started; a failure only goes to stderr. */
+        private void causeOf(Path stateDirectory, AgentCapture.Hook turn, String entryId) {
+            try {
+                agentCapture.prompted(stateDirectory, turn, entryId);
+            } catch (RuntimeException e) {
+                spec.commandLine().getErr().println("sideband hook: could not link the turn to its prompt: " + e.getMessage());
+            }
+        }
+
+        /**
+         * Records what the agent said since the last capture, a turn the operator interrupted
+         * included, so it lands before the prompt that follows it. Its own failure is reported
+         * on stderr and never keeps the prompt from being recorded.
+         */
+        private void capturedBefore(Path stateDirectory, AgentCapture.Hook turn) {
+            try {
+                agentCapture.beforePrompt(stateDirectory, turn);
+            } catch (RuntimeException e) {
+                spec.commandLine().getErr().println("sideband hook: could not record the agent's earlier words: " + e.getMessage());
+            }
         }
 
         /** A prompt that was never meant to be captured, or a repository where Sideband is not in use: stderr only. */
@@ -456,10 +516,11 @@ public class HookCommand {
          * reported on stderr only: the model is not told the prompt was not recorded, because
          * nothing was recording.
          */
-        private int hold(Path stateDirectory, Role role, String sessionId, String prompt, InstanceRule.Followed followed)
+        private int hold(Path stateDirectory, Role role, String sessionId, String prompt, @Nullable String turn,
+                         InstanceRule.Followed followed)
                 throws IOException {
             try {
-                held.hold(stateDirectory, role, sessionId, prompt);
+                held.hold(stateDirectory, role, sessionId, prompt, turn);
                 spec.commandLine().getErr().println("sideband hook: held for join by " + role.id() + " in session " + sessionId);
             } catch (RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: could not hold the prompt for join: " + e.getMessage());
@@ -514,6 +575,99 @@ public class HookCommand {
                     ? "Sideband recorded this prompt as " + id + ". Do not capture it again; cite it as --caused-by when delegating."
                     : "Sideband recorded this prompt as " + id + " and delivered it: " + delivered
                     + ". Do not capture or route it again; cite it as --caused-by when delegating.";
+        }
+    }
+
+    /**
+     * Both clients' {@code Stop} and {@code SessionEnd} hook, and Codex's {@code Interrupt}:
+     * records what the agent said in the session since the last capture, from its transcript
+     * (REQUIREMENTS.md 14.16a). At a turn's end it may wait a moment for the final message;
+     * an interruption or the session's end records what is there. A subagent's hook records
+     * nothing. Never blocks the host: nothing is written to stdout, any problem goes to stderr,
+     * and the exit code is always 0.
+     */
+    @Command(name = "capture", description = "Claude Code/Codex Stop and SessionEnd, and Codex Interrupt hook: record what the agent said in this session since the last capture", mixinStandardHelpOptions = true)
+    @Prototype
+    public static class Capture implements Callable<Integer> {
+
+        static final String STOP = "Stop";
+        /** Events after which the session may have nothing more to say, so whatever is there is recorded now. */
+        static final Set<String> FLUSHES = Set.of("SessionEnd", "Interrupt");
+
+        @Spec
+        CommandSpec spec;
+
+        @Option(names = "--agent", description = "The client whose hook this is, claude or codex; init registers it, and it wins over the shell markers")
+        Role agent;
+
+        private final SidebandHome home;
+        private final HostEnvironment host;
+        private final AgentCapture capture;
+        private final ObjectMapper json;
+
+        Capture(SidebandHome home, HostEnvironment host, AgentCapture capture, ObjectMapper json) {
+            this.home = home;
+            this.host = host;
+            this.capture = capture;
+            this.json = json;
+        }
+
+        @Override
+        public Integer call() {
+            try {
+                return record();
+            } catch (IOException | RuntimeException e) {
+                err().println("sideband hook: capture failed: " + e.getMessage());
+                return ExitCode.OK;
+            }
+        }
+
+        private int record() throws IOException {
+            Payload payload;
+            try {
+                payload = json.readValue(new String(System.in.readAllBytes(), UTF_8), Payload.class);
+            } catch (IOException e) {
+                return skipped("unreadable payload: " + e.getMessage());
+            }
+            if (payload == null || payload.hookEventName() == null || payload.agentId() != null) {
+                return ExitCode.OK;
+            }
+            boolean stop = STOP.equals(payload.hookEventName());
+            if (!stop && !FLUSHES.contains(payload.hookEventName())) {
+                return ExitCode.OK;
+            }
+            if (payload.sessionId() == null || payload.sessionId().isBlank()) {
+                return skipped("no session id in the hook payload");
+            }
+            Optional<Path> stateDirectory = stateDirectory(home, payload.cwd());
+            if (stateDirectory.isEmpty()) {
+                return skipped("invalid working directory in the hook payload");
+            }
+            if (!Files.isDirectory(stateDirectory.get())) {
+                return ExitCode.OK;
+            }
+            Role role = agent != null ? agent : host.role().orElse(null);
+            if (role == null) {
+                return skipped("cannot tell which client this is; register the hook with --agent claude or --agent codex");
+            }
+            AgentCapture.Hook turn = turnHook(role, payload.sessionId(), payload, host);
+            List<Entry> recorded = stop
+                    ? capture.turnEnded(stateDirectory.get(), turn, payload.lastAssistantMessage())
+                    : capture.flush(stateDirectory.get(), turn);
+            if (!recorded.isEmpty()) {
+                err().println("sideband hook: recorded " + recorded.size() + (recorded.size() == 1 ? " turn" : " turns")
+                        + " of " + role.id() + "'s from session " + payload.sessionId());
+            }
+            return ExitCode.OK;
+        }
+
+        private int skipped(String reason) {
+            err().println("sideband hook: capture skipped: " + reason);
+            return ExitCode.OK;
+        }
+
+        private PrintWriter err() {
+            return spec.commandLine().getErr();
         }
     }
 

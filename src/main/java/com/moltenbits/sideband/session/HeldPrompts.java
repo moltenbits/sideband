@@ -3,6 +3,7 @@ package com.moltenbits.sideband.session;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.Role;
+import io.micronaut.core.annotation.Nullable;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -19,8 +20,17 @@ import java.util.function.Function;
  */
 public interface HeldPrompts {
 
-    /** Keeps the prompt as the latest one typed into the session before it joined, replacing any earlier one of that session's. */
-    void hold(Path stateDirectory, Role role, String sessionId, String prompt);
+    /**
+     * Keeps the prompt as the latest one typed into the session before it joined, replacing
+     * any earlier one of that session's, with the turn it started as the host names it, so
+     * the adopted entry can be that turn's cause.
+     */
+    void hold(Path stateDirectory, Role role, String sessionId, String prompt, @Nullable String turn);
+
+    /** {@link #hold} from a host that names no turn. */
+    default void hold(Path stateDirectory, Role role, String sessionId, String prompt) {
+        hold(stateDirectory, role, sessionId, prompt, null);
+    }
 
     /** Forgets whatever the session holds: the operator's next input there was not their own words. */
     void drop(Path stateDirectory, Role role, String sessionId);
@@ -28,10 +38,19 @@ public interface HeldPrompts {
     /** The prompt the session holds for its role; nothing is changed. */
     Optional<String> held(Path stateDirectory, Role role, String sessionId);
 
+
+    /**
+     * A held prompt journaled by its adoption.
+     *
+     * @param turn the turn that prompt started, from the same hold: never another prompt's
+     */
+    record Adopted(Entry entry, @Nullable String turn) {
+    }
+
     /**
      * Removes the session's hold and journals the entry {@code draft} makes of it, both in
      * one transaction: a failure leaves the hold in place for the next join, and success
      * leaves exactly one entry. Other sessions' holds are left alone.
      */
-    Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft);
+    Optional<Adopted> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft);
 }

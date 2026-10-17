@@ -94,6 +94,53 @@ The README explains what Sideband is; REQUIREMENTS.md is the specification.
   `SessionStart` sources (`startup`, `resume`, `clear`, `compact`, `fork`)
   were verified. Record the version checked in REQUIREMENTS.md section 17.
 
+## Transcripts (Claude Code 2.1.296, Codex 0.162.1, measured 2026-10-12)
+
+The capture hook reads each host's own transcript, the path its hook payloads
+name in `transcript_path`. Neither format is documented; REQUIREMENTS.md 7.5
+lists exactly what is read.
+
+- **Claude Code writes a turn's final message after its `Stop` hook starts.**
+  A `Stop` hook that copied the transcript at once found the final message
+  missing in 3 of 3 multi-tool turns; one that polled every 100 ms found it
+  after one or two polls. Everything said before a tool call was already
+  there, since it precedes the tool call's own record. The capture therefore
+  waits up to two seconds at `Stop`. `last_assistant_message` in the payload
+  is the same text, but the capture uses it only when the transcript cannot
+  be read.
+- **Codex had written everything by `Stop`**, final answer included, before
+  `task_complete`, in 3 of 3 runs.
+- **Both hosts mark the final message and identify every record.** Claude
+  Code: a `stop_reason` other than `tool_use` or `pause_turn` on the final
+  record, `uuid` on every record, `promptId` on a turn's user records (its
+  prompt and its tool results) but not on its assistant records.
+  Codex: `phase` `final_answer` versus `commentary`, `id` on each message
+  item, `turn_id` on `task_started`. The hook payloads carry the same turn
+  identity: Claude Code's `prompt_id` on `UserPromptSubmit` and `Stop`,
+  Codex's `turn_id` on `UserPromptSubmit`, `Stop` and `Interrupt`.
+- **Probing a host's hooks headless.** `claude -p ... --settings <file>` runs
+  hooks from that file. For `codex exec`, a project `.codex/hooks.json` in a
+  scratch directory did not load even with the project trusted through `-c`,
+  but `-c 'hooks.Stop=[{hooks=[{type="command",command="..."}]}]'` did, with
+  `--dangerously-bypass-hook-trust` for a hook you wrote yourself. Codex's
+  question tool, `request_user_input`, is not available in `exec`.
+
+## Hooks in this repository
+
+- **The hooks run Sideband through `scripts/sideband`**, which runs the
+  newest Sideband installed: the one `just install` put in place, Homebrew's,
+  or any on PATH. Its header lists the rules. The committed
+  `.codex/hooks.json` reaches it as
+  `"$(git rev-parse --show-toplevel)/scripts/sideband"`, because Codex runs a
+  hook in the session's directory and sets no project directory for it
+  (codex-cli 0.162.1, measured 2026-10-17). The Claude Code hooks stay in the
+  untracked `.claude/settings.local.json` and run
+  `"$CLAUDE_PROJECT_DIR/scripts/sideband"`. A hook shell loads no shell
+  profile, so an alias or function named `sideband` is never what it runs.
+- **`sideband init` here rewrites both files with its own absolute path.**
+  After an `init` in this repository, point the hooks back at
+  `scripts/sideband`, then trust the Codex definitions through `/hooks`.
+
 ## Build
 
 - **Changing the SQLite journal mode per connection fails under contention**

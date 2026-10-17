@@ -1,9 +1,9 @@
 package com.moltenbits.sideband.store;
 
-import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.HeldPrompts;
+import io.micronaut.core.annotation.Nullable;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
@@ -25,11 +25,11 @@ class SqliteHeldPrompts implements HeldPrompts {
     }
 
     @Override
-    public void hold(Path stateDirectory, Role role, String sessionId, String prompt) {
+    public void hold(Path stateDirectory, Role role, String sessionId, String prompt, @Nullable String turn) {
         database.write(stateDirectory, () -> {
             find(role, sessionId).ifPresentOrElse(
-                    existing -> rows.update(new HeldPromptRow(existing.id(), role.id(), sessionId, prompt)),
-                    () -> rows.save(new HeldPromptRow(null, role.id(), sessionId, prompt)));
+                    existing -> rows.update(new HeldPromptRow(existing.id(), role.id(), sessionId, prompt, turn)),
+                    () -> rows.save(new HeldPromptRow(null, role.id(), sessionId, prompt, turn)));
             return null;
         });
     }
@@ -48,11 +48,11 @@ class SqliteHeldPrompts implements HeldPrompts {
     }
 
     @Override
-    public Optional<Entry> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft) {
+    public Optional<Adopted> adopt(Path stateDirectory, Role role, String sessionId, Function<String, Draft> draft) {
         return database.write(stateDirectory, () -> {
             Optional<HeldPromptRow> held = find(role, sessionId);
             held.ifPresent(rows::delete);
-            return held.map(row -> journal.insert(draft.apply(row.prompt())));
+            return held.map(row -> new Adopted(journal.insert(draft.apply(row.prompt())), row.turnId()));
         });
     }
 
