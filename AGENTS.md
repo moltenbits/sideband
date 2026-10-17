@@ -125,6 +125,22 @@ lists exactly what is read.
   `--dangerously-bypass-hook-trust` for a hook you wrote yourself. Codex's
   question tool, `request_user_input`, is not available in `exec`.
 
+## Hooks in this repository
+
+- **The hooks run Sideband through `scripts/sideband`**, which runs the
+  newest Sideband installed: the one `just install` put in place, Homebrew's,
+  or any on PATH. Its header lists the rules. The committed
+  `.codex/hooks.json` reaches it as
+  `"$(git rev-parse --show-toplevel)/scripts/sideband"`, because Codex runs a
+  hook in the session's directory and sets no project directory for it
+  (codex-cli 0.162.1, measured 2026-10-17). The Claude Code hooks stay in the
+  untracked `.claude/settings.local.json` and run
+  `"$CLAUDE_PROJECT_DIR/scripts/sideband"`. A hook shell loads no shell
+  profile, so an alias or function named `sideband` is never what it runs.
+- **`sideband init` here rewrites both files with its own absolute path.**
+  After an `init` in this repository, point the hooks back at
+  `scripts/sideband`, then trust the Codex definitions through `/hooks`.
+
 ## Build
 
 - **Changing the SQLite journal mode per connection fails under contention**
