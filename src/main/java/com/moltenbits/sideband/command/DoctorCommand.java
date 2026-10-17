@@ -66,8 +66,10 @@ public class DoctorCommand implements Callable<Integer> {
     public Integer call() throws IOException {
         Path stateDirectory = home.locate(repository.directory);
         boolean exists = Files.isDirectory(stateDirectory);
+        InstallReport clients = installer.inspect(homeDirectory, home.projectRoot(stateDirectory));
         StringBuilder text = new StringBuilder();
         text.append(String.join(" ", spec.root().version())).append('\n');
+        text.append("Executable: ").append(clients.executable()).append('\n');
         if (!exists) {
             text.append("Not initialized: no state directory at ").append(stateDirectory)
                     .append(". Run sideband init here.\n");
@@ -96,9 +98,11 @@ public class DoctorCommand implements Callable<Integer> {
                         .append(report.outgoing().size()).append(" outgoing\n");
             }
         }
-        InstallReport clients = installer.inspect(homeDirectory, home.projectRoot(stateDirectory));
         text.append("\nClients:\n");
         ReportLines.clients(text, clients, !"installed".equals(clients.inbound().state()));
+        if (ReportLines.hooksBroken(clients)) {
+            text.append("\nRun sideband init here to fix the hooks marked above; it points them at this executable.\n");
+        }
         PrintWriter out = spec.commandLine().getOut();
         out.print(text);
         out.flush();

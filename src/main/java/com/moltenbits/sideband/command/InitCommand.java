@@ -61,13 +61,18 @@ public class InitCommand implements Callable<Integer> {
         StoreHealth database = store.create(stateDirectory);
         InstallReport clients = skipClients ? null : installer.install(homeDirectory, home.projectRoot(stateDirectory));
         PrintWriter out = spec.commandLine().getOut();
-        out.print(render(stateDirectory, database, clients, homeDirectory.resolve(".claude/settings.json")));
+        out.print(render(stateDirectory, database, clients, homeDirectory.resolve(".claude/settings.json"),
+                String.join(" ", spec.root().version())));
         out.flush();
         return ExitCode.OK;
     }
 
-    /** @param userSettings the Claude Code user settings file, the only place that can grant acceptance of pushes */
-    static String render(Path stateDirectory, StoreHealth database, @Nullable InstallReport clients, Path userSettings) {
+    /**
+     * @param userSettings the Claude Code user settings file, the only place that can grant acceptance of pushes
+     * @param version      this executable's version line, which the hooks it registers run
+     */
+    static String render(Path stateDirectory, StoreHealth database, @Nullable InstallReport clients, Path userSettings,
+                         String version) {
         StringBuilder text = new StringBuilder();
         text.append("Sideband is set up in ").append(stateDirectory).append('\n');
         text.append("Database: ").append(ReportLines.database(database)).append("\n\n");
@@ -76,6 +81,7 @@ public class InitCommand implements Callable<Integer> {
             return text.toString();
         }
         ReportLines.clients(text, clients, false);
+        text.append("The hooks run ").append(clients.executable()).append(" (").append(version).append(").\n");
 
         List<String> steps = new ArrayList<>();
         steps.add("In Codex, run /hooks and trust the Sideband hook definitions; Codex skips a hook until you do.");

@@ -3,6 +3,7 @@ package com.moltenbits.sideband.command
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.store.Databases
+import io.micronaut.serde.ObjectMapper
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -186,5 +187,84 @@ class InitAndDoctorSpec extends CommandSpec {
         expect:
         text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
                 .find { it.startsWith("Database: ") }.contains(", schema 99, newer than this Sideband's 5, 0 entries, ")
+    }
+
+    static final String EXECUTABLE = ProcessHandle.current().info().command().get()
+
+    void "doctor names the executable and lists each hook's handlers under its line, with what each runs"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  claude hook") }
+
+        then:
+        lines[1] == "Executable: $EXECUTABLE"
+        lines[start].contains(" installed ")
+        lines[start + 1..start + 8] == [
+                "      UserPromptSubmit",
+                "        \"$EXECUTABLE\" hook prompt --agent claude  (this executable)",
+                "      SessionStart (matcher clear|compact)",
+                "        \"$EXECUTABLE\" hook session-start --agent claude  (this executable)",
+                "      Stop",
+                "        \"$EXECUTABLE\" hook capture --agent claude  (this executable)",
+                "      SessionEnd",
+                "        \"$EXECUTABLE\" hook capture --agent claude  (this executable)",
+        ]
+        lines[start + 9].startsWith("  codex hook")
+        !lines.any { it.startsWith("Run sideband init") }
+    }
+
+    void "a broken hook says what is wrong on its event's line, and doctor ends by saying init fixes it"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Map parsed = context.getBean(ObjectMapper).readValue(Files.readString(hooks), Map)
+        parsed.hooks.remove("Interrupt")
+        parsed.hooks.SessionStart[0].matcher = "startup"
+        parsed.hooks.Stop[0].hooks << [type: "command", command: "echo stopped"]
+        Files.writeString(hooks, context.getBean(ObjectMapper).writeValueAsString(parsed))
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  codex hook") }
+
+        then:
+        lines[start].contains(" broken ")
+        lines[start + 3..start + 7] == [
+                "      SessionStart (matcher clear): under matcher startup, needs clear",
+                "        [matcher startup] \"$EXECUTABLE\" hook session-start --agent codex  (this executable)",
+                "      Stop",
+                "        \"$EXECUTABLE\" hook capture --agent codex  (this executable)",
+                "        echo stopped  (another hook; not run)",
+        ]
+        lines.contains("      Interrupt: no Sideband handler")
+        lines.last() == "Run sideband init here to fix the hooks marked above; it points them at this executable."
+    }
+
+    void "a hook run through a launcher is custom, and needs nothing done"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Files.writeString(hooks, Files.readString(hooks).replace("\\\"$EXECUTABLE\\\"", '\\"$(git rev-parse --show-toplevel)/scripts/sideband\\"'))
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  codex hook") }
+
+        then:
+        lines[start].contains(" custom ")
+        lines[start + 2] == '        "$(git rev-parse --show-toplevel)/scripts/sideband" hook prompt --agent codex  (not resolved)'
+        !lines.any { it.startsWith("Run sideband init") }
+    }
+
+    void "init says which executable, and which version, the hooks it registered run"() {
+        when:
+        List<String> lines = text("init", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        String version = text("--version").trim()
+
+        then:
+        lines.contains("The hooks run $EXECUTABLE (${version}).".toString())
     }
 }

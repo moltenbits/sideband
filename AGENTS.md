@@ -137,6 +137,7 @@ lists exactly what is read.
   untracked `.claude/settings.local.json` and run
   `"$CLAUDE_PROJECT_DIR/scripts/sideband"`. A hook shell loads no shell
   profile, so an alias or function named `sideband` is never what it runs.
+  `sideband doctor` reports these hooks as `custom`, each `not resolved`.
 - **`sideband init` here rewrites both files with its own absolute path.**
   After an `init` in this repository, point the hooks back at
   `scripts/sideband`, then trust the Codex definitions through `/hooks`.

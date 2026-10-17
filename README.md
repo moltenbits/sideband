@@ -336,7 +336,9 @@ once you have trusted it through `/hooks` (section 1.3), and again whenever
 hash and skips an untrusted definition, while an unchanged, already trusted
 one keeps running. Codex warns at startup when hooks need review, but
 `doctor` checks registration, not host trust, so a skipped hook looks
-installed to it. The trust entries land in your Codex `config.toml`.
+installed to it. It lists every hook under its file with what it runs; a
+hook running another command, such as a launcher script, is `custom`, and
+only a `broken` one needs `init`. The trust entries land in your Codex `config.toml`.
 
 Codex has no session registry. It records its thread id when it joins, and
 the writer pushes the envelope into that thread with `codex queue`. That
