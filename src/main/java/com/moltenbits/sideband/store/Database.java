@@ -21,6 +21,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 
 /**
@@ -69,6 +70,14 @@ final class Database {
 
     /** Runs {@code work} against an existing store, or returns {@code whenAbsent} when there is none. */
     <T> T read(Path stateDirectory, T whenAbsent, Supplier<T> work) {
+        return readOpened(stateDirectory, whenAbsent, found -> work.get());
+    }
+
+    /**
+     * {@link #read(Path, Object, Supplier)}, handing {@code work} the migration the database was at
+     * when this call opened it, before migrating it.
+     */
+    <T> T readOpened(Path stateDirectory, T whenAbsent, IntFunction<T> work) {
         Path file = SidebandDataSource.file(stateDirectory);
         if (!Files.exists(file)) {
             return whenAbsent;
@@ -81,19 +90,33 @@ final class Database {
             if (version < SCHEMA_VERSION) {
                 migrator.run(migrations, dataSource);
             }
-            return work.get();
+            return work.apply(version);
         }));
     }
 
     /** Runs {@code work} in one transaction. A database that is absent or behind is migrated first, on Flyway's own connections. */
     <T> T write(Path stateDirectory, Supplier<T> work) {
+        return writeOpened(stateDirectory, found -> work.get());
+    }
+
+    /**
+     * {@link #write(Path, Supplier)}, handing {@code work} the migration the database was at when
+     * this call opened it, before migrating it: zero when there was none.
+     */
+    <T> T writeOpened(Path stateDirectory, IntFunction<T> work) {
         Path file = SidebandDataSource.file(stateDirectory);
         return guarded(file, () -> SidebandDataSource.in(stateDirectory, () -> {
-            if (!Files.exists(file) || version() < SCHEMA_VERSION) {
+            int version = Files.exists(file) ? version() : 0;
+            if (version < SCHEMA_VERSION) {
                 migrator.run(migrations, dataSource);
             }
-            return transactions.executeWrite(status -> work.get());
+            return transactions.executeWrite(status -> work.apply(version));
         }));
+    }
+
+    /** The migration the database on the current connection is at, {@code PRAGMA user_version}. */
+    int schema() {
+        return version();
     }
 
     private int version() {

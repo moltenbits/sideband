@@ -37,7 +37,7 @@ jobs:
       - name: Build the native executable
         run: ./gradlew nativeCompile -Pversion=${{ steps.version.outputs.version }}
       - name: Check the version it reports
-        run: ./build/native/nativeCompile/sideband --version | grep -Fx "sideband ${{ steps.version.outputs.version }} (protocol v1)"
+        run: ./build/native/nativeCompile/sideband --version | grep -Fx "sideband ${{ steps.version.outputs.version }}"
       - name: Package
         env:
           ARCHIVE: sideband-${{ steps.version.outputs.version }}-${{ matrix.target }}.tar.gz

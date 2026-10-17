@@ -10,9 +10,12 @@ final class ReportLines {
     private ReportLines() {
     }
 
-    /** Path, entry count, size, and SQLite's integrity verdict. */
+    /** Path, schema, entry count, size, and SQLite's integrity verdict. */
     static String database(StoreHealth health) {
-        return health.path() + ", " + health.entries() + (health.entries() == 1 ? " entry, " : " entries, ")
+        return health.path() + ", schema " + health.schema()
+                + (health.migratedFrom() != null ? ", migrated from " + health.migratedFrom() : "")
+                + (health.schema() > health.supported() ? ", newer than this Sideband's " + health.supported() : "")
+                + ", " + health.entries() + (health.entries() == 1 ? " entry, " : " entries, ")
                 + health.bytes() + " bytes, integrity " + health.integrity();
     }
 

@@ -222,7 +222,13 @@ migration the executable applies the first time it opens a database that is
 behind, whether for a write or a read, so what an earlier executable recorded
 (sessions above all) stays visible to the first command of a newer one; only
 a database still at version zero, one another process is creating, reads as
-absent. Readers of the JSON form must ignore unknown fields.
+absent. `init` and `doctor` report the database's schema, its
+`PRAGMA user_version`; when opening it for the report migrated it, the line
+says from which schema (`schema 5, migrated from 4`), and a schema above the
+executable's latest migration, one a newer Sideband applied, is reported
+beside it (`schema 6, newer than this Sideband's 5`) and left alone. Neither
+asks for `init` to bring a database up to date: any command that opens it does.
+Readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 

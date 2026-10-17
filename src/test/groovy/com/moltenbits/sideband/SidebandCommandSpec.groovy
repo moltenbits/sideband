@@ -34,9 +34,9 @@ class SidebandCommandSpec extends Specification {
         !out.toString().contains("mark-delivered")
     }
 
-    void "version reports the build and protocol versions"() {
+    void "version reports the build's version alone"() {
         expect:
         cli().execute("--version") == ExitCode.OK
-        out.toString() ==~ /(?s)sideband \S+ \(protocol v1\).*/
+        out.toString() ==~ /sideband \d+\.\d+\.\d+(-dev)?\n/
     }
 }

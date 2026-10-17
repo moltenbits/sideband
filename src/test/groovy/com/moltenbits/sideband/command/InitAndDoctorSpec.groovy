@@ -2,6 +2,7 @@ package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.store.Databases
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -105,7 +106,7 @@ class InitAndDoctorSpec extends CommandSpec {
         String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
 
         then:
-        report.readLines()[0] ==~ /sideband \S+ \(protocol v1\)/
+        report.readLines()[0] ==~ /sideband \d+\.\d+\.\d+(-dev)?/
         report.contains("Not initialized")
         !report.contains("Instances:")
         report.readLines().find { it.startsWith("  claude skill") }.contains("missing")
@@ -126,7 +127,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         then:
         lines.find { it.startsWith("State directory: ") }.endsWith(repo.toRealPath().resolve(".git/sideband").toString() + " (rwx------)")
-        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + repo.toRealPath().resolve(".git/sideband/sideband.db").toString() + ", 1 entry, ")
+        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + repo.toRealPath().resolve(".git/sideband/sideband.db").toString() + ", schema 5, 1 entry, ")
         lines.find { it.startsWith("Database: ") }.endsWith("integrity ok")
         lines.find { it.startsWith("  codex") }.contains("session s1")
         lines.find { it.startsWith("  codex") }.contains("1 open")
@@ -147,5 +148,43 @@ class InitAndDoctorSpec extends CommandSpec {
         lines[start + 1] ==~ /  claude        not joined; .*/
         lines[start + 2] ==~ /  claude:fable  session f1, read up to position 0; .*/
         lines[start + 3] ==~ /  codex         not joined; .*/
+    }
+
+    void "doctor brings a database an older Sideband left up to date, and says it did, without asking for init"() {
+        given:
+        Path database = Files.createDirectories(repo.resolve(".git/sideband")).resolve("sideband.db")
+        Databases.atSchema4(database)
+
+        when:
+        String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
+
+        then:
+        String line = report.readLines().find { it.startsWith("Database: ") }
+        line.contains(", schema 5, migrated from 4, 1 entry, ")
+        !line.contains("init")
+        Databases.query(database, "PRAGMA user_version") == "5"
+
+        and: "the next look finds it current"
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 5, 1 entry, ")
+    }
+
+    void "init reports the migration it applied to an older database"() {
+        given:
+        Databases.atSchema4(Files.createDirectories(repo.resolve(".git/sideband")).resolve("sideband.db"))
+
+        expect:
+        text("init", "--repo", repo.toString(), "--skip-clients").readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 5, migrated from 4, 1 entry, ")
+    }
+
+    void "a database a newer Sideband migrated is reported beside the schema this one supports"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        Databases.execute(repo.resolve(".git/sideband/sideband.db"), "PRAGMA user_version = 99")
+
+        expect:
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 99, newer than this Sideband's 5, 0 entries, ")
     }
 }
