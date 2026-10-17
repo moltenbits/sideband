@@ -27,6 +27,13 @@ public interface Journal {
     /** Every entry whose position is greater than {@code position}, in order. */
     Read readAfter(Path stateDirectory, long position);
 
+    /**
+     * Up to {@code limit} entries whose position is less than {@code position}, newest first.
+     *
+     * @throws IllegalArgumentException when {@code limit} is less than one
+     */
+    Page readBefore(Path stateDirectory, long position, int limit);
+
     /** The entry with the given identifier, when it exists. */
     Optional<Entry> find(Path stateDirectory, String id);
 

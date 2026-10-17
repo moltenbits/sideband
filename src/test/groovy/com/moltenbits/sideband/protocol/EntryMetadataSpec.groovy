@@ -117,6 +117,19 @@ class EntryMetadataSpec extends Specification {
         !Fixtures.metadata().addresses(Fixtures.OPERATOR)
     }
 
+    void "an entry's cause is its caused_by when it has one, otherwise what it replies to"() {
+        expect:
+        Fixtures.metadata(from: Fixtures.CLAUDE, via: null, to: [Fixtures.CODEX], type: type, route: Route.DIRECT,
+                replyTo: replyTo, causedBy: causedBy).cause() == cause
+
+        where:
+        type                | replyTo | causedBy || cause
+        MessageType.REQUEST | null    | null     || null
+        MessageType.REQUEST | null    | "019c"   || "019c"
+        MessageType.REPLY   | "019b"  | null     || "019b"
+        MessageType.REPLY   | "019b"  | "019c"   || "019c"
+    }
+
     void "a turn the hook captured is said by its instance in its own terminal, to the operator, asking nothing"() {
         given:
         ParticipantId fable = new ParticipantId("claude:fable")

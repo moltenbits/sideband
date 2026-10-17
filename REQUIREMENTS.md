@@ -161,7 +161,24 @@ command prints as JSON, for example:
 ```
 
 `sideband log` renders entries as Markdown for a person: a heading naming
-author and recipients, the metadata as a list, and the body verbatim.
+author and recipients, the metadata as a list, and the body verbatim. A
+journal grows without bound, so by default it prints a page: the newest 20
+entries, newest first, ending with the line
+``Earlier entries: `sideband log --before <position>` `` when older entries
+exist, where the position is the oldest one shown and any `--limit` is carried
+over. `--before <position>` prints the page below that position, and
+`--limit <n>` sets the page size; `--limit 0` prints nothing. `--after
+<position>` prints every entry after it, oldest first, at most `--limit` of
+them. `--id <id>` prints one entry. `--trace <id>` prints the entry and the
+entries it came from, oldest first: each step follows `caused_by` when it is
+set, otherwise `reply_to` (the same precedence as 8.3), until an entry has
+neither. Unlike the lineage rule it does not stop at the first human-authored
+entry, since it shows the discussion rather than deciding authority. A link
+to an entry that is not in the journal, or that is already in the trace, ends
+it under a first line beginning `**Incomplete trace.**` that names both ids,
+and the command still succeeds. An unknown id, more than one of `--before`,
+`--after`, `--id` and `--trace`, and `--limit` with `--id` or `--trace` are
+invalid input (exit 2).
 
 ### 6.2 Required metadata
 
@@ -2185,7 +2202,9 @@ sideband append --type ack --reply-to <id>         # receipt; body optional; nev
 sideband pending                                   # open, in progress, updates, outgoing; advances the bookmark
 sideband pending --wait [--timeout <s>]            # block until something new, then report; never advances
 sideband pending --wait --stream                   # the listener: one report per batch, forever; never advances
-sideband log [--after <position>] [--limit <n>]    # the discussion as Markdown, oldest first
+sideband log [--before <position>] [--limit <n>]   # the discussion as Markdown, a page at a time, newest first
+sideband log --after <position> [--limit <n>]      # the entries after a position, oldest first
+sideband log --id <id> | --trace <id>              # one entry, or an entry and the entries it came from
 sideband skill [--eject [--force]]                 # the calling client's adapter instructions, or eject them
 sideband hook prompt                               # both clients' UserPromptSubmit hook, payload on stdin
 sideband hook session-start                        # both clients' SessionStart hook: after a clear move the instance to the new conversation; after a Claude compaction remind it

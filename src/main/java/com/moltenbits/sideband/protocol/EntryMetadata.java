@@ -60,6 +60,14 @@ public record EntryMetadata(
                 && to.equals(List.of(ParticipantId.OPERATOR));
     }
 
+    /**
+     * The entry this one came from: {@code caused_by} when it is set, since that names the work it
+     * serves, otherwise the entry it replies to; null for an entry with neither.
+     */
+    public @Nullable String cause() {
+        return causedBy != null ? causedBy : replyTo;
+    }
+
     /** True when at least one recipient is a client role. */
     public boolean addressesAnyClient() {
         return to.stream().anyMatch(id -> !id.isHuman());
