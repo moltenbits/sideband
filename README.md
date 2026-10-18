@@ -267,7 +267,7 @@ route failed and to say so rather than act on it.
   before any action. The only thing kept beside the journal is each
   instance's session record: how far it has read, which conversation and, for
   Claude Code, which process it is, and for Codex the thread to push into.
-  Whoever of the same client joins under a name last holds it.
+  Whoever joins under a name last holds it, from either client.
 
 ### 3.1 The journal
 

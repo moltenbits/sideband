@@ -12,8 +12,8 @@ import java.time.OffsetDateTime;
 /**
  * The client session that currently holds an instance: which client it runs in, how to reach
  * it, and how far into the journal it has read. Nothing else about an instance is stored;
- * everything it has done is in the journal. Whoever joins under an identifier from the same
- * client last holds it; the process is never used to refuse anything, only to tell which
+ * everything it has done is in the journal. Whoever joins under an identifier last holds it,
+ * from either client; the process is never used to refuse anything, only to tell which
  * instance a calling session is (REQUIREMENTS.md 9.5a).
  *
  * @param id        the host's session identifier (Codex's thread id, which pushes address; Claude Code's session id)

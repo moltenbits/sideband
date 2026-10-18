@@ -989,7 +989,7 @@ session or process (10.2). A name nobody has joined under has no record, so
 nothing is pushed for it, whatever the name; the entry waits.
 
 Instances of deleted worktrees or finished experiments are not retired: their
-records stay until someone of the same client joins under their name again,
+records stay until someone, of either client, joins under their name again,
 and `@all` keeps addressing them. A registry with a retired state is later work.
 
 ### 9.6 Asynchronous requests and replies
@@ -1556,13 +1556,20 @@ it; only its reply closes the request.
 
 Given one Codex session has joined a project as `codex`, when another
 Codex session joins it as `codex` too, the second join replaces that
-instance's record and holds it; a join by the same client is not refused, and
-the join output names the session it replaced. Codex names no process, so a prompt typed into the
-first session afterwards moves the instance back there by step 3 of 9.5a,
+instance's record and holds it; the join is not refused, and the join output
+names the session it replaced. Codex names no process, so a prompt typed into
+the first session afterwards moves the instance back there by step 3 of 9.5a,
 as in version one. The same with Claude Code: the second join holds
 `claude`, and a prompt typed into the first session, whose process is not
 the recorded one, is held for a join rather than moving the instance while
 the second session's process is alive.
+
+Given a Codex session holds `opus` in a project, when a Claude Code session
+joins it as `opus`, the join takes the name over exactly as above: the record
+now names the Claude Code session, the join output names the Codex thread it
+replaced, and entries for `opus` are pushed to Claude Code from then on. A
+push already being prepared for the Codex thread when the join lands is not
+queued to Codex under the Claude Code session's id; it waits in the journal.
 
 ### 14.10a Named instances
 
@@ -2312,7 +2319,7 @@ section 9.5a; only `join --as` names an instance explicitly.
 
 ```text
 sideband init [--skip-clients] [as <project-name>]  # state directory and database, the project registered, both skill stubs, both clients' hook registrations
-sideband join [--as <name>] [--resume]             # start this session under the client's own name or another, taking it over from the same client; prints the first pending report
+sideband join [--as <name>] [--resume]             # start this session under the client's own name or another, taking it over from either client; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
 sideband append --type request --to <name|project/name> --caused-by <id> [--body-file <path>]
 sideband append --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]

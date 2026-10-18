@@ -2,6 +2,7 @@ package com.moltenbits.sideband.push
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.handoff.Batch
 import com.moltenbits.sideband.handoff.Handoffs
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
@@ -202,6 +203,29 @@ exit $(cat "''' + exitFile + '''")
         then: "A, which holds the envelope, has the record; B, which will never see it, has none"
         deliveries.pushedInto(state, ParticipantId.of("repo", "codex"), "thread-A").keySet() == [entry.seq()] as Set
         deliveries.pushedInto(state, ParticipantId.of("repo", "codex"), "thread-B").isEmpty()
+    }
+
+    void "Claude taking the name over while a push to its Codex holder is prepared leaves the entry waiting, never queued to a Claude session id"() {
+        given: "Codex holds codex when the pusher is chosen; Claude joins as codex before the destination is read"
+        sessions.join(state, Fixtures.CODEX, Role.CODEX, "codex-thread")
+        Entry entry = toCodex()
+        Handoffs actual = context.getBean(Handoffs)
+        Handoffs racing = Stub(Handoffs) {
+            prepare(_, _) >> { Path directory, List<Entry> entries ->
+                sessions.join(state, Fixtures.CODEX, Role.CLAUDE, "claude-session")
+                actual.prepare(directory, entries)
+            }
+            envelope(_) >> { Batch batch -> actual.envelope(batch) }
+        }
+        Pushes wired = new HostPushes(racing, deliveries, sessions, [new CodexQueuePusher(fakeBin.resolve("codex").toString(), sessions)])
+
+        when:
+        List<PushResult> results = wired.deliver(state, entry)
+
+        then:
+        results*.outcome() == [PushOutcome.NO_SESSION]
+        !Files.exists(log)
+        deliveries.pushedInto(state, Fixtures.CODEX, "claude-session").isEmpty()
     }
 
     void "a Claude push lands in whichever session accepts it, and that is the session recorded"() {
