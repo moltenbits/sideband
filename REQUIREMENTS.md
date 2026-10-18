@@ -901,9 +901,11 @@ least visible. Joining under a name the other client holds is refused (exit
 clients joining one name at once leave exactly one holder. Records are not
 retired, so a name a finished session of the other client held stays refused
 until clearing a session is possible (a follow-up to #32). A session holds
-one instance at a time: joining removes the record of any other instance of
-the client that names the joining session, so switching a conversation from
-`claude` to `fable` leaves `claude` unjoined.
+one instance at a time in a project: joining removes the record of any other
+instance of the client in the same project that names the joining session,
+so switching a conversation from `claude` to `fable` leaves `claude`
+unjoined. Records in other projects are never touched by a join or a follow
+here.
 
 Beside the host's session identifier, an instance's record holds the host
 process when the host names it: its process id together with its start
@@ -918,9 +920,10 @@ app-server daemon that every Codex terminal shared, so a process said
 nothing about which terminal was calling, and Sideband records none for
 Codex.
 
-A live process belongs to at most one instance of its client. Whenever a
-record takes a process, by a join or by any of the steps below, every other
-record of the client naming that process loses it: its address and pending
+A live process belongs to at most one instance of its client in a project.
+Whenever a record takes a process, by a join or by any of the steps below,
+every other record of the client in the same project naming that process
+loses it: its address and pending
 work stay, but it no longer claims to be running there. That happens when a
 client switches its conversation to another instance's session, as Claude
 Code's `/resume` can inside one process, and when a session joins in a
@@ -978,7 +981,8 @@ joined instance would write under its identity and move its bookmark. A
 session whose instance another join took over while it was working is
 refused on its next command this way, and so is a restarted client that has
 not rejoined and has not been typed into, which a join or the operator's
-first prompt settles. `join` is never refused.
+first prompt settles. `join` is never refused for a name the same client
+holds; it takes the name over.
 
 Delivery reaches an instance through its own record, by the pusher of the
 client the record names: Codex's queues into the thread the record names
@@ -1555,8 +1559,8 @@ it; only its reply closes the request.
 
 Given one Codex session has joined a project as `codex`, when another
 Codex session joins it as `codex` too, the second join replaces that
-instance's record and holds it; nothing is refused, and the join output names
-the session it replaced. Codex names no process, so a prompt typed into the
+instance's record and holds it; a join by the same client is not refused, and
+the join output names the session it replaced. Codex names no process, so a prompt typed into the
 first session afterwards moves the instance back there by step 3 of 9.5a,
 as in version one. The same with Claude Code: the second join holds
 `claude`, and a prompt typed into the first session, whose process is not
