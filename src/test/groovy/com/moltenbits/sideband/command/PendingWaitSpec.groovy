@@ -19,7 +19,7 @@ class PendingWaitSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
     Path stateDir = home.resolve(".sideband")
-    Path journalFile = stateDir.resolve("sideband.db")
+    Path journalFile = stateDir.resolve("journal.db")
 
     def setup() {
         Files.createDirectories(stateDir)

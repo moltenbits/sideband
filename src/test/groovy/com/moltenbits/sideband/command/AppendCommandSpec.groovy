@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.journal.Journal
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -77,7 +78,7 @@ class AppendCommandSpec extends CommandSpec {
         then:
         code == ExitCode.INVALID_INPUT
         stderr.toString().contains("human-authored")
-        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
+        context.getBean(Journal).end(home.resolve(".sideband")) == 0
     }
 
     void "an actionable agent message pointing at a missing ancestor is refused"() {
@@ -173,7 +174,7 @@ class AppendCommandSpec extends CommandSpec {
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
                 "--body-file", body("orphan").toString()) == ExitCode.INVALID_INPUT
-        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
+        context.getBean(Journal).end(home.resolve(".sideband")) == 0
         run("append", "--repo", repo.toString(), "--from", "codex", "--type", "status",
                 "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--to is required unless --reply-to")

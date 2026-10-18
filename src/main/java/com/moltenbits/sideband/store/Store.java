@@ -11,8 +11,12 @@ import java.util.Optional;
  */
 public interface Store {
 
-    /** The database file name inside the state directory. */
-    String FILE_NAME = "sideband.db";
+    /**
+     * The database file name inside the state directory. Not {@code sideband.db}: an earlier
+     * version run from the home directory itself kept that directory's own journal there, and
+     * it is left alone.
+     */
+    String FILE_NAME = "journal.db";
 
     /**
      * Creates the database at the current schema when the state directory holds none, or

@@ -5,6 +5,8 @@ import com.moltenbits.sideband.SidebandCommand
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.project.Projects
+import com.moltenbits.sideband.home.SidebandHome
 import com.moltenbits.sideband.protocol.Delivery
 import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
@@ -323,7 +325,7 @@ done
         ["019a": "019b", "019b": "019c", "019c": "019b"] | "019a" || ["019c", "019b", "019a"] | "019c" | "019b"
     }
 
-    void "an unknown id is invalid input, and reading for it creates no database"() {
+    void "an unknown id is invalid input, and reading for it registers nothing"() {
         given:
         Path empty = TempRepo.init()
 
@@ -331,20 +333,20 @@ done
         run("log", "--repo", empty.toString(), option, "no-such-entry") == ExitCode.INVALID_INPUT
         stderr.toString().contains("no-such-entry")
         stdout.toString().isEmpty()
-        !Files.exists(empty.resolve(".git/sideband/sideband.db"))
+        context.getBean(Projects).find(state, context.getBean(SidebandHome).locate(empty)).isEmpty()
 
         where:
         option << ["--id", "--trace"]
     }
 
-    void "a page read for a repository without a discussion creates no database"() {
+    void "a page read for a repository without a discussion registers nothing"() {
         given:
         Path empty = TempRepo.init()
 
         expect:
         run("log", "--repo", empty.toString(), "--before", "5") == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(empty.resolve(".git/sideband/sideband.db"))
+        context.getBean(Projects).find(state, context.getBean(SidebandHome).locate(empty)).isEmpty()
     }
 
     void "the ways of choosing entries are exclusive, and a single lookup takes no limit"() {
@@ -376,14 +378,14 @@ done
         stdout.toString().findAll(/- position: (\d+)/) { it[1] }
     }
 
-    void "a repository without a discussion prints nothing, succeeds, and creates no database"() {
+    void "a repository without a discussion prints nothing, succeeds, and registers nothing"() {
         given:
         Path empty = TempRepo.init()
 
         expect:
         run("log", "--repo", empty.toString()) == ExitCode.OK
         stdout.toString().isEmpty()
-        !Files.exists(empty.resolve(".git/sideband/sideband.db"))
+        context.getBean(Projects).find(state, context.getBean(SidebandHome).locate(empty)).isEmpty()
     }
 
     void "an output that cannot be written is an I/O failure, not a success"() {

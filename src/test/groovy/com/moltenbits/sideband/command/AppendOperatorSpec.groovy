@@ -13,7 +13,7 @@ class AppendOperatorSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
     Path stateDir = home.resolve(".sideband")
-    Path journalFile = stateDir.resolve("sideband.db")
+    Path journalFile = stateDir.resolve("journal.db")
 
     Path body(String text) {
         Files.writeString(repo.resolve("body.md"), text)

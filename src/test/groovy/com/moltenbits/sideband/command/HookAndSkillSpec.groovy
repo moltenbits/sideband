@@ -28,7 +28,7 @@ class HookAndSkillSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
     Path stateDir = home.resolve(".sideband")
-    Path journalFile = stateDir.resolve("sideband.db")
+    Path journalFile = stateDir.resolve("journal.db")
     Role detectedAgent
     HostProcess callerProcess
     Map extraPayload = [:]

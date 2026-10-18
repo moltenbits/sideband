@@ -35,7 +35,7 @@ class InitAndDoctorSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         Files.isDirectory(home.resolve(".sideband"))
-        Files.isRegularFile(home.resolve(".sideband/sideband.db"))
+        Files.isRegularFile(home.resolve(".sideband/journal.db"))
         !Files.exists(repo.resolve(".git/sideband"))
         stdout.toString().contains("Project: repo (" + repo.toRealPath().resolve(".git") + ")")
         Files.exists(userHome.resolve(".claude/skills/sideband/SKILL.md"))
@@ -132,7 +132,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         then:
         lines.find { it.startsWith("State directory: ") } == "State directory: " + home.resolve(".sideband") + " (rwx------)"
-        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + home.resolve(".sideband/sideband.db") + ", schema 1, 1 entry, ")
+        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + home.resolve(".sideband/journal.db") + ", schema 1, 1 entry, ")
         lines.find { it.startsWith("Project: ") } == "Project: repo (" + repo.toRealPath().resolve(".git") + ")"
         lines.find { it.startsWith("Database: ") }.endsWith("integrity ok")
         lines.find { it.startsWith("  codex") }.contains("session s1")
@@ -172,7 +172,7 @@ class InitAndDoctorSpec extends CommandSpec {
     void "a database a newer Sideband migrated is reported beside the schema this one supports"() {
         given:
         run("init", "--repo", repo.toString(), "--skip-clients")
-        Databases.execute(home.resolve(".sideband/sideband.db"), "PRAGMA user_version = 99")
+        Databases.execute(home.resolve(".sideband/journal.db"), "PRAGMA user_version = 99")
 
         expect:
         text("doctor", "--repo", repo.toString(), "--home", userHome.toString()).readLines()

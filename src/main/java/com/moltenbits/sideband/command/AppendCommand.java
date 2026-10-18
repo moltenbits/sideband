@@ -163,7 +163,7 @@ public class AppendCommand implements Callable<Integer> {
         String body = Bodies.read(bodyFile);
         String project = repository.project(home, projects).name();
         Path stateDirectory = home.stateDirectory();
-        ParticipantId client = via != null ? Caller.client(via, project, "--via")
+        ParticipantId client = via != null ? registered(stateDirectory, Caller.client(via, project, "--via"))
                 : Caller.identify(host, sessions, stateDirectory, project, "--via");
         Captured captured = capture.capture(stateDirectory, client, body);
         Output.print(spec, json, captured);

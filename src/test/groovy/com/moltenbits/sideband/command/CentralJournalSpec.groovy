@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
+import org.flywaydb.core.Flyway
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -33,6 +34,12 @@ class CentralJournalSpec extends CommandSpec {
         stderr = new StringWriter()
         int code = run(["init", "--repo", repo.toString(), "--skip-clients"] + rest.toList() as String[])
         assert code == ExitCode.OK: "exit $code: ${stderr}"
+    }
+
+    String text(String... args) {
+        stdout = new StringWriter()
+        assert run(args) == ExitCode.OK
+        stdout.toString()
     }
 
     Path body(Path repo, String text) {
@@ -68,7 +75,7 @@ class CentralJournalSpec extends CommandSpec {
         init(beta)
 
         then:
-        Files.isRegularFile(home.resolve(".sideband/sideband.db"))
+        Files.isRegularFile(home.resolve(".sideband/journal.db"))
         !Files.exists(alpha.resolve(".git/sideband"))
         !Files.exists(beta.resolve(".git/sideband"))
     }
@@ -207,6 +214,55 @@ class CentralJournalSpec extends CommandSpec {
         refused("append", "--repo", alpha.toString(), "--from", "astra", "--to", "nowhere/opus", "--type", "request",
                 "--caused-by", asked, "--body-file", body(alpha, "x").toString()) == ExitCode.INVALID_INPUT
         !log(alpha).contains("\nx\n")
+    }
+
+    void "the operator's words cannot be recorded through an agent of a project nobody registered"() {
+        when:
+        int code = refused("append", "--repo", alpha.toString(), "--from", "operator", "--via", "missing/astra",
+                "--body-file", body(alpha, "keep this in the right project").toString())
+
+        then:
+        code == ExitCode.INVALID_INPUT
+        stderr.toString().contains("missing is not a Sideband project")
+        !log(alpha).contains("keep this in the right project")
+        log(alpha, "--after", "0").isEmpty()
+    }
+
+    void "an older Sideband's journal for the home directory, in the same place, is left alone beside the new one"() {
+        given: "the database an earlier version kept for the home directory itself, at schema 4 with one entry"
+        Path old = Files.createDirectories(home.resolve(".sideband")).resolve("sideband.db")
+        Flyway.configure().dataSource("jdbc:sqlite:" + old, null, null)
+                .locations("filesystem:" + oldMigrations()).load().migrate()
+        byte[] before = Files.readAllBytes(old)
+
+        when:
+        init(alpha)
+        join(alpha, "codex", "s1", "astra")
+        String id = prompt(alpha, "astra", "works beside the old journal")
+
+        then:
+        log(alpha).contains("works beside the old journal")
+        pending(alpha, "astra").session.id == "s1"
+        id != null
+        Files.readAllBytes(old) == before
+        !log(alpha, "--after", "0").contains("- id: old")
+        text("doctor", "--repo", alpha.toString()).contains("Database: " + home.resolve(".sideband/journal.db") + ", schema 1, ")
+    }
+
+    /** A copy of an earlier version's first migration, so the old database is made as that version made it. */
+    Path oldMigrations() {
+        Path directory = Files.createTempDirectory("old-migrations")
+        Files.writeString(directory.resolve("V4__old.sql"), """
+            CREATE TABLE entries (seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, sender TEXT NOT NULL,
+                via TEXT, recipients TEXT NOT NULL, type TEXT NOT NULL, route TEXT NOT NULL, reply_to TEXT, caused_by TEXT,
+                expects_reply INTEGER NOT NULL, live TEXT NOT NULL, backlog TEXT NOT NULL, body TEXT NOT NULL);
+            CREATE TABLE sessions (participant TEXT PRIMARY KEY, session_id TEXT NOT NULL, started_at TEXT NOT NULL,
+                watermark INTEGER NOT NULL, bookmark INTEGER NOT NULL, resumed INTEGER NOT NULL);
+            INSERT INTO entries (id, created_at, sender, via, recipients, type, route, expects_reply, live, backlog, body)
+                VALUES ('old', '2026-09-29T08:40:00-05:00', 'operator', 'claude', 'claude', 'request', 'direct', 1, 'auto', 'confirm', 'old');
+            PRAGMA user_version = 4;
+            """)
+        directory
     }
 
     void "@all with nobody joined in the project is refused"() {

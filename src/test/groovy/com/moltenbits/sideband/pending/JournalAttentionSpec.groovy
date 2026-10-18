@@ -122,6 +122,24 @@ class JournalAttentionSpec extends Specification {
         attention.atTurnEnd(dir, Fixtures.CLAUDE).wanted()
     }
 
+    void "what supersedes a request in another project counts, so an exchange finished here is not held open"() {
+        given: "A asks B; B asks A and C together; A answers; B asks C alone, superseding C's part; B answers A"
+        ParticipantId a = ParticipantId.of("alpha", "astra")
+        ParticipantId b = ParticipantId.of("beta", "opus")
+        ParticipantId c = ParticipantId.of("gamma", "astra")
+        Entry h = journal.append(dir, Fixtures.humanDraft("ask beta", [a], a))
+        Entry ask = journal.append(dir, Fixtures.agentDraft(from: a, to: [b], causedBy: h.metadata().id()))
+        Entry broadcast = journal.append(dir, Fixtures.agentDraft(from: b, to: [a, c], causedBy: ask.metadata().id()))
+        journal.append(dir, Fixtures.agentDraft(from: a, to: [b], type: MessageType.REPLY, expectsReply: false, causedBy: null,
+                replyTo: broadcast.metadata().id()))
+        journal.append(dir, Fixtures.agentDraft(from: b, to: [c], causedBy: ask.metadata().id()))
+        journal.append(dir, Fixtures.agentDraft(from: b, to: [a], type: MessageType.REPLY, expectsReply: false, causedBy: null,
+                replyTo: ask.metadata().id()))
+
+        expect:
+        attention.atTurnEnd(dir, a).wanted()
+    }
+
     void "with nothing from the operator in the discussion there is nothing to hold back"() {
         expect:
         attention.atTurnEnd(dir, ParticipantId.of("repo", "claude")).wanted()
