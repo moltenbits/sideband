@@ -3,6 +3,7 @@ package com.moltenbits.sideband.store;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.journal.MessageIds;
+import com.moltenbits.sideband.journal.Page;
 import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.Delivery;
 import com.moltenbits.sideband.protocol.DeliveryPolicy;
@@ -12,6 +13,7 @@ import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Route;
 import com.moltenbits.sideband.protocol.Wire;
+import io.micronaut.data.model.Pageable;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
@@ -73,6 +75,18 @@ class SqliteJournal implements Journal {
             List<Entry> entries = rows.findBySeqGreaterThanOrderBySeq(position).stream().map(SqliteJournal::entry).toList();
             long end = entries.isEmpty() ? position : entries.getLast().seq();
             return new Read(position, end, entries);
+        });
+    }
+
+    @Override
+    public Page readBefore(Path stateDirectory, long position, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("a page must hold at least one entry");
+        }
+        return database.read(stateDirectory, new Page(List.of(), false), () -> {
+            List<Entry> entries = rows.findBySeqLessThanOrderBySeqDesc(position, Pageable.from(0, limit)).stream()
+                    .map(SqliteJournal::entry).toList();
+            return new Page(entries, !entries.isEmpty() && rows.existsBySeqLessThan(entries.getLast().seq()));
         });
     }
 

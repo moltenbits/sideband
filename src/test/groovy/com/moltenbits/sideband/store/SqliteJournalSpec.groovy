@@ -4,6 +4,7 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.journal.MessageIds
+import com.moltenbits.sideband.journal.Page
 import com.moltenbits.sideband.journal.Read
 import com.moltenbits.sideband.protocol.MessageType
 import io.micronaut.context.ApplicationContext
@@ -75,8 +76,37 @@ class SqliteJournalSpec extends Specification {
         journal.readAfter(directory, second.seq()) == Read.empty(second.seq())
     }
 
+    void "reading before a position returns the newest entries below it, newest first, and whether older ones remain"() {
+        given:
+        (1..5).each { journal.append(directory, Fixtures.humanDraft("entry $it")) }
+
+        expect:
+        page(Long.MAX_VALUE, 2) == [[5L, 4L], true]
+        page(4, 2) == [[3L, 2L], true]
+        page(3, 2) == [[2L, 1L], false]
+        page(2, 2) == [[1L], false]
+        page(1, 2) == [[], false]
+        page(Long.MAX_VALUE, 5) == [[5L, 4L, 3L, 2L, 1L], false]
+        page(Long.MAX_VALUE, Integer.MAX_VALUE) == [[5L, 4L, 3L, 2L, 1L], false]
+        journal.readBefore(directory, 3, 1).entries()*.body() == ["entry 2"]
+    }
+
+    void "a page must hold at least one entry"() {
+        when:
+        journal.readBefore(directory, Long.MAX_VALUE, 0)
+
+        then:
+        thrown(IllegalArgumentException)
+    }
+
+    private List page(long before, int limit) {
+        Page page = journal.readBefore(directory, before, limit)
+        [page.entries()*.seq(), page.older()]
+    }
+
     void "a directory without a database reads as empty and finds nothing"() {
         expect:
+        journal.readBefore(directory, Long.MAX_VALUE, 20) == new Page([], false)
         journal.readAfter(directory, 0) == Read.empty(0)
         journal.readAfter(directory, 7) == Read.empty(7)
         journal.find(directory, "019a").isEmpty()

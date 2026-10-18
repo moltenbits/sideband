@@ -22,7 +22,7 @@ class LinkedAncestry implements Ancestry {
         int depth = 0;
         while (true) {
             boolean delegation = current.causedBy() != null;
-            String parentId = delegation ? current.causedBy() : current.replyTo();
+            String parentId = current.cause();
             if (parentId == null) {
                 throw new InvalidLineageException("entry " + entry.id() + " has no path to a human-authored entry: "
                         + (current == entry ? "it" : current.id()) + " has neither caused_by nor reply_to");

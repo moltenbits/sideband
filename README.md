@@ -151,8 +151,8 @@ $sideband
 Once both have joined, hand out work from either session by starting a
 prompt with the agent's name. The prompt is journaled as your words, the
 agent it names is woken in its own session, and from there the two delegate
-to each other and reply on their own; `sideband log` shows the whole
-discussion.
+to each other and reply on their own; `sideband log` shows the discussion,
+newest first, and `sideband log --after 0` all of it from the start.
 
 Give Claude the task and make Codex the reviewer, one commit at a time:
 
@@ -240,8 +240,8 @@ be, and `$sideband` or `$sideband as <name>` settles it.
 
 `sideband.db` is one SQLite database in the state directory holding every
 entry and every instance's session record. An entry is its metadata plus the
-verbatim body, and `sideband log` prints the whole discussion as Markdown for
-a person to read:
+verbatim body, and `sideband log` prints the discussion as Markdown for a
+person to read:
 
 ```markdown
 ## Operator → Codex (via Claude)
@@ -256,6 +256,16 @@ a person to read:
 
 ---
 ```
+
+`sideband log` prints the newest 20 entries, newest first, and ends with the
+command for the page before them, `sideband log --before <position>`;
+`--limit <n>` sets the page size. `--after <position>` reads forward instead,
+oldest first, so `sideband log --after 0` prints the whole discussion.
+`sideband log --id <id>` prints one entry, and `sideband log --trace <id>`
+prints an entry and the entries it came from, following `caused_by`,
+otherwise `reply_to`, back to one with neither: for a request one agent sent
+the other, that is the prompt of yours it started from, and everything said
+between.
 
 Entries are immutable and inserted in transactions that SQLite serializes
 across processes, so two clients writing at once never interleave. Positions

@@ -46,12 +46,17 @@ described below.
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. With no hook note, either Claude had not joined here yet and the hook held the message, or the hook did not run: activate, and only an `adopted` entry in the join output shows the message was sent. |
 
-To read what has been said, `sideband log` prints the discussion as Markdown,
-oldest first, with `--after <position>` and `--limit <n>` to select a range.
-It is a plain command, `! sideband log`, not a skill argument. The hooks
-record what the user types and what each agent says to the user, so the log
-holds the whole discussion, the user's exchanges with Codex included: read it
-when a request refers to something said there.
+To read what has been said, `sideband log` prints the newest 20 entries of
+the discussion as Markdown, newest first, and its last line names the command
+for the page before them. `--limit <n>` sets the page size, and
+`--after <position>` reads forward from a position, oldest first.
+`sideband log --trace <id>` prints an entry and the entries it came from,
+following `caused_by`, otherwise `reply_to`, with the one that started it
+first; `--id <id>` prints a single entry. It is a plain command,
+`! sideband log`, not a skill argument. The hooks record what the user types
+and what each agent says to the user, so the log holds the whole discussion,
+the user's exchanges with Codex included: read it when a request refers to
+something said there.
 
 ## Activate
 
@@ -215,7 +220,8 @@ under a name) and written by someone else:
      to nothing they said. If `effective_live` is `confirm`, ask the user
      before acting unless they already explicitly approved this work, in this
      conversation or in the entry of theirs that `lineage.human_root_id` names
-     (`sideband log` shows it). `confirm` means the sender asked for it
+     (`sideband log --trace` with the entry's id shows it and everything
+     between). `confirm` means the sender asked for it
      (`metadata.delivery.live`) or `lineage.delegation_depth` is over five:
      agents have asked each other for work in service of each other's
      requests more than five times since that entry. Review rounds, requests
