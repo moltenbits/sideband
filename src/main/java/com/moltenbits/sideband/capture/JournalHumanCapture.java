@@ -2,6 +2,7 @@ package com.moltenbits.sideband.capture;
 
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
@@ -16,7 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.util.Optional;
-import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Singleton
 class JournalHumanCapture implements HumanCapture {
@@ -28,10 +29,13 @@ class JournalHumanCapture implements HumanCapture {
     private final Pushes pushes;
     private final HeldPrompts held;
     private final Sessions sessions;
+    private final Projects projects;
     private final AgentCapture agents;
 
-    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held, Sessions sessions, AgentCapture agents) {
+    JournalHumanCapture(Journal journal, Routing routing, Pushes pushes, HeldPrompts held, Sessions sessions, Projects projects,
+                        AgentCapture agents) {
         this.sessions = sessions;
+        this.projects = projects;
         this.agents = agents;
         this.journal = journal;
         this.routing = routing;
@@ -43,7 +47,7 @@ class JournalHumanCapture implements HumanCapture {
     public Captured capture(Path stateDirectory, ParticipantId via, String body) {
         Destination destination;
         try {
-            destination = routing.resolve(body, via, sessions.all(stateDirectory).keySet());
+            destination = route(stateDirectory, via, body);
         } catch (IllegalArgumentException e) {
             throw e; // invalid input keeps its own exit code; nothing was written
         } catch (RuntimeException e) {
@@ -55,24 +59,33 @@ class JournalHumanCapture implements HumanCapture {
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }
-        return deliver(stateDirectory, entry);
+        return deliver(stateDirectory, entry).unrouted(destination.unrouted());
     }
 
     @Override
-    public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, String sessionId) {
-        Role role = via.role().orElseThrow();
+    public Optional<Captured> adopt(Path stateDirectory, ParticipantId via, Role client, String sessionId) {
+        String project = via.project().orElseThrow();
         Optional<HeldPrompts.Adopted> adopted;
+        AtomicReference<Destination> routed = new AtomicReference<>();
         try {
-            Set<ParticipantId> joined = sessions.all(stateDirectory).keySet();
-            adopted = held.adopt(stateDirectory, role, sessionId,
-                    prompt -> Draft.humanRequest(via, routing.resolve(prompt, via, joined).to(), prompt));
+            adopted = held.adopt(stateDirectory, project, client, sessionId, prompt -> {
+                routed.set(route(stateDirectory, via, prompt));
+                return Draft.humanRequest(via, routed.get().to(), prompt);
+            });
         } catch (IllegalArgumentException e) {
             throw e;
         } catch (RuntimeException e) {
             throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, e);
         }
-        adopted.filter(a -> a.turn() != null).ifPresent(a -> causeOf(stateDirectory, role, sessionId, a.turn(), a.entry()));
-        return adopted.map(a -> deliver(stateDirectory, a.entry()));
+        adopted.filter(a -> a.turn() != null).ifPresent(a -> causeOf(stateDirectory, project, client, sessionId, a.turn(), a.entry()));
+        return adopted.map(a -> deliver(stateDirectory, a.entry()).unrouted(routed.get().unrouted()));
+    }
+
+    /** Where the words go, by their first token, among the instances joined in the project they were typed in. */
+    private Destination route(Path stateDirectory, ParticipantId via, String body) {
+        String project = via.project().orElseThrow(() -> new IllegalArgumentException("via must be an agent, never the operator"));
+        return routing.resolve(body, via, sessions.all(stateDirectory, project).keySet(),
+                name -> projects.named(stateDirectory, name).isPresent());
     }
 
     /**
@@ -81,9 +94,9 @@ class JournalHumanCapture implements HumanCapture {
      * fails, that turn's words are recorded naming no cause, which is reported on stderr but
      * is no reason to fail the join.
      */
-    private void causeOf(Path stateDirectory, Role role, String sessionId, String turn, Entry prompt) {
+    private void causeOf(Path stateDirectory, String project, Role client, String sessionId, String turn, Entry prompt) {
         try {
-            agents.prompted(stateDirectory, new AgentCapture.Hook(role, sessionId, turn, null, null), prompt.metadata().id());
+            agents.prompted(stateDirectory, new AgentCapture.Hook(project, client, sessionId, turn, null, null), prompt.metadata().id());
         } catch (RuntimeException e) {
             LOG.warn("could not link adopted prompt {} to its turn {}: {}", prompt.metadata().id(), turn, e.getMessage());
         }

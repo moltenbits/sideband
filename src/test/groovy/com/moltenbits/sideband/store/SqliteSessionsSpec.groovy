@@ -18,12 +18,13 @@ import spock.lang.Specification
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Instant
+import java.util.concurrent.CountDownLatch
 
 class SqliteSessionsSpec extends Specification {
 
     static final ParticipantId CLAUDE = Fixtures.CLAUDE
     static final ParticipantId CODEX = Fixtures.CODEX
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
@@ -48,7 +49,7 @@ class SqliteSessionsSpec extends Specification {
         sessions.load(dir, CODEX).isEmpty()
 
         when:
-        Session session = sessions.join(dir, CODEX, "s1").session()
+        Session session = sessions.join(dir, CODEX, Role.CODEX, "s1").session()
 
         then:
         session.id() == "s1"
@@ -62,7 +63,7 @@ class SqliteSessionsSpec extends Specification {
 
     void "a role can join before anything is written, and the store is created for it"() {
         when:
-        Session session = sessions.join(dir, CLAUDE, "s1").session()
+        Session session = sessions.join(dir, CLAUDE, Role.CLAUDE, "s1").session()
 
         then:
         session.watermark() == 0
@@ -74,16 +75,16 @@ class SqliteSessionsSpec extends Specification {
     void "loading from a directory with no store is empty without creating one"() {
         expect:
         sessions.load(dir, CODEX).isEmpty()
-        sessions.all(dir).isEmpty()
+        sessions.all(dir, "repo").isEmpty()
         !Files.exists(dir.resolve(Store.FILE_NAME))
     }
 
     void "whoever joins under an identifier last holds it, and the join names the session it replaced"() {
         given:
-        sessions.join(dir, CODEX, "s1")
+        sessions.join(dir, CODEX, Role.CODEX, "s1")
 
         when:
-        Joining second = sessions.join(dir, CODEX, "s2")
+        Joining second = sessions.join(dir, CODEX, Role.CODEX, "s2")
 
         then:
         second.session().id() == "s2"
@@ -91,7 +92,7 @@ class SqliteSessionsSpec extends Specification {
         sessions.load(dir, CODEX).get().id() == "s2"
 
         and: "joining the same session again replaces nothing"
-        sessions.join(dir, CODEX, "s2").replaced() == null
+        sessions.join(dir, CODEX, Role.CODEX, "s2").replaced() == null
     }
 
     void "join starts at the latest point unless resuming, which keeps the instance's previous bookmark"() {
@@ -99,12 +100,12 @@ class SqliteSessionsSpec extends Specification {
         long first = journal.append(dir, Fixtures.humanDraft("@codex one", [CODEX])).seq()
 
         expect: "a first join with --resume starts at the beginning of the journal"
-        sessions.join(dir, CODEX, "s1", null, true).session().offset() == 0
+        sessions.join(dir, CODEX, Role.CODEX, "s1", null, true).session().offset() == 0
 
         when:
         sessions.advance(dir, CODEX, first)
         long second = journal.append(dir, Fixtures.humanDraft("@codex two", [CODEX])).seq()
-        Session plain = sessions.join(dir, CODEX, "s2").session()
+        Session plain = sessions.join(dir, CODEX, Role.CODEX, "s2").session()
 
         then: "a plain join starts at the latest point"
         plain.watermark() == second
@@ -112,7 +113,7 @@ class SqliteSessionsSpec extends Specification {
 
         when:
         sessions.advance(dir, CODEX, first)   // no effect: never moves back
-        Session resumed = sessions.join(dir, CODEX, "s3", null, true).session()
+        Session resumed = sessions.join(dir, CODEX, Role.CODEX, "s3", null, true).session()
 
         then: "a resumed join keeps the bookmark and still marks the session start"
         resumed.watermark() == second
@@ -122,7 +123,7 @@ class SqliteSessionsSpec extends Specification {
 
     void "advance moves the read position forward only"() {
         given:
-        sessions.join(dir, FABLE, "s1")
+        sessions.join(dir, FABLE, Role.CLAUDE, "s1")
 
         expect:
         sessions.advance(dir, FABLE, 40).offset() == 40
@@ -138,11 +139,11 @@ class SqliteSessionsSpec extends Specification {
         thrown(IllegalStateException)
     }
 
-    void "each instance's record is independent, and records are listed by role"() {
+    void "each instance's record is independent, and records are listed by client"() {
         given:
-        sessions.join(dir, CODEX, "c1")
-        sessions.join(dir, CLAUDE, "k1", null, true)
-        sessions.join(dir, FABLE, "f1")
+        sessions.join(dir, CODEX, Role.CODEX, "c1")
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "k1", null, true)
+        sessions.join(dir, FABLE, Role.CLAUDE, "f1")
         sessions.advance(dir, FABLE, 9)
 
         expect:
@@ -151,17 +152,18 @@ class SqliteSessionsSpec extends Specification {
         sessions.load(dir, CLAUDE).get().resumed()
         sessions.load(dir, CLAUDE).get().offset() == 0
         sessions.load(dir, FABLE).get().offset() == 9
-        sessions.records(dir, Role.CLAUDE).keySet() as List == [CLAUDE, FABLE]
-        sessions.records(dir, Role.CODEX).keySet() as List == [CODEX]
-        sessions.all(dir).keySet() as List == [CLAUDE, FABLE, CODEX]
+        sessions.records(dir, "repo", Role.CLAUDE).keySet() as List == [CLAUDE, FABLE]
+        sessions.load(dir, FABLE).get().client() == Role.CLAUDE
+        sessions.records(dir, "repo", Role.CODEX).keySet() as List == [CODEX]
+        sessions.all(dir, "repo").keySet() as List == [CLAUDE, CODEX, FABLE]
     }
 
     void "a join records the host process, and a session holds one instance"() {
         given:
-        sessions.join(dir, CLAUDE, "s1", self, false)
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "s1", self, false)
 
         when: "the same conversation joins again under a name"
-        sessions.join(dir, FABLE, "s1", self, false)
+        sessions.join(dir, FABLE, Role.CLAUDE, "s1", self, false)
 
         then:
         sessions.load(dir, FABLE).get().process() == self
@@ -170,10 +172,10 @@ class SqliteSessionsSpec extends Specification {
 
     void "a join takes its process from any other record naming it"() {
         given:
-        sessions.join(dir, CLAUDE, "s1", self, false)
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "s1", self, false)
 
         when:
-        sessions.join(dir, FABLE, "s2", self, false)
+        sessions.join(dir, FABLE, Role.CLAUDE, "s2", self, false)
 
         then:
         sessions.load(dir, FABLE).get().process() == self
@@ -184,12 +186,12 @@ class SqliteSessionsSpec extends Specification {
     void "following a clear moves the instance to the new conversation and keeps its bookmark"() {
         given:
         journal.append(dir, Fixtures.humanDraft("@claude hi", [CLAUDE]))
-        Session joined = sessions.join(dir, FABLE, "old", self, true).session()
+        Session joined = sessions.join(dir, FABLE, Role.CLAUDE, "old", self, true).session()
         sessions.advance(dir, FABLE, 7)
-        sessions.join(dir, CLAUDE, "other", new HostProcess(1, Instant.EPOCH), false)
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "other", new HostProcess(1, Instant.EPOCH), false)
 
         when:
-        InstanceRule.Followed followed = sessions.follow(dir, Role.CLAUDE, "new", self)
+        InstanceRule.Followed followed = sessions.follow(dir, "repo", Role.CLAUDE, "new", self)
 
         then:
         followed.instance() == FABLE
@@ -207,10 +209,10 @@ class SqliteSessionsSpec extends Specification {
 
     void "a restarted client continues the one instance whose recorded process is gone"() {
         given:
-        sessions.join(dir, CLAUDE, "old", gone, false)
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "old", gone, false)
 
         when:
-        InstanceRule.Followed followed = sessions.follow(dir, Role.CLAUDE, "new", self)
+        InstanceRule.Followed followed = sessions.follow(dir, "repo", Role.CLAUDE, "new", self)
 
         then:
         followed.instance() == CLAUDE
@@ -220,10 +222,10 @@ class SqliteSessionsSpec extends Specification {
 
     void "a session no instance continues changes nothing"() {
         given:
-        sessions.join(dir, CLAUDE, "s1", self, false)
+        sessions.join(dir, CLAUDE, Role.CLAUDE, "s1", self, false)
 
         when:
-        InstanceRule.Followed followed = sessions.follow(dir, Role.CLAUDE, "s2", new HostProcess(1, Instant.EPOCH))
+        InstanceRule.Followed followed = sessions.follow(dir, "repo", Role.CLAUDE, "s2", new HostProcess(1, Instant.EPOCH))
 
         then:
         followed.instance() == null
@@ -233,18 +235,94 @@ class SqliteSessionsSpec extends Specification {
 
     void "following in a directory with no store writes nothing"() {
         expect:
-        sessions.follow(dir, Role.CLAUDE, "s1", self).instance() == null
+        sessions.follow(dir, "repo", Role.CLAUDE, "s1", self).instance() == null
         !Files.exists(dir.resolve(Store.FILE_NAME))
+    }
+
+    // --- one name, one client ---
+
+    void "a name the other client holds in the project is refused, and nothing changes"() {
+        given:
+        sessions.join(dir, FABLE, Role.CODEX, "t1")
+
+        when:
+        sessions.join(dir, FABLE, Role.CLAUDE, "s1")
+
+        then:
+        IllegalArgumentException e = thrown()
+        e.message.contains("fable is held by Codex")
+        sessions.load(dir, FABLE).get().client() == Role.CODEX
+        sessions.load(dir, FABLE).get().id() == "t1"
+    }
+
+    void "the same name in two projects is two instances, each with its own client"() {
+        given:
+        ParticipantId alpha = ParticipantId.of("alpha", "opus")
+        ParticipantId beta = ParticipantId.of("beta", "opus")
+
+        when:
+        sessions.join(dir, alpha, Role.CODEX, "t1")
+        sessions.join(dir, beta, Role.CLAUDE, "s1")
+
+        then:
+        sessions.load(dir, alpha).get().client() == Role.CODEX
+        sessions.load(dir, beta).get().client() == Role.CLAUDE
+        sessions.all(dir, "alpha").keySet() as List == [alpha]
+        sessions.all(dir, "beta").keySet() as List == [beta]
+        sessions.records(dir, "beta", Role.CODEX).isEmpty()
+    }
+
+    void "a client's default name held by the other client is not the calling session's, and the refusal says so"() {
+        given:
+        sessions.join(dir, CLAUDE, Role.CODEX, "t1")
+
+        when:
+        InstanceRule.Identified identified = sessions.identify(dir, "repo", Role.CLAUDE, "s1", null)
+
+        then:
+        identified.instance() == null
+        identified.taken() == CLAUDE
+
+        and: "the other way around"
+        sessions.identify(dir, "repo", Role.CODEX, "t1", null).instance() == CLAUDE
+        sessions.identify(dir, "repo", Role.CODEX, "t2", null).instance() == null
+    }
+
+    void "two clients joining one name at once leave exactly one holder"() {
+        given:
+        context.getBean(Store).create(dir)
+        CountDownLatch start = new CountDownLatch(1)
+        List<Object> outcomes = Collections.synchronizedList([])
+        List<Thread> threads = [Role.CLAUDE, Role.CODEX].collect { Role client ->
+            Thread.start {
+                start.await()
+                try {
+                    outcomes << sessions.join(dir, FABLE, client, client.id() + "-session").session().client()
+                } catch (Throwable e) {
+                    outcomes << e
+                }
+            }
+        }
+
+        when:
+        start.countDown()
+        threads*.join()
+
+        then:
+        outcomes.size() == 2
+        outcomes.count { it instanceof Role } == 1
+        outcomes.count { it instanceof IllegalArgumentException } == 1
+        sessions.load(dir, FABLE).get().client() == outcomes.find { it instanceof Role }
     }
 
     void "identifying a command reads the records and writes nothing"() {
         given:
-        sessions.join(dir, FABLE, "s1", gone, false)
+        sessions.join(dir, FABLE, Role.CLAUDE, "s1", gone, false)
 
         expect:
-        sessions.identify(dir, Role.CLAUDE, "s1", self).instance() == FABLE
-        sessions.identify(dir, Role.CLAUDE, "s2", self).instance() == null
-        sessions.identify(dir, Role.CODEX, "t1", null).instance() == CODEX
+        sessions.identify(dir, "repo", Role.CLAUDE, "s1", self).instance() == FABLE
+        sessions.identify(dir, "repo", Role.CLAUDE, "s2", self).instance() == null
+        sessions.identify(dir, "repo", Role.CODEX, "t1", null).instance() == CODEX
         sessions.load(dir, FABLE).get().process() == gone
     }
 }

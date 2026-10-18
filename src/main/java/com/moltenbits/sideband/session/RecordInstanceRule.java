@@ -14,7 +14,7 @@ import java.util.Optional;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-/** The rule of {@link InstanceRule} over a role's records, with liveness from the running processes. */
+/** The rule of {@link InstanceRule} over a project's records, with liveness from the running processes. */
 @Singleton
 class RecordInstanceRule implements InstanceRule {
 
@@ -53,31 +53,42 @@ class RecordInstanceRule implements InstanceRule {
     }
 
     @Override
-    public Identified identify(Role role, Map<ParticipantId, Session> records, @Nullable String sessionId,
-                                      @Nullable HostProcess caller) {
-        TreeMap<ParticipantId, Session> sorted = new TreeMap<>(records);
-        Optional<ParticipantId> found = namingSession(sorted, sessionId).or(() -> namingProcess(sorted, caller));
+    public Identified identify(String project, Role client, Map<ParticipantId, Session> records, @Nullable String sessionId,
+                               @Nullable HostProcess caller) {
+        SortedMap<ParticipantId, Session> own = ofClient(records, client);
+        Optional<ParticipantId> found = namingSession(own, sessionId).or(() -> namingProcess(own, caller));
         if (found.isPresent()) {
-            return new Identified(found.get(), List.copyOf(sorted.keySet()));
+            return new Identified(found.get(), List.copyOf(own.keySet()));
         }
-        return new Identified(sorted.isEmpty() ? ParticipantId.of(role) : null, List.copyOf(sorted.keySet()));
+        if (!own.isEmpty()) {
+            return new Identified(null, List.copyOf(own.keySet()));
+        }
+        ParticipantId fallback = ParticipantId.of(project, client.id());
+        return records.containsKey(fallback)
+                ? new Identified(null, List.of(), fallback)
+                : new Identified(fallback, List.of());
     }
 
     @Override
     public Joined join(Map<ParticipantId, Session> records, ParticipantId instance, Session session) {
         Session earlier = records.get(instance);
+        if (earlier != null && earlier.client() != session.client()) {
+            throw new IllegalArgumentException(instance.name().orElseThrow() + " is held by " + earlier.client().displayName()
+                    + " in this project, and a name belongs to one client in a project; join under another name");
+        }
         String replaced = earlier != null && !earlier.id().equals(session.id()) ? earlier.id() : null;
         TreeMap<ParticipantId, Session> after = new TreeMap<>(records);
-        after.entrySet().removeIf(e -> !e.getKey().equals(instance) && e.getValue().id().equals(session.id()));
+        after.entrySet().removeIf(e -> !e.getKey().equals(instance) && e.getValue().client() == session.client()
+                && e.getValue().id().equals(session.id()));
         take(after, instance, session);
         return new Joined(unmodifiable(after), replaced);
     }
 
     @Override
-    public SortedMap<ParticipantId, Session> ofRole(Map<ParticipantId, Session> records, Role role) {
-        TreeMap<ParticipantId, Session> ofRole = new TreeMap<>(records);
-        ofRole.keySet().removeIf(instance -> instance.role().filter(role::equals).isEmpty());
-        return ofRole;
+    public SortedMap<ParticipantId, Session> ofClient(Map<ParticipantId, Session> records, Role client) {
+        TreeMap<ParticipantId, Session> ofClient = new TreeMap<>(records);
+        ofClient.values().removeIf(session -> session.client() != client);
+        return ofClient;
     }
 
     private static Optional<ParticipantId> namingSession(SortedMap<ParticipantId, Session> records, @Nullable String sessionId) {
@@ -91,14 +102,14 @@ class RecordInstanceRule implements InstanceRule {
         return records.entrySet().stream().filter(e -> caller.equals(e.getValue().process())).map(Map.Entry::getKey).findFirst();
     }
 
-    /** Saves the record and takes its process from every other record of the role. */
+    /** Saves the record and takes its process from every other record of its client. */
     private static void take(SortedMap<ParticipantId, Session> records, ParticipantId instance, Session record) {
         records.put(instance, record);
         if (record.process() == null) {
             return;
         }
-        records.replaceAll((other, session) -> !other.equals(instance) && record.process().equals(session.process())
-                ? session.withProcess(null) : session);
+        records.replaceAll((other, session) -> !other.equals(instance) && session.client() == record.client()
+                && record.process().equals(session.process()) ? session.withProcess(null) : session);
     }
 
     private static SortedMap<ParticipantId, Session> unmodifiable(SortedMap<ParticipantId, Session> records) {

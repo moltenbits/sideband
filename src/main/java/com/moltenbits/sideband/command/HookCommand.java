@@ -11,6 +11,9 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.host.HostProcess;
 import com.moltenbits.sideband.pending.Attention;
+import com.moltenbits.sideband.project.Project;
+import com.moltenbits.sideband.project.ProjectLocation;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.push.PushOutcome;
@@ -30,7 +33,6 @@ import picocli.CommandLine.Model.CommandSpec;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.List;
@@ -49,16 +51,23 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class HookCommand {
 
     /**
-     * The repository's state directory for the working directory a hook payload names, or
-     * empty when that path is not even a path. A repository without Sideband is a directory
-     * that does not exist, which callers treat as nothing to do.
+     * Where the project of the working directory a hook payload names is, or empty when that
+     * path is not even a path.
      */
-    static Optional<Path> stateDirectory(SidebandHome home, @Nullable String cwd) {
+    static Optional<ProjectLocation> location(SidebandHome home, @Nullable String cwd) {
         try {
             return Optional.of(home.locate(cwd == null ? Path.of(System.getProperty("user.dir")) : Path.of(cwd)));
         } catch (InvalidPathException e) {
             return Optional.empty();
         }
+    }
+
+    /**
+     * The registered project at the location, or null. A project nobody registered is not using
+     * Sideband, which callers treat as nothing to do; a hook never registers one.
+     */
+    static @Nullable String registered(SidebandHome home, Projects projects, ProjectLocation location) {
+        return projects.find(home.stateDirectory(), location).map(Project::name).orElse(null);
     }
 
     /**
@@ -69,9 +78,9 @@ public class HookCommand {
      * the record follows. Only the operator's input counts: a delivered envelope or a host
      * notice says nothing about where the operator is, and the callers never pass those here.
      */
-    static InstanceRule.Followed follow(Sessions sessions, PrintWriter err, Path stateDirectory, Role role, String sessionId,
-                                        @Nullable HostProcess caller) {
-        InstanceRule.Followed followed = sessions.follow(stateDirectory, role, sessionId, caller);
+    static InstanceRule.Followed follow(Sessions sessions, PrintWriter err, Path stateDirectory, String project, Role role,
+                                        String sessionId, @Nullable HostProcess caller) {
+        InstanceRule.Followed followed = sessions.follow(stateDirectory, project, role, sessionId, caller);
         if (followed.moved()) {
             err.println("sideband hook: " + followed.instance() + " now delivers to " + sessionId);
         }
@@ -84,7 +93,7 @@ public class HookCommand {
         return "Sideband cannot tell which " + role.displayName() + " instance this conversation continues: "
                 + followed.candidates().stream().map(ParticipantId::value).collect(Collectors.joining(", "))
                 + ". Tell the user; " + invocation + " joins as " + role.id() + ", and " + invocation
-                + " as <name> joins as " + role.id() + ":<name>.";
+                + " as <name> joins as <name>.";
     }
 
     /**
@@ -100,14 +109,14 @@ public class HookCommand {
     }
 
     /** What a capture needs from a payload; a transcript path that is not a path is no transcript. */
-    static AgentCapture.Hook turnHook(Role role, String sessionId, Payload payload, HostEnvironment host) {
+    static AgentCapture.Hook turnHook(String project, Role role, String sessionId, Payload payload, HostEnvironment host) {
         Path transcript;
         try {
             transcript = payload.transcriptPath() == null ? null : Path.of(payload.transcriptPath());
         } catch (InvalidPathException e) {
             transcript = null;
         }
-        return new AgentCapture.Hook(role, sessionId, payload.turnId() != null ? payload.turnId() : payload.promptId(),
+        return new AgentCapture.Hook(project, role, sessionId, payload.turnId() != null ? payload.turnId() : payload.promptId(),
                 transcript, host.process(role).orElse(null));
     }
 
@@ -150,13 +159,15 @@ public class HookCommand {
         Role agent;
 
         private final SidebandHome home;
+        private final Projects projects;
         private final HostEnvironment host;
         private final Sessions sessions;
         private final Pending pending;
         private final ObjectMapper json;
 
-        SessionStart(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
+        SessionStart(SidebandHome home, Projects projects, HostEnvironment host, Sessions sessions, Pending pending, ObjectMapper json) {
             this.home = home;
+            this.projects = projects;
             this.host = host;
             this.sessions = sessions;
             this.pending = pending;
@@ -190,13 +201,15 @@ public class HookCommand {
             if (payload.sessionId() == null || payload.sessionId().isBlank()) {
                 return skipped("no session id in the hook payload");
             }
-            Optional<Path> stateDirectory = stateDirectory(home, payload.cwd());
-            if (stateDirectory.isEmpty()) {
+            Optional<ProjectLocation> location = location(home, payload.cwd());
+            if (location.isEmpty()) {
                 return skipped("invalid working directory in the hook payload");
             }
-            if (!Files.isDirectory(stateDirectory.get())) {
+            String project = registered(home, projects, location.get());
+            if (project == null) {
                 return ExitCode.OK;
             }
+            Path stateDirectory = home.stateDirectory();
             Role role = agent != null ? agent : host.role().orElse(null);
             if (role == null) {
                 return skipped("cannot tell which client this is; register the hook with --agent claude or --agent codex");
@@ -204,10 +217,10 @@ public class HookCommand {
             HostProcess caller = host.process(role).orElse(null);
             ParticipantId instance;
             if (compacted) {
-                InstanceRule.Identified identified = sessions.identify(stateDirectory.get(), role, payload.sessionId(), caller);
+                InstanceRule.Identified identified = sessions.identify(stateDirectory, project, role, payload.sessionId(), caller);
                 instance = identified.records().isEmpty() ? null : identified.instance();
             } else {
-                InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory.get(), role,
+                InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, project, role,
                         payload.sessionId(), caller);
                 if (followed.instance() == null && !followed.candidates().isEmpty()) {
                     Output.print(spec, json, new Response(new HookOutput(EVENT, ambiguous(role, followed))));
@@ -220,10 +233,11 @@ public class HookCommand {
             }
             // The conversation may remember nothing, so an acknowledged request counts as
             // much as an open one: only the memory of taking it up was lost.
-            int waiting = pending.report(stateDirectory.get(), instance).unfinished();
-            String context = "Sideband is joined as " + instance.displayName() + " in this repository and delivers to this conversation"
+            int waiting = pending.report(stateDirectory, instance, role).unfinished();
+            String name = instance.label(project);
+            String context = "Sideband is joined as " + name + " in project " + project + " and delivers to this conversation"
                     + (waiting == 0 ? "" : "; " + waiting + (waiting == 1 ? " entry" : " entries") + " addressed to "
-                    + instance.displayName() + " " + (waiting == 1 ? "is" : "are") + " waiting")
+                    + name + " " + (waiting == 1 ? "is" : "are") + " waiting")
                     + ". " + DELIVERY + " " + Handling.invocation(role) + " has the handling instructions.";
             Output.print(spec, json, new Response(new HookOutput(EVENT, context)));
             return ExitCode.OK;
@@ -254,6 +268,7 @@ public class HookCommand {
         Role agent;
 
         private final SidebandHome home;
+        private final Projects projects;
         private final HostEnvironment host;
         private final Sessions sessions;
         private final Pending pending;
@@ -262,9 +277,10 @@ public class HookCommand {
         private final HeldPrompts held;
         private final ObjectMapper json;
 
-        Prompt(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture,
+        Prompt(SidebandHome home, Projects projects, HostEnvironment host, Sessions sessions, Pending pending, HumanCapture capture,
                AgentCapture agentCapture, HeldPrompts held, ObjectMapper json) {
             this.home = home;
+            this.projects = projects;
             this.host = host;
             this.sessions = sessions;
             this.pending = pending;
@@ -322,14 +338,15 @@ public class HookCommand {
             if (message != null) {
                 prompt = message; // the operator's words typed as the skill's argument: capture them, not the command
             }
-            Optional<Path> located = stateDirectory(home, payload.cwd());
-            if (located.isEmpty()) {
+            Optional<ProjectLocation> location = location(home, payload.cwd());
+            if (location.isEmpty()) {
                 return skipped("invalid working directory in the hook payload");
             }
-            Path stateDirectory = located.get();
-            if (!Files.isDirectory(stateDirectory)) {
+            String project = registered(home, projects, location.get());
+            if (project == null) {
                 return ExitCode.OK;
             }
+            Path stateDirectory = home.stateDirectory();
             // Both hosts use the same event name and payload shape, so the client is known only
             // from the registered --agent or the shell's markers; which instance of it is calling
             // comes from the payload's session and the host's process (REQUIREMENTS.md 9.5a).
@@ -339,7 +356,7 @@ public class HookCommand {
                     return ExitCode.OK;
                 }
                 String reason = "cannot tell which client this is; register the hook with --agent claude or --agent codex";
-                return anyActive(stateDirectory) ? failed(reason) : skipped(reason);
+                return anyActive(stateDirectory, project) ? failed(reason) : skipped(reason);
             }
             String sessionId = payload.sessionId();
             if (sessionId == null || sessionId.isBlank()) {
@@ -347,25 +364,26 @@ public class HookCommand {
                     return ExitCode.OK;
                 }
                 String reason = "cannot tell which " + role.id() + " instance this is: the hook payload names no session";
-                return sessions.records(stateDirectory, role).isEmpty() ? skipped(reason) : failed(reason);
+                return sessions.records(stateDirectory, project, role).isEmpty() ? skipped(reason) : failed(reason);
             }
-            AgentCapture.Hook turn = turnHook(role, sessionId, payload, host);
+            AgentCapture.Hook turn = turnHook(project, role, sessionId, payload, host);
             capturedBefore(stateDirectory, turn);
             if (isJoinInvocation(trimmed)) {
                 // The join that follows names the instance itself; inferring one first would move
                 // another instance here, only for the join to release it from this session.
-                return dropped(stateDirectory, role, sessionId);
+                return dropped(stateDirectory, project, role, sessionId);
             }
             // The operator typed this, so this is the conversation the operator is looking at:
             // even a prompt that is not recorded moves the instance there.
-            InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, role, sessionId,
+            InstanceRule.Followed followed = follow(sessions, spec.commandLine().getErr(), stateDirectory, project, role, sessionId,
                     host.process(role).orElse(null));
             if (followed.instance() == null) {
-                return capturable ? hold(stateDirectory, role, sessionId, prompt, turn.turn(), followed) : dropped(stateDirectory, role, sessionId);
+                return capturable ? hold(stateDirectory, project, role, sessionId, prompt, turn.turn(), followed)
+                        : dropped(stateDirectory, project, role, sessionId);
             }
             // The session holds an instance now, so whatever it held from before no longer leads
             // to a join: a later one must not adopt a task the operator has since moved past.
-            dropped(stateDirectory, role, sessionId);
+            dropped(stateDirectory, project, role, sessionId);
             if (!capturable) {
                 return ExitCode.OK;
             }
@@ -379,7 +397,7 @@ public class HookCommand {
                 throw e;
             }
             causeOf(stateDirectory, turn, captured.metadata().id());
-            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured))));
+            Output.print(spec, json, new Response(new HookOutput("UserPromptSubmit", note(captured, project))));
             return ExitCode.OK;
         }
 
@@ -410,7 +428,7 @@ public class HookCommand {
         private static final Set<String> SKILL_WORDS = Set.of("help", "status", "pending", "off");
 
         /**
-         * The word that joins as a named instance. It is reserved together with whatever follows
+         * The word that joins under a name. It is reserved together with whatever follows
          * it: a missing, invalid, or extra argument is a usage error for the model to report,
          * never a message (REQUIREMENTS.md 7.1).
          */
@@ -516,22 +534,22 @@ public class HookCommand {
          * reported on stderr only: the model is not told the prompt was not recorded, because
          * nothing was recording.
          */
-        private int hold(Path stateDirectory, Role role, String sessionId, String prompt, @Nullable String turn,
+        private int hold(Path stateDirectory, String project, Role role, String sessionId, String prompt, @Nullable String turn,
                          InstanceRule.Followed followed)
                 throws IOException {
             try {
-                held.hold(stateDirectory, role, sessionId, prompt, turn);
+                held.hold(stateDirectory, project, role, sessionId, prompt, turn);
                 spec.commandLine().getErr().println("sideband hook: held for join by " + role.id() + " in session " + sessionId);
             } catch (RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: could not hold the prompt for join: " + e.getMessage());
             }
-            return followed.candidates().isEmpty() ? inactive(stateDirectory, role) : report(ambiguous(role, followed));
+            return followed.candidates().isEmpty() ? inactive(stateDirectory, project, role) : report(ambiguous(role, followed));
         }
 
         /** The operator's input was a command, not their words: whatever this session held no longer leads to its join. */
-        private int dropped(Path stateDirectory, Role role, String sessionId) {
+        private int dropped(Path stateDirectory, String project, Role role, String sessionId) {
             try {
-                held.drop(stateDirectory, role, sessionId);
+                held.drop(stateDirectory, project, role, sessionId);
             } catch (RuntimeException e) {
                 spec.commandLine().getErr().println("sideband hook: could not drop the held prompt: " + e.getMessage());
             }
@@ -539,38 +557,43 @@ public class HookCommand {
         }
 
         /**
-         * Sideband is not active for the calling session, which is normal in a repository that
+         * Sideband is not active for the calling session, which is normal in a project that
          * has it installed but is not using it right now. The model hears about it only when
-         * nobody holds the client's unnamed instance and entries addressed to it are waiting,
-         * so nothing sits unread in silence; when another session holds it, those entries are
-         * that session's to handle, and saying so here would only invite a takeover.
+         * nobody holds the client's own name in the project and entries addressed to it are
+         * waiting, so nothing sits unread in silence; when another session holds it, those
+         * entries are that session's to handle, and saying so here would only invite a takeover.
          */
-        private int inactive(Path stateDirectory, Role role) throws IOException {
-            ParticipantId unnamed = ParticipantId.of(role);
-            if (sessions.load(stateDirectory, unnamed).isPresent()) {
-                return skipped("this session holds no " + role.id() + " instance, and " + unnamed + " is joined elsewhere");
+        private int inactive(Path stateDirectory, String project, Role role) throws IOException {
+            ParticipantId own = ParticipantId.of(project, role.id());
+            if (sessions.load(stateDirectory, own).isPresent()) {
+                return skipped("this session holds no " + role.id() + " instance, and " + own + " is joined elsewhere");
             }
-            int waiting = pending.report(stateDirectory, unnamed).waiting();
+            int waiting = pending.report(stateDirectory, own, role).waiting();
             if (waiting == 0) {
                 return skipped("Sideband is not joined as " + role.id());
             }
             spec.commandLine().getErr().println("sideband hook: capture skipped: Sideband is not joined as " + role.id()
                     + "; " + waiting + " waiting");
             return report("Sideband is not active in this session and " + waiting + (waiting == 1 ? " entry" : " entries")
-                    + " addressed to " + role.displayName() + " " + (waiting == 1 ? "is" : "are")
+                    + " addressed to " + role.id() + " " + (waiting == 1 ? "is" : "are")
                     + " waiting. Tell the user; " + Handling.invocation(role) + " joins and reviews them.");
         }
 
-        private boolean anyActive(Path stateDirectory) {
-            return !sessions.all(stateDirectory).isEmpty();
+        private boolean anyActive(Path stateDirectory, String project) {
+            return !sessions.all(stateDirectory, project).isEmpty();
         }
 
-        private static String note(Captured captured) {
+        private static String note(Captured captured, String project) {
+            String id = captured.metadata().id();
+            if (captured.unrouted() != null) {
+                return "Sideband recorded this prompt as " + id + ", but the route it asked for failed: " + captured.unrouted()
+                        + " is not a Sideband project, so the prompt went nowhere and was recorded here only so it is not lost."
+                        + " Report that failure to the user, and do not act on the request or send it again.";
+            }
             String delivered = captured.pushes().stream()
                     .filter(p -> p.outcome() != PushOutcome.LISTENER_DELIVERS)
-                    .map(p -> p.recipient().value() + "=" + p.outcome().id())
+                    .map(p -> p.recipient().label(project) + "=" + p.outcome().id())
                     .collect(Collectors.joining(", "));
-            String id = captured.metadata().id();
             return delivered.isEmpty()
                     ? "Sideband recorded this prompt as " + id + ". Do not capture it again; cite it as --caused-by when delegating."
                     : "Sideband recorded this prompt as " + id + " and delivered it: " + delivered
@@ -601,12 +624,14 @@ public class HookCommand {
         Role agent;
 
         private final SidebandHome home;
+        private final Projects projects;
         private final HostEnvironment host;
         private final AgentCapture capture;
         private final ObjectMapper json;
 
-        Capture(SidebandHome home, HostEnvironment host, AgentCapture capture, ObjectMapper json) {
+        Capture(SidebandHome home, Projects projects, HostEnvironment host, AgentCapture capture, ObjectMapper json) {
             this.home = home;
+            this.projects = projects;
             this.host = host;
             this.capture = capture;
             this.json = json;
@@ -639,21 +664,22 @@ public class HookCommand {
             if (payload.sessionId() == null || payload.sessionId().isBlank()) {
                 return skipped("no session id in the hook payload");
             }
-            Optional<Path> stateDirectory = stateDirectory(home, payload.cwd());
-            if (stateDirectory.isEmpty()) {
+            Optional<ProjectLocation> location = location(home, payload.cwd());
+            if (location.isEmpty()) {
                 return skipped("invalid working directory in the hook payload");
             }
-            if (!Files.isDirectory(stateDirectory.get())) {
+            String project = registered(home, projects, location.get());
+            if (project == null) {
                 return ExitCode.OK;
             }
             Role role = agent != null ? agent : host.role().orElse(null);
             if (role == null) {
                 return skipped("cannot tell which client this is; register the hook with --agent claude or --agent codex");
             }
-            AgentCapture.Hook turn = turnHook(role, payload.sessionId(), payload, host);
+            AgentCapture.Hook turn = turnHook(project, role, payload.sessionId(), payload, host);
             List<Entry> recorded = stop
-                    ? capture.turnEnded(stateDirectory.get(), turn, payload.lastAssistantMessage())
-                    : capture.flush(stateDirectory.get(), turn);
+                    ? capture.turnEnded(home.stateDirectory(), turn, payload.lastAssistantMessage())
+                    : capture.flush(home.stateDirectory(), turn);
             if (!recorded.isEmpty()) {
                 err().println("sideband hook: recorded " + recorded.size() + (recorded.size() == 1 ? " turn" : " turns")
                         + " of " + role.id() + "'s from session " + payload.sessionId());
@@ -695,12 +721,14 @@ public class HookCommand {
         Role agent;
 
         private final SidebandHome home;
+        private final Projects projects;
         private final Sessions sessions;
         private final Attention attention;
         private final ObjectMapper json;
 
-        Notify(SidebandHome home, Sessions sessions, Attention attention, ObjectMapper json) {
+        Notify(SidebandHome home, Projects projects, Sessions sessions, Attention attention, ObjectMapper json) {
             this.home = home;
+            this.projects = projects;
             this.sessions = sessions;
             this.attention = attention;
             this.json = json;
@@ -744,13 +772,15 @@ public class HookCommand {
             if (!event.equals("Stop") && !idle) {
                 return null;
             }
-            Optional<Path> located = stateDirectory(home, payload.cwd());
-            if (located.isEmpty() || !Files.isDirectory(located.get())) {
+            Optional<ProjectLocation> location = location(home, payload.cwd());
+            String project = location.map(found -> registered(home, projects, found)).orElse(null);
+            if (project == null) {
                 return null;
             }
+            Path stateDirectory = home.stateDirectory();
             ParticipantId instance = agent != null
-                    ? sessions.identify(located.get(), agent, payload.sessionId(), null).instance()
-                    : joined(located.get(), payload.sessionId()).orElse(null);
+                    ? sessions.identify(stateDirectory, project, agent, payload.sessionId(), null).instance()
+                    : joined(stateDirectory, project, payload.sessionId()).orElse(null);
             if (instance == null) {
                 err().println("sideband hook: notification passed: Sideband is not in use in session " + payload.sessionId());
                 return null;
@@ -760,7 +790,7 @@ public class HookCommand {
                 // itself already rang or was held, so under Sideband the reminder never adds a second.
                 return "an idle reminder repeats a turn end that has already been decided";
             }
-            Attention.Verdict verdict = attention.atTurnEnd(located.get(), instance);
+            Attention.Verdict verdict = attention.atTurnEnd(stateDirectory, instance);
             if (verdict.wanted()) {
                 err().println("sideband hook: notification passed: " + verdict.reason());
                 return null;
@@ -768,12 +798,12 @@ public class HookCommand {
             return verdict.reason();
         }
 
-        /** The instance whose recorded session is the calling one; empty when Sideband is not joined there. */
-        private Optional<ParticipantId> joined(Path stateDirectory, @Nullable String sessionId) {
+        /** The instance of the project whose recorded session is the calling one; empty when Sideband is not joined there. */
+        private Optional<ParticipantId> joined(Path stateDirectory, String project, @Nullable String sessionId) {
             if (sessionId == null || sessionId.isBlank()) {
                 return Optional.empty();
             }
-            return sessions.all(stateDirectory).entrySet().stream()
+            return sessions.all(stateDirectory, project).entrySet().stream()
                     .filter(record -> sessionId.equals(record.getValue().id()))
                     .map(Map.Entry::getKey)
                     .findFirst();

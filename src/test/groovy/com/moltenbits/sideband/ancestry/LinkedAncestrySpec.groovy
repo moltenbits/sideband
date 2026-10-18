@@ -90,9 +90,9 @@ class LinkedAncestrySpec extends Specification {
         ancestry.trace(store["A3"], index) == new Lineage.Rooted(3, "H1")
     }
 
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
-    static final ParticipantId OPUS = ParticipantId.of(Role.CLAUDE, "opus")
-    static final ParticipantId ASTRA = ParticipantId.of(Role.CODEX, "astra")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
+    static final ParticipantId OPUS = ParticipantId.of("repo", "opus")
+    static final ParticipantId ASTRA = ParticipantId.of("repo", "astra")
 
     void "a request linked to a reply to its own author's request continues that exchange, so review rounds add no depth"() {
         given: "the human asks Fable, Fable delegates to Opus, and Opus asks Astra to review commit after commit, each round linked to Astra's last reply"

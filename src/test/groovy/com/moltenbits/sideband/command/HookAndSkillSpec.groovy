@@ -6,6 +6,7 @@ import com.moltenbits.sideband.capture.AgentCapture
 import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.capture.CaptureFailedException
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.project.Projects
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.host.HostEnvironment
@@ -26,7 +27,7 @@ import java.nio.file.Path
 class HookAndSkillSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path stateDir = repo.resolve(".git/sideband")
+    Path stateDir = home.resolve(".sideband")
     Path journalFile = stateDir.resolve("sideband.db")
     Role detectedAgent
     HostProcess callerProcess
@@ -49,7 +50,7 @@ class HookAndSkillSpec extends CommandSpec {
                 role() >> Optional.ofNullable(detectedAgent)
                 process(_) >> Optional.ofNullable(callerProcess)
             }
-            def command = new HookCommand.Prompt(context.getBean(SidebandHome), host,
+            def command = new HookCommand.Prompt(context.getBean(SidebandHome), context.getBean(Projects), host,
                     context.getBean(Sessions), context.getBean(Pending), captureOverride ?: context.getBean(HumanCapture), agentCaptureOverride ?: context.getBean(AgentCapture),
                     context.getBean(HeldPrompts), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
@@ -99,7 +100,7 @@ class HookAndSkillSpec extends CommandSpec {
         hook("@codex review this")
         Entry prompt = journal.readAfter(stateDir, 0).entries().last()
         List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
-                new AgentCapture.Hook(Role.CLAUDE, "s1", "p-1", null, null), "Delivery failed; the request is recorded.")
+                new AgentCapture.Hook("repo", Role.CLAUDE, "s1", "p-1", null, null), "Delivery failed; the request is recorded.")
 
         then: "the failure is still reported as before"
         stderr.toString().contains("recorded " + prompt.metadata().id() + " but could not deliver it")
@@ -119,7 +120,7 @@ class HookAndSkillSpec extends CommandSpec {
         run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
         Entry prompt = journal.readAfter(stateDir, 0).entries().last()
         List<Entry> captured = context.getBean(AgentCapture).turnEnded(stateDir,
-                new AgentCapture.Hook(Role.CLAUDE, "s1", "joining-turn", null, null), "Joined and reviewed.")
+                new AgentCapture.Hook("repo", Role.CLAUDE, "s1", "joining-turn", null, null), "Joined and reviewed.")
 
         then:
         prompt.body() == "Please join Sideband and review this"
@@ -163,7 +164,7 @@ class HookAndSkillSpec extends CommandSpec {
         code == ExitCode.OK
         stdout.toString().isEmpty()
         bodies().isEmpty()
-        !context.getBean(HeldPrompts).held(stateDir, Role.CODEX, "s1").present
+        !context.getBean(HeldPrompts).held(stateDir, "repo", Role.CODEX, "s1").present
     }
 
     void "the hook journals a prompt for the joined Claude role and tells the model so"() {
@@ -180,6 +181,71 @@ class HookAndSkillSpec extends CommandSpec {
         json().hookSpecificOutput.hookEventName == "UserPromptSubmit"
         json().hookSpecificOutput.additionalContext.contains("delivered it: codex=no-session")
         bodies().contains("@codex please look at this")
+    }
+
+    void "a prompt addressed to another registered project goes there, and the note names it as this project sees it"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("init", "--repo", TempRepo.named("listenly").toString(), "--skip-clients")
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        when:
+        hook("listenly/@opus look at the schema")
+
+        then:
+        json().hookSpecificOutput.additionalContext.contains("delivered it: listenly/@opus=no-session")
+        context.getBean(Journal).readAfter(stateDir, 0).entries().last().metadata().to() == [ParticipantId.of("listenly", "opus")]
+    }
+
+    void "a prompt addressed to a project nobody registered is recorded only so it is not lost, and the note says the route failed"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        stdout = new StringWriter()
+
+        when:
+        int code = hook("nowhere/@opus look at the schema")
+        String note = json().hookSpecificOutput.additionalContext
+
+        then:
+        code == ExitCode.OK
+        note.contains("the route it asked for failed: nowhere is not a Sideband project")
+        note.contains("Report that failure to the user, and do not act on the request or send it again.")
+        !note.contains("delivered")
+        context.getBean(Journal).readAfter(stateDir, 0).entries().last().metadata().to() == [Fixtures.CLAUDE]
+    }
+
+    void "a held prompt addressed to a project nobody registered reports the failed route when join adopts it"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        hook("nowhere/@opus look at the schema")
+        stdout = new StringWriter()
+
+        when:
+        int code = run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+
+        then:
+        code == ExitCode.OK
+        json().adopted.unrouted == "nowhere"
+        json().adopted.metadata.to == ["repo/claude"]
+        json().adopted.pushes == []
+    }
+
+    void "in a directory nobody registered, the hook records nothing and registers nothing, though the journal exists"() {
+        given:
+        detectedAgent = Role.CLAUDE
+        Path plain = Files.createDirectories(TempRepo.plainDirectory().resolve("scratch"))
+        long end = context.getBean(Journal).end(stateDir)
+
+        when:
+        int code = hook("hello from nowhere", "s9", plain.toString())
+
+        then:
+        code == ExitCode.OK
+        stdout.toString().isEmpty()
+        context.getBean(Journal).end(stateDir) == end
+        context.getBean(Projects).find(stateDir, context.getBean(SidebandHome).locate(plain)).isEmpty()
     }
 
     void "the hook's note names the entry so a delegation can cite it without reading the journal"() {
@@ -200,7 +266,7 @@ class HookAndSkillSpec extends CommandSpec {
         note.contains("cite it as --caused-by")
         code == ExitCode.OK
         json().metadata.caused_by == id
-        context.getBean(com.moltenbits.sideband.journal.Journal).readAfter(stateDir, 0).entries()*.metadata()*.from()*.toString() == ["operator", "claude"]
+        context.getBean(com.moltenbits.sideband.journal.Journal).readAfter(stateDir, 0).entries()*.metadata()*.from()*.toString() == ["operator", "repo/claude"]
     }
 
     void "the hook stays silent and writes nothing when the prompt is not a human message, is the host's own notification, or Sideband is not set up here"() {
@@ -346,9 +412,9 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         json().open.size() == 1
-        json().open[0].entry.metadata.via == owner
+        json().open[0].entry.metadata.via == "repo/" + owner
         json().open[0].entry.metadata.from == "operator"
-        json().open[0].entry.metadata.to == [peer]
+        json().open[0].entry.metadata.to == ["repo/" + peer]
         json().open[0].entry.body == "@${peer} hello\n"
 
         where:
@@ -435,13 +501,13 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = detected
         run("join", "--repo", repo.toString(), "--role", owner, "--session-id", "s1")
         Sessions state = context.getBean(Sessions)
-        Path dir = context.getBean(SidebandHome).locate(repo)
-        def before = state.load(dir, ParticipantId.of(Role.valueOf(owner.toUpperCase()))).get()
+        Path dir = context.getBean(SidebandHome).stateDirectory()
+        def before = state.load(dir, ParticipantId.of("repo", owner)).get()
         stdout = new StringWriter()
 
         when:
         int code = hook("first prompt after restart", session, repo.toString(), flag ? ["--agent", flag] : [])
-        def after = state.load(dir, ParticipantId.of(Role.valueOf(owner.toUpperCase()))).get()
+        def after = state.load(dir, ParticipantId.of("repo", owner)).get()
 
         then:
         code == ExitCode.OK
@@ -467,7 +533,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = Role.CODEX
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
         Sessions state = context.getBean(Sessions)
-        Path dir = context.getBean(SidebandHome).locate(repo)
+        Path dir = context.getBean(SidebandHome).stateDirectory()
         stdout = new StringWriter()
 
         when:
@@ -477,7 +543,7 @@ class HookAndSkillSpec extends CommandSpec {
         code == ExitCode.OK
         stdout.toString().isEmpty()
         bodies().isEmpty()
-        state.load(dir, ParticipantId.of(Role.CODEX)).get().id() == expected
+        state.load(dir, ParticipantId.of("repo", "codex")).get().id() == expected
 
         where:
         prompt                                  | expected
@@ -500,7 +566,7 @@ class HookAndSkillSpec extends CommandSpec {
                 role() >> Optional.ofNullable(detectedAgent)
                 process(_) >> Optional.ofNullable(callerProcess)
             }
-            def command = new HookCommand.SessionStart(context.getBean(SidebandHome), host,
+            def command = new HookCommand.SessionStart(context.getBean(SidebandHome), context.getBean(Projects), host,
                     context.getBean(Sessions), context.getBean(Pending), context.getBean(ObjectMapper))
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
@@ -516,7 +582,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = detected
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
         Sessions state = context.getBean(Sessions)
-        Path dir = context.getBean(SidebandHome).locate(repo)
+        Path dir = context.getBean(SidebandHome).stateDirectory()
         stdout = new StringWriter()
 
         when:
@@ -524,9 +590,9 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        state.load(dir, ParticipantId.of(Role.CODEX)).get().id() == "new-thread"
+        state.load(dir, ParticipantId.of("repo", "codex")).get().id() == "new-thread"
         json().hookSpecificOutput.hookEventName == "SessionStart"
-        json().hookSpecificOutput.additionalContext.contains("joined as Codex")
+        json().hookSpecificOutput.additionalContext.contains("joined as codex in project repo")
         json().hookSpecificOutput.additionalContext.contains("delivers to this conversation")
         json().hookSpecificOutput.additionalContext.contains("\$sideband")
         stderr.toString().contains("codex now delivers to new-thread")
@@ -553,7 +619,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
+        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to codex is waiting")
     }
 
     void "a request acknowledged before the clear and still unanswered is counted too, so the new context picks it back up"() {
@@ -566,21 +632,21 @@ class HookAndSkillSpec extends CommandSpec {
                 to: [com.moltenbits.sideband.Fixtures.CLAUDE], type: com.moltenbits.sideband.protocol.MessageType.ACK,
                 replyTo: request.metadata().id(), causedBy: null, expectsReply: false, body: "taking it up"))
         Sessions state = context.getBean(Sessions)
-        Path dir = context.getBean(SidebandHome).locate(repo)
-        long bookmark = state.load(dir, ParticipantId.of(Role.CODEX)).get().offset()
+        Path dir = context.getBean(SidebandHome).stateDirectory()
+        long bookmark = state.load(dir, ParticipantId.of("repo", "codex")).get().offset()
         stdout = new StringWriter()
 
         expect:
-        context.getBean(Pending).report(dir, ParticipantId.of(Role.CODEX)).open().isEmpty()
-        context.getBean(Pending).report(dir, ParticipantId.of(Role.CODEX)).inProgress().size() == 1
+        context.getBean(Pending).report(dir, ParticipantId.of("repo", "codex"), Role.CODEX).open().isEmpty()
+        context.getBean(Pending).report(dir, ParticipantId.of("repo", "codex"), Role.CODEX).inProgress().size() == 1
 
         when:
         int code = sessionStart("clear")
 
         then:
         code == ExitCode.OK
-        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to Codex is waiting")
-        state.load(dir, ParticipantId.of(Role.CODEX)).get().offset() == bookmark
+        json().hookSpecificOutput.additionalContext.contains("1 entry addressed to codex is waiting")
+        state.load(dir, ParticipantId.of("repo", "codex")).get().offset() == bookmark
     }
 
     void "a session start that is not a clear, is another event, names no session, or finds no joined role leaves the record alone and says nothing to the model"() {
@@ -588,7 +654,7 @@ class HookAndSkillSpec extends CommandSpec {
         detectedAgent = Role.CODEX
         if (joined) run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "old-thread")
         Sessions state = context.getBean(Sessions)
-        Path dir = context.getBean(SidebandHome).locate(repo)
+        Path dir = context.getBean(SidebandHome).stateDirectory()
         stdout = new StringWriter()
 
         when:
@@ -597,7 +663,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        state.load(dir, ParticipantId.of(Role.CODEX)).map { it.id() }.orElse(null) == (joined ? "old-thread" : null)
+        state.load(dir, ParticipantId.of("repo", "codex")).map { it.id() }.orElse(null) == (joined ? "old-thread" : null)
 
         where:
         source    | session      | event              | joined
@@ -619,7 +685,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         when:
         HostEnvironment host = Stub() { role() >> Optional.ofNullable(detectedAgent) }
-        def command = new HookCommand.SessionStart(context.getBean(SidebandHome), host,
+        def command = new HookCommand.SessionStart(context.getBean(SidebandHome), context.getBean(Projects), host,
                 context.getBean(Sessions), context.getBean(Pending), context.getBean(ObjectMapper))
         CommandLine cli = new CommandLine(command)
         cli.out = new PrintWriter(stdout, true)
@@ -630,7 +696,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        context.getBean(Sessions).load(context.getBean(SidebandHome).locate(repo), ParticipantId.of(Role.CODEX)).get().id() == "old-thread"
+        context.getBean(Sessions).load(context.getBean(SidebandHome).stateDirectory(), ParticipantId.of("repo", "codex")).get().id() == "old-thread"
 
         where:
         detected   | input
@@ -740,8 +806,8 @@ class HookAndSkillSpec extends CommandSpec {
         where:
         waiting | expected
         0       | null
-        1       | "Sideband is not active in this session and 1 entry addressed to Claude is waiting. Tell the user; /sideband joins and reviews them."
-        2       | "Sideband is not active in this session and 2 entries addressed to Claude are waiting. Tell the user; /sideband joins and reviews them."
+        1       | "Sideband is not active in this session and 1 entry addressed to claude is waiting. Tell the user; /sideband joins and reviews them."
+        2       | "Sideband is not active in this session and 2 entries addressed to claude are waiting. Tell the user; /sideband joins and reviews them."
     }
 
     void "a prompt typed before the role has joined is held for join to adopt, and a command drops it"() {
@@ -757,21 +823,21 @@ class HookAndSkillSpec extends CommandSpec {
         stdout.toString().isEmpty()
         stderr.toString().contains("held for join")
         context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 0
-        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("have Codex review this")
+        held.held(stateDir, "repo", Role.CLAUDE, "s1") == Optional.of("have Codex review this")
 
         when: "the skill's message form is held too, and a later prompt replaces an earlier one"
         hook("first", "s1")
         hook("/sideband @codex look at this", "s1")
 
         then:
-        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
+        held.held(stateDir, "repo", Role.CLAUDE, "s1") == Optional.of("@codex look at this")
 
         when: "a command, a blank line, or a bang prompt is not the operator's words and drops what was held"
         hook("hello", "s1")
         hook(command, "s1")
 
         then:
-        held.held(stateDir, Role.CLAUDE, "s1").isEmpty()
+        held.held(stateDir, "repo", Role.CLAUDE, "s1").isEmpty()
 
         where:
         command << ["/sideband", "/sideband status", "/clear", "", "! sideband doctor"]
@@ -781,14 +847,14 @@ class HookAndSkillSpec extends CommandSpec {
         given:
         detectedAgent = Role.CLAUDE
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(stateDir, Role.CLAUDE, "s1", "old task")
+        held.hold(stateDir, "repo", Role.CLAUDE, "s1", "old task")
 
         expect:
         hook("new task", null) == ExitCode.OK
         stderr.toString().contains("names no session")
         stdout.toString().isEmpty()
-        held.held(stateDir, Role.CLAUDE, "s1") == Optional.of("old task")
-        held.held(stateDir, Role.CLAUDE, "").isEmpty()
+        held.held(stateDir, "repo", Role.CLAUDE, "s1") == Optional.of("old task")
+        held.held(stateDir, "repo", Role.CLAUDE, "").isEmpty()
     }
 
     void "a prompt from a payload without a session id cannot be tied to a joined instance, and the model is told"() {
@@ -813,29 +879,29 @@ class HookAndSkillSpec extends CommandSpec {
         expect:
         hook("hello", "s1") == ExitCode.OK
         context.getBean(com.moltenbits.sideband.journal.Journal).end(stateDir) == 1
-        context.getBean(HeldPrompts).held(stateDir, Role.CLAUDE, "s1").isEmpty()
+        context.getBean(HeldPrompts).held(stateDir, "repo", Role.CLAUDE, "s1").isEmpty()
     }
 
     void "an envelope is never captured, whatever the session record says"() {
         given:
         detectedAgent = Role.CODEX
         run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "s1")
-        Path dir = context.getBean(SidebandHome).locate(repo)
+        Path dir = context.getBean(SidebandHome).stateDirectory()
         Sessions state = context.getBean(Sessions)
-        def before = state.load(dir, ParticipantId.of(Role.CODEX))
+        def before = state.load(dir, ParticipantId.of("repo", "codex"))
         stdout = new StringWriter()
 
         expect:
         hook("[Sideband message]\n{}", "other") == ExitCode.OK
         stdout.toString().isEmpty()
         stderr.toString().isEmpty()
-        state.load(dir, ParticipantId.of(Role.CODEX)) == before
+        state.load(dir, ParticipantId.of("repo", "codex")) == before
         bodies().isEmpty()
     }
 
     // --- instances (REQUIREMENTS.md 9.5a) ---
 
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
 
     HostProcesses processes = context.getBean(HostProcesses)
     /** This JVM and its parent: two processes that are certainly alive, standing in for two Claude Code terminals. */
@@ -873,9 +939,9 @@ class HookAndSkillSpec extends CommandSpec {
         sessionStart("clear", "s3", repo.toString(), ["--agent", "claude"])
 
         then:
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband is joined as Claude (fable) in this repository and delivers to this conversation")
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband is joined as fable in project repo and delivers to this conversation")
         context.getBean(Sessions).load(stateDir, FABLE).get().id() == "s3"
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "claude")).get().id() == "s1"
     }
 
     void "after a compaction the conversation hears again which instance it is and that entries arrive on their own, and no record moves"() {
@@ -893,7 +959,7 @@ class HookAndSkillSpec extends CommandSpec {
 
         then:
         code == ExitCode.OK
-        note.startsWith("Sideband is joined as Claude (fable) in this repository and delivers to this conversation; 1 entry addressed to Claude (fable) is waiting.")
+        note.startsWith("Sideband is joined as fable in project repo and delivers to this conversation; 1 entry addressed to fable is waiting.")
         note.contains("arrive in this conversation on their own")
         note.contains("never poll")
         note.contains("end the turn")
@@ -904,7 +970,7 @@ class HookAndSkillSpec extends CommandSpec {
     void "a compaction in a conversation that holds no instance says nothing and takes nothing over, unlike the operator's own input"() {
         given: "the one Claude record names no running client, so a prompt typed here would take it over"
         detectedAgent = Role.CLAUDE
-        context.getBean(Sessions).join(stateDir, ParticipantId.of(Role.CLAUDE), "s1")
+        context.getBean(Sessions).join(stateDir, ParticipantId.of("repo", "claude"), Role.CLAUDE, "s1")
         callerProcess = self
         stdout = new StringWriter()
 
@@ -914,7 +980,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stdout.toString().isEmpty()
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "claude")).get().id() == "s1"
     }
 
     void "a second terminal does not take over an instance whose client runs elsewhere: its prompt waits for its own join"() {
@@ -931,8 +997,8 @@ class HookAndSkillSpec extends CommandSpec {
         then: "nothing moves or is recorded, and the model is not invited to take the instance over"
         stdout.toString().isEmpty()
         bodies() == ["@claude waiting for the first terminal"]
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "s1"
-        context.getBean(HeldPrompts).held(stateDir, Role.CLAUDE, "s2") == Optional.of("hello from the second terminal")
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "claude")).get().id() == "s1"
+        context.getBean(HeldPrompts).held(stateDir, "repo", Role.CLAUDE, "s2") == Optional.of("hello from the second terminal")
     }
 
     void "after a clear with two Codex instances joined, neither moves and the new conversation is told which could be continued"() {
@@ -947,10 +1013,10 @@ class HookAndSkillSpec extends CommandSpec {
         sessionStart("clear", "t3")
 
         then:
-        json().hookSpecificOutput.additionalContext.startsWith("Sideband cannot tell which Codex instance this conversation continues: codex, codex:review.")
-        json().hookSpecificOutput.additionalContext.contains("\$sideband as <name> joins as codex:<name>")
-        state.load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t1"
-        state.load(stateDir, ParticipantId.of(Role.CODEX, "review")).get().id() == "t2"
+        json().hookSpecificOutput.additionalContext.startsWith("Sideband cannot tell which Codex instance this conversation continues: repo/codex, repo/review.")
+        json().hookSpecificOutput.additionalContext.contains("\$sideband as <name> joins as <name>")
+        state.load(stateDir, ParticipantId.of("repo", "codex")).get().id() == "t1"
+        state.load(stateDir, ParticipantId.of("repo", "review")).get().id() == "t2"
 
         when: "the operator's first prompt there is held for the join that settles it"
         stdout = new StringWriter()
@@ -959,7 +1025,7 @@ class HookAndSkillSpec extends CommandSpec {
         then:
         json().hookSpecificOutput.additionalContext.startsWith("Sideband cannot tell which Codex instance")
         bodies().isEmpty()
-        context.getBean(HeldPrompts).held(stateDir, Role.CODEX, "t3") == Optional.of("which one am I")
+        context.getBean(HeldPrompts).held(stateDir, "repo", Role.CODEX, "t3") == Optional.of("which one am I")
     }
 
     void "once a session continues an instance, its own earlier hold is dropped, whether the next input is a command or the operator's words"() {
@@ -967,10 +1033,10 @@ class HookAndSkillSpec extends CommandSpec {
         Process first = new ProcessBuilder("sleep", "30").start()
         detectedAgent = Role.CLAUDE
         callerProcess = self
-        context.getBean(Sessions).join(stateDir, ParticipantId.of(Role.CLAUDE), "first", processes.describe(first.pid()).get(), false)
+        context.getBean(Sessions).join(stateDir, ParticipantId.of("repo", "claude"), Role.CLAUDE, "first", processes.describe(first.pid()).get(), false)
         HeldPrompts held = context.getBean(HeldPrompts)
         hook("old task from the second terminal", "second")
-        assert held.held(stateDir, Role.CLAUDE, "second").isPresent()
+        assert held.held(stateDir, "repo", Role.CLAUDE, "second").isPresent()
 
         when: "the first terminal's client exits, and the second continues the instance"
         first.destroyForcibly()
@@ -979,8 +1045,8 @@ class HookAndSkillSpec extends CommandSpec {
         hook(input, "second")
 
         then: "the instance moved there, and the old task is never adopted by a later join"
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CLAUDE)).get().id() == "second"
-        held.held(stateDir, Role.CLAUDE, "second").isEmpty()
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "claude")).get().id() == "second"
+        held.held(stateDir, "repo", Role.CLAUDE, "second").isEmpty()
         bodies() == recorded
 
         cleanup:
@@ -1003,8 +1069,8 @@ class HookAndSkillSpec extends CommandSpec {
         run("join", "--repo", repo.toString(), "--role", "codex", "--as", "review", "--session-id", "t2")
 
         then:
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t1"
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX, "review")).get().id() == "t2"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "codex")).get().id() == "t1"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "review")).get().id() == "t2"
         !stderr.toString().contains("now delivers to t2")
 
         where:
@@ -1021,6 +1087,6 @@ class HookAndSkillSpec extends CommandSpec {
         hook("\$sideband status", "t2")
 
         then:
-        context.getBean(Sessions).load(stateDir, ParticipantId.of(Role.CODEX)).get().id() == "t2"
+        context.getBean(Sessions).load(stateDir, ParticipantId.of("repo", "codex")).get().id() == "t2"
     }
 }

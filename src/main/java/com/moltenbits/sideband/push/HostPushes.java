@@ -8,17 +8,22 @@ import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Deliveries;
+import com.moltenbits.sideband.session.Session;
+import com.moltenbits.sideband.session.Sessions;
 import jakarta.inject.Singleton;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Pushes an entry to each client instance it is for through that host's own pusher, and records a
+ * Pushes an entry to each client instance it is for through the pusher of the client its
+ * session record names; an instance nobody has joined as has no record and gets nothing
+ * pushed, so the entry waits in the journal until someone joins under that name. Records a
  * push the host accepted against the session the pusher says it delivered into, so that a
  * {@code pending} read in that session can say the entry is also on its way in. The
  * destination comes from the pusher, which knows where it posted; the instance's session
@@ -31,11 +36,13 @@ class HostPushes implements Pushes {
 
     private final Handoffs handoffs;
     private final Deliveries deliveries;
+    private final Sessions sessions;
     private final Map<Role, HostPusher> pushers;
 
-    HostPushes(Handoffs handoffs, Deliveries deliveries, List<HostPusher> pushers) {
+    HostPushes(Handoffs handoffs, Deliveries deliveries, Sessions sessions, List<HostPusher> pushers) {
         this.handoffs = handoffs;
         this.deliveries = deliveries;
+        this.sessions = sessions;
         this.pushers = pushers.stream().collect(Collectors.toMap(HostPusher::role, Function.identity()));
     }
 
@@ -55,7 +62,11 @@ class HostPushes implements Pushes {
     }
 
     private PushResult deliver(Path stateDirectory, Entry entry, ParticipantId recipient) {
-        Role role = recipient.role().orElseThrow();
+        Optional<Session> record = sessions.load(stateDirectory, recipient);
+        if (record.isEmpty()) {
+            return new PushResult(recipient, PushOutcome.NO_SESSION, null);
+        }
+        Role role = record.get().client();
         Batch batch = Batch.forRole(role, entry.seq(), entry.seq(), handoffs.prepare(stateDirectory, List.of(entry)), false);
         PushResult result = pushers.get(role).push(stateDirectory, recipient, entry.metadata().from(), handoffs.envelope(batch));
         if (result.outcome() == PushOutcome.PUSHED && result.session() != null) {

@@ -31,9 +31,9 @@ class AppendCommandSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         with(json().metadata) {
-            from == "claude"
+            from == "repo/claude"
             via == null
-            to == ["codex"]
+            to == ["repo/codex"]
             type == "request"
             route == "direct"
             caused_by == humanId
@@ -163,7 +163,7 @@ class AppendCommandSpec extends CommandSpec {
         (stdout = new StringWriter()) != null
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "operator", "--type", "reply",
                 "--reply-to", humanId, "--body-file", body("both of you").toString()) == ExitCode.OK
-        json().metadata.to == ["claude", "operator"]
+        json().metadata.to == ["repo/claude", "operator"]
     }
 
     void "an unknown --reply-to is invalid input with or without --to, and no --reply-to needs --to"() {
@@ -181,7 +181,7 @@ class AppendCommandSpec extends CommandSpec {
 
     void "multiple recipients make a broadcast"() {
         given:
-        String humanId = captureHuman("@all do the thing")
+        String humanId = captureHuman("do the thing")
 
         when:
         run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "operator", "--type", "status",
@@ -189,6 +189,6 @@ class AppendCommandSpec extends CommandSpec {
 
         then:
         json().metadata.route == "broadcast"
-        json().metadata.to == ["codex", "operator"]
+        json().metadata.to == ["repo/codex", "operator"]
     }
 }

@@ -6,6 +6,8 @@ import com.moltenbits.sideband.journal.Journal;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.journal.Page;
+import com.moltenbits.sideband.project.Project;
+import com.moltenbits.sideband.project.Projects;
 import io.micronaut.context.annotation.Prototype;
 import io.micronaut.core.annotation.Nullable;
 import picocli.CommandLine.ArgGroup;
@@ -28,10 +30,13 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Renders the discussion as Markdown for a person to read: the heading names author and
- * recipients, a short list gives the metadata, and the body follows verbatim. By default it
- * prints the newest page, newest first, and names the page before it; {@code --after} reads
- * forward instead, and {@code --id} and {@code --trace} look entries up. This is the store's
+ * Renders the project's discussion as Markdown for a person to read: the heading names author
+ * and recipients, a short list gives the metadata, and the body follows verbatim. The
+ * discussion is every entry involving the project, those to or from other projects included.
+ * By default it prints the newest page, newest first, and names the page before it;
+ * {@code --after} reads forward instead, and {@code --id} and {@code --trace} look entries up
+ * in the whole journal, since an id is asked for by name and a trace follows its causes
+ * wherever they were written. This is the store's
  * readable form now that nothing on disk is; it is the one command whose output is prose
  * rather than JSON.
  */
@@ -74,10 +79,12 @@ public class LogCommand implements Callable<Integer> {
     }
 
     private final SidebandHome home;
+    private final Projects projects;
     private final Journal journal;
 
-    LogCommand(SidebandHome home, Journal journal) {
+    LogCommand(SidebandHome home, Projects projects, Journal journal) {
         this.home = home;
+        this.projects = projects;
         this.journal = journal;
     }
 
@@ -96,26 +103,29 @@ public class LogCommand implements Callable<Integer> {
         if (chosen.before != null && chosen.before < 1) {
             throw new IllegalArgumentException("--before must be at least 1");
         }
-        Path stateDirectory = home.locate(repository.directory);
+        Path stateDirectory = home.stateDirectory();
+        String project = repository.registered(home, projects).map(Project::name).orElse(null);
         StringBuilder text = new StringBuilder();
         if (chosen.id != null) {
-            text.append(render(lookUp(stateDirectory, chosen.id)));
+            text.append(render(lookUp(stateDirectory, chosen.id), project));
         } else if (chosen.trace != null) {
             Trace trace = trace(lookUp(stateDirectory, chosen.trace), id -> journal.find(stateDirectory, id));
             if (trace.notice() != null) {
                 text.append(trace.notice());
             }
-            trace.entries().forEach(entry -> text.append(render(entry)));
+            trace.entries().forEach(entry -> text.append(render(entry, project)));
+        } else if (project == null) {
+            return print(text); // a project nobody registered has said nothing
         } else if (chosen.after != null) {
-            List<Entry> entries = journal.readAfter(stateDirectory, chosen.after).entries();
+            List<Entry> entries = journal.readAfter(stateDirectory, project, chosen.after).entries();
             if (limit != null && entries.size() > limit) {
                 entries = entries.subList(0, limit);
             }
-            entries.forEach(entry -> text.append(render(entry)));
+            entries.forEach(entry -> text.append(render(entry, project)));
         } else if (limit == null || limit > 0) {
-            Page page = journal.readBefore(stateDirectory, chosen.before == null ? Long.MAX_VALUE : chosen.before,
+            Page page = journal.readBefore(stateDirectory, project, chosen.before == null ? Long.MAX_VALUE : chosen.before,
                     limit == null ? PAGE_SIZE : limit);
-            page.entries().forEach(entry -> text.append(render(entry)));
+            page.entries().forEach(entry -> text.append(render(entry, project)));
             if (page.older()) {
                 text.append("Earlier entries: `sideband log --before ").append(page.entries().getLast().seq())
                         .append(limit == null ? "" : " --limit " + limit)
@@ -124,6 +134,10 @@ public class LogCommand implements Callable<Integer> {
                         .append("`\n");
             }
         }
+        return print(text);
+    }
+
+    private int print(StringBuilder text) {
         PrintWriter out = spec.commandLine().getOut();
         out.print(text);
         out.flush();
@@ -141,7 +155,7 @@ public class LogCommand implements Callable<Integer> {
 
     private Entry lookUp(Path stateDirectory, String id) {
         return journal.find(stateDirectory, id)
-                .orElseThrow(() -> new IllegalArgumentException("no entry with id " + id + " in this discussion"));
+                .orElseThrow(() -> new IllegalArgumentException("no entry with id " + id + " in the journal"));
     }
 
     /**
@@ -181,10 +195,11 @@ public class LogCommand implements Callable<Integer> {
     record Trace(List<Entry> entries, @Nullable String notice) {
     }
 
-    static String render(Entry entry) {
+    /** @param project the reader's project, or null when it is not registered */
+    static String render(Entry entry, @Nullable String project) {
         EntryMetadata m = entry.metadata();
         StringBuilder text = new StringBuilder();
-        text.append(Heading.of(m)).append("\n\n");
+        text.append(Heading.of(m, project)).append("\n\n");
         text.append("- position: ").append(entry.seq()).append('\n');
         text.append("- id: ").append(m.id()).append('\n');
         text.append("- created: ").append(TIMESTAMP.format(m.createdAt())).append('\n');

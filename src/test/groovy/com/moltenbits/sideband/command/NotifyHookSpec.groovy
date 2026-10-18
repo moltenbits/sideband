@@ -17,7 +17,7 @@ import java.nio.file.Path
 class NotifyHookSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path stateDir = repo.resolve(".git/sideband")
+    Path stateDir = home.resolve(".sideband")
 
     def setup() {
         run("init", "--repo", repo.toString(), "--skip-clients")
@@ -40,7 +40,7 @@ class NotifyHookSpec extends CommandSpec {
     }
 
     void human(String body = "fix the build", Role via = Role.CLAUDE) {
-        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [ParticipantId.of(via)], ParticipantId.of(via)))
+        context.getBean(Journal).append(stateDir, Fixtures.humanDraft(body, [ParticipantId.of("repo", via.id())], ParticipantId.of("repo", via.id())))
     }
 
     void "a turn end in the operator's client with nothing open passes, with nothing on stdout"() {
@@ -74,7 +74,7 @@ class NotifyHookSpec extends CommandSpec {
 
         expect:
         gate(stop("claude-session")) == ExitCode.HELD
-        stderr.toString().contains("typed into Codex, not Claude")
+        stderr.toString().contains("typed into codex, not claude")
         gate(stop("codex-thread")) == ExitCode.OK
 
         and: "the override wins over the lookup"

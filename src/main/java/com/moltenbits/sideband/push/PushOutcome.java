@@ -9,7 +9,7 @@ public enum PushOutcome implements Wire {
 
     /** The host accepted the message and started a turn with it. */
     PUSHED,
-    /** The role has never joined in this repository; the entry waits until it does. */
+    /** Nobody has joined under the recipient's name in its project; the entry waits until someone does. */
     NO_SESSION,
     /** The host would hold the push for the operator's approval, so it was not sent; the role's own listener delivers. */
     LISTENER_DELIVERS,

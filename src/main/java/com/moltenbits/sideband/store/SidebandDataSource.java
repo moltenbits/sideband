@@ -16,10 +16,9 @@ import java.util.logging.Logger;
 import javax.sql.DataSource;
 
 /**
- * The one data source the repositories use. A command works on one repository's state
- * directory, resolved from the working directory at run time, so the connection a
- * repository call gets is to whichever database the calling thread has entered with
- * {@link #in}. There is no pool: SQLite opens in microseconds, a command is a short-lived
+ * The one data source the repositories use. A command works on one state directory, the
+ * one in the home directory outside tests, so the connection a repository call gets is to
+ * whichever database the calling thread has entered with {@link #in}. There is no pool: SQLite opens in microseconds, a command is a short-lived
  * process, and every connection is closed when its unit of work ends.
  */
 @Singleton

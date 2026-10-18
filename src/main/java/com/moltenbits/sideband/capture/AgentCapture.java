@@ -18,12 +18,12 @@ import java.util.List;
 public interface AgentCapture {
 
     /**
-     * What a client's hook knows of the session it fired in.
+     * What a client's hook knows of the session it fired in, and the project it fired in.
      *
      * @param turn       the turn the hook fired for, as the host identifies it: Claude Code's {@code prompt_id}, Codex's {@code turn_id}
      * @param transcript the session's transcript, as the payload names it
      */
-    record Hook(Role client, String sessionId, @Nullable String turn, @Nullable Path transcript, @Nullable HostProcess caller) {
+    record Hook(String project, Role client, String sessionId, @Nullable String turn, @Nullable Path transcript, @Nullable HostProcess caller) {
     }
 
     /**

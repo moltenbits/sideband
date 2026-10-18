@@ -6,10 +6,11 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 /**
- * The append-only journal shared by every Sideband participant: every entry ever written,
- * in the order it was written. Each entry has a position, the sequence number the store
- * assigned when it was appended; positions only grow, so a reader that remembers the last
- * one it saw asks for everything after it.
+ * The append-only journal shared by every Sideband participant in every project: every entry
+ * ever written, in the order it was written. Each entry has a position, the sequence number
+ * the store assigned when it was appended; positions only grow, so a reader that remembers
+ * the last one it saw asks for everything after it. An entry involves each project its
+ * author, {@code via}, and recipients belong to, and a project's reads see only those.
  */
 public interface Journal {
 
@@ -21,17 +22,21 @@ public interface Journal {
      */
     Entry append(Path stateDirectory, Draft draft);
 
-    /** Every entry whose position is greater than {@code position}, in order. */
+    /** Every entry whose position is greater than {@code position}, in order, whatever project it involves. */
     Read readAfter(Path stateDirectory, long position);
 
+    /** Every entry involving {@code project} whose position is greater than {@code position}, in order. */
+    Read readAfter(Path stateDirectory, String project, long position);
+
     /**
-     * Up to {@code limit} entries whose position is less than {@code position}, newest first.
+     * Up to {@code limit} entries involving {@code project} whose position is less than
+     * {@code position}, newest first.
      *
      * @throws IllegalArgumentException when {@code limit} is less than one
      */
-    Page readBefore(Path stateDirectory, long position, int limit);
+    Page readBefore(Path stateDirectory, String project, long position, int limit);
 
-    /** The entry with the given identifier, when it exists. */
+    /** The entry with the given identifier, in any project, when it exists. */
     Optional<Entry> find(Path stateDirectory, String id);
 
     /** The position of the last entry, or zero when there is none. */

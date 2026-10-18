@@ -6,8 +6,10 @@ import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.pending.Addressing;
 import com.moltenbits.sideband.pending.Pending;
 import com.moltenbits.sideband.pending.PendingReport;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
+import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
 import com.moltenbits.sideband.waiting.JournalWatcher;
@@ -66,22 +68,25 @@ public class PendingCommand implements Callable<Integer> {
     @Option(names = "--from", hidden = true, description = "Position to watch from (default: the session's read position)")
     Long from;
 
-    @Option(names = "--role", hidden = true, converter = ParticipantIdConverter.class,
-            description = "Act as this client instance rather than the one the environment identifies")
-    ParticipantId role;
+    @Option(names = "--role", hidden = true,
+            description = "Act as this agent, by name or project/name, rather than the one the environment identifies")
+    String role;
 
     @Option(names = "--max-batches", hidden = true, description = "With --stream: stop after this many reports (for tests)")
     Integer maxBatches;
 
     private final SidebandHome home;
+    private final Projects projects;
     private final HostEnvironment host;
     private final Sessions sessions;
     private final Pending pending;
     private final JournalWatcher watcher;
     private final ObjectMapper json;
 
-    PendingCommand(SidebandHome home, HostEnvironment host, Sessions sessions, Pending pending, JournalWatcher watcher, ObjectMapper json) {
+    PendingCommand(SidebandHome home, Projects projects, HostEnvironment host, Sessions sessions, Pending pending,
+                   JournalWatcher watcher, ObjectMapper json) {
         this.home = home;
+        this.projects = projects;
         this.host = host;
         this.sessions = sessions;
         this.pending = pending;
@@ -103,10 +108,13 @@ public class PendingCommand implements Callable<Integer> {
         if (from != null && from < 0) {
             throw new IllegalArgumentException("--from must not be negative");
         }
-        Path stateDirectory = repository.stateDirectory(home);
-        ParticipantId who = role != null ? Caller.client(role, "--role") : Caller.identify(host, sessions, stateDirectory, "--role");
+        String project = repository.project(home, projects).name();
+        Path stateDirectory = home.stateDirectory();
+        ParticipantId who = role != null ? Caller.client(role, project, "--role")
+                : Caller.identify(host, sessions, stateDirectory, project, "--role");
+        Role client = client(stateDirectory, who);
         if (!wait) {
-            return print(stateDirectory, who, true, ExitCode.OK);
+            return print(stateDirectory, who, client, true, ExitCode.OK);
         }
         Predicate<Entry> wanted = entry -> Addressing.concerns(entry.metadata(), who) && entry.metadata().type() != MessageType.ACK;
         long offset = from != null ? from : sessions.load(stateDirectory, who).map(Session::offset).orElse(0L);
@@ -119,9 +127,9 @@ public class PendingCommand implements Callable<Integer> {
                 if (stream) {
                     continue;
                 }
-                return print(stateDirectory, who, false, ExitCode.TIMED_OUT);
+                return print(stateDirectory, who, client, false, ExitCode.TIMED_OUT);
             }
-            int written = print(stateDirectory, who, false, ExitCode.OK);
+            int written = print(stateDirectory, who, client, false, ExitCode.OK);
             if (written != ExitCode.OK) {
                 return written; // a listener that lost its output is not a listener
             }
@@ -130,9 +138,20 @@ public class PendingCommand implements Callable<Integer> {
         return ExitCode.OK;
     }
 
+    /**
+     * The client the instance runs in: its record's, otherwise the calling client's, otherwise,
+     * for an instance under a client's own name, that client's.
+     */
+    private Role client(Path stateDirectory, ParticipantId who) {
+        return sessions.load(stateDirectory, who).map(Session::client)
+                .or(host::role)
+                .or(() -> who.name().flatMap(Role::fromId))
+                .orElseThrow(() -> new IllegalArgumentException(who + " has not joined, so which client it runs in is unknown"));
+    }
+
     /** Prints first and moves the bookmark second, so a report nobody received is not marked shown. */
-    private int print(Path stateDirectory, ParticipantId who, boolean advance, int exit) throws IOException {
-        PendingReport report = pending.report(stateDirectory, who);
+    private int print(Path stateDirectory, ParticipantId who, Role client, boolean advance, int exit) throws IOException {
+        PendingReport report = pending.report(stateDirectory, who, client);
         PrintWriter out = spec.commandLine().getOut();
         out.println(json.writeValueAsString(report));
         out.flush();

@@ -8,6 +8,7 @@ import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.protocol.Delivery
 import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.protocol.Route
 import picocli.CommandLine
 
@@ -19,10 +20,11 @@ import java.time.format.DateTimeFormatter
 class LogCommandSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path state = repo.resolve(".git/sideband")
+    Path state = home.resolve(".sideband")
 
     def setup() {
-        Files.createDirectories(state)
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        stdout = new StringWriter()
     }
 
     void "renders every entry as a heading, its metadata, and the verbatim body; --after 0 reads them all, oldest first"() {
@@ -39,13 +41,13 @@ class LogCommandSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         stderr.toString().isEmpty()
-        text == """## Operator → Codex (via Claude)
+        text == """## Operator → codex (via claude)
 
 - position: 1
 - id: ${first.metadata().id()}
 - created: ${DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(first.metadata().createdAt())}
 - type: request (expects a reply)
-- to: codex
+- to: repo/codex
 
 @codex look at this
 
@@ -54,13 +56,13 @@ class LogCommandSpec extends CommandSpec {
 
 ---
 
-## Codex → Claude + Operator
+## codex → claude + Operator
 
 - position: 2
 - id: ${reply.metadata().id()}
 - created: ${DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(reply.metadata().createdAt())}
 - type: reply
-- to: claude, operator
+- to: repo/claude, operator
 - reply_to: ${first.metadata().id()}
 
 done
@@ -79,7 +81,7 @@ done
         run("log", "--repo", repo.toString())
 
         then:
-        stdout.toString().startsWith("## Codex → Claude\n\n")
+        stdout.toString().startsWith("## codex → claude\n\n")
     }
 
     void "a captured turn is headed by its author alone, since it was said in the author's own terminal"() {
@@ -90,7 +92,7 @@ done
         run("log", "--repo", repo.toString())
 
         then:
-        stdout.toString().startsWith("## Claude → Operator\n\n")
+        stdout.toString().startsWith("## claude → Operator\n\n")
     }
 
     void "--after and --limit select a range of positions"() {
@@ -170,12 +172,14 @@ done
 
     void "the next page's command names the repository it read, quoted for the shell, so it reads the same one from anywhere"() {
         given:
-        Path target = TempRepo.init(Files.createDirectories(Files.createTempDirectory("sideband").resolve("it's a \$HOME `dir`")))
-        Path targetState = Files.createDirectories(target.resolve(".git/sideband"))
+        Path target = TempRepo.named("target", Files.createDirectories(Files.createTempDirectory("sideband").resolve("it's a \$HOME `dir`")))
+        run("init", "--repo", target.toString(), "--skip-clients")
+        ParticipantId codex = ParticipantId.of("target", "codex")
         Journal journal = context.getBean(Journal)
-        (1..3).each { journal.append(targetState, Fixtures.humanDraft("target entry $it", [Fixtures.CODEX])) }
+        (1..3).each { journal.append(state, Fixtures.humanDraft("target entry $it", [codex], codex)) }
 
         when:
+        stdout = new StringWriter()
         run("log", "--repo", target.toString(), "--limit", "2")
         String command = (stdout.toString() =~ /Earlier entries: `sideband (log .*)`\n\z/)[0][1]
         stdout = new StringWriter()
@@ -231,7 +235,7 @@ done
 
         expect:
         run("log", "--repo", repo.toString(), "--id", wanted.metadata().id()) == ExitCode.OK
-        stdout.toString() == LogCommand.render(wanted)
+        stdout.toString() == LogCommand.render(wanted, "repo")
     }
 
     void "--trace prints what an entry came from, the operator's prompt first"() {
@@ -245,14 +249,14 @@ done
 
         expect:
         run("log", "--repo", repo.toString(), "--trace", reply.metadata().id()) == ExitCode.OK
-        stdout.toString() == [prompt, request, reply].collect { LogCommand.render(it) }.join()
+        stdout.toString() == [prompt, request, reply].collect { LogCommand.render(it, "repo") }.join()
 
         when:
         stdout = new StringWriter()
 
         then: "the operator's own prompt is the whole trace"
         run("log", "--repo", repo.toString(), "--trace", prompt.metadata().id()) == ExitCode.OK
-        stdout.toString() == LogCommand.render(prompt)
+        stdout.toString() == LogCommand.render(prompt, "repo")
     }
 
     void "--trace follows caused_by over reply_to"() {
@@ -294,7 +298,7 @@ done
         run("log", "--repo", repo.toString(), "--trace", reply.metadata().id()) == ExitCode.OK
         stdout.toString() == "**Incomplete trace.** ${orphan.metadata().id()} links to gone-from-this-journal, " +
                 "which is not in this journal, so whatever started it is missing.\n\n" +
-                LogCommand.render(orphan) + LogCommand.render(reply)
+                LogCommand.render(orphan, "repo") + LogCommand.render(reply, "repo")
     }
 
     void "a trace whose links loop prints each entry once under a notice naming the loop"() {

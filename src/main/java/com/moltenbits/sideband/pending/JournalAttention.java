@@ -41,7 +41,11 @@ class JournalAttention implements Attention {
 
     @Override
     public Verdict atTurnEnd(Path stateDirectory, ParticipantId self) {
-        List<Entry> entries = journal.readAfter(stateDirectory, 0).entries();
+        // The discussion is the instance's project, other projects' entries addressed across to
+        // it included; what answers what is traced through the whole journal, since a reply
+        // chain may pass through a project this one never saw.
+        String project = self.project().orElseThrow(() -> new IllegalArgumentException("attention is an agent's, never the operator's"));
+        List<Entry> entries = journal.readAfter(stateDirectory, project, 0).entries();
         Entry prompt = null;
         for (Entry entry : entries) {
             if (entry.metadata().from().isHuman()) {
@@ -66,13 +70,13 @@ class JournalAttention implements Attention {
         }
         long heardAt = heard == null ? 0 : heard.seq();
         if (latest != null && latest.seq() > heardAt && operatorAlone(latest.metadata())) {
-            return new Verdict(true, self.displayName() + "'s latest word since the operator's last prompt went to the operator alone");
+            return new Verdict(true, self.label(project) + "'s latest word since the operator's last prompt went to the operator alone");
         }
-        Map<String, List<EntryMetadata>> responses = JournalPending.responses(entries);
+        Map<String, List<EntryMetadata>> responses = JournalPending.responses(journal.readAfter(stateDirectory, 0).entries());
         ParticipantId via = prompt.metadata().via();
         if (!self.equals(via)) {
             return new Verdict(false, "the operator's last prompt was typed into "
-                    + (via == null ? "no client" : via.displayName()) + ", not " + self.displayName());
+                    + (via == null ? "no client" : via.label(project)) + ", not " + self.label(project));
         }
         long open = 0;
         for (Entry entry : entries) {
@@ -89,8 +93,8 @@ class JournalAttention implements Attention {
         // Done rings once: on the turn that handled the peer's completing reply, or on the client's own
         // work. Context that arrives afterwards and closes nothing starts a turn that must stay quiet.
         if (heard != null && (latest == null || latest.seq() < heard.seq()) && !completes(heard, entries, responses)) {
-            return new Verdict(false, "nothing is open, but the last thing to reach " + self.displayName()
-                    + " was context from " + heard.metadata().from().displayName() + ", which already rang");
+            return new Verdict(false, "nothing is open, but the last thing to reach " + self.label(project)
+                    + " was context from " + heard.metadata().from().label(project) + ", which already rang");
         }
         return new Verdict(true, "nothing is open");
     }

@@ -11,8 +11,8 @@ import java.time.OffsetDateTime
 
 class EntryMetadataSpec extends Specification {
 
-    static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude",' +
-            '"to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,' +
+    static final String SAMPLE = '{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"repo/claude",' +
+            '"to":["repo/claude","repo/codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,' +
             '"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}'
 
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
@@ -51,7 +51,7 @@ class EntryMetadataSpec extends Specification {
                 type: MessageType.REPLY, route: Route.DIRECT, replyTo: "019b", expectsReply: false)
 
         expect:
-        json.writeValueAsString(reply).contains('"from":"codex","via":null,"to":["claude"],"type":"reply","route":"direct","reply_to":"019b","caused_by":null,"expects_reply":false')
+        json.writeValueAsString(reply).contains('"from":"repo/codex","via":null,"to":["repo/claude"],"type":"reply","route":"direct","reply_to":"019b","caused_by":null,"expects_reply":false')
     }
 
     void "structural rules are enforced on construction"() {
@@ -78,20 +78,15 @@ class EntryMetadataSpec extends Specification {
 
     void "a prompt typed into a named instance names it in via, and round-trips"() {
         given:
-        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        ParticipantId fable = ParticipantId.of("repo", "fable")
         EntryMetadata typed = Fixtures.metadata(via: fable, to: [fable], route: Route.DIRECT)
 
         when:
         String written = json.writeValueAsString(typed)
 
         then:
-        written.contains('"from":"operator","via":"claude:fable","to":["claude:fable"]')
+        written.contains('"from":"operator","via":"repo/fable","to":["repo/fable"]')
         json.readValue(written, EntryMetadata) == typed
-    }
-
-    void "a version-one via reads as the unnamed instance"() {
-        expect:
-        json.readValue(SAMPLE, EntryMetadata).via() == ParticipantId.of(Role.CLAUDE)
     }
 
     void "drafts apply the same rules and reject a blank body"() {
@@ -132,7 +127,7 @@ class EntryMetadataSpec extends Specification {
 
     void "a turn the hook captured is said by its instance in its own terminal, to the operator, asking nothing"() {
         given:
-        ParticipantId fable = new ParticipantId("claude:fable")
+        ParticipantId fable = ParticipantId.of("repo", "fable")
 
         when:
         Draft turn = Draft.capturedTurn(fable, "019a", "I'll list the directory first.\n\nOnly `.git` is here.")

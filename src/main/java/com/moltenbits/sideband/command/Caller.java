@@ -13,9 +13,10 @@ import java.util.stream.Collectors;
 
 /**
  * Who the model's own command is, by the commands' rule of REQUIREMENTS.md 9.5a: the instance
- * whose record names the calling session or process, or the unnamed instance of a role that
- * has no records at all. Anything else is refused as invalid input, since acting as another
- * joined instance would write under its identity and move its bookmark; joining settles it.
+ * whose record names the calling session or process in the project, or the client's default
+ * name when the client has no records there and the other client does not hold that name.
+ * Anything else is refused as invalid input, since acting as another joined instance would
+ * write under its identity and move its bookmark; joining settles it.
  */
 final class Caller {
 
@@ -26,26 +27,32 @@ final class Caller {
      * @param overrideFlag the hidden flag that names the client instead, for the error when the
      *                     environment names no client at all
      */
-    static ParticipantId identify(HostEnvironment host, Sessions sessions, Path stateDirectory, String overrideFlag) {
+    static ParticipantId identify(HostEnvironment host, Sessions sessions, Path stateDirectory, String project, String overrideFlag) {
         Role role = host.requireRole(overrideFlag);
-        InstanceRule.Identified identified = sessions.identify(stateDirectory, role,
+        InstanceRule.Identified identified = sessions.identify(stateDirectory, project, role,
                 host.sessionId(role).orElse(null), host.process(role).orElse(null));
         if (identified.instance() != null) {
             return identified.instance();
         }
-        List<ParticipantId> joined = identified.records();
         String invocation = Handling.invocation(role);
+        if (identified.taken() != null) {
+            throw new IllegalArgumentException("this " + role.displayName() + " session holds no Sideband instance here, and "
+                    + identified.taken().name().orElseThrow() + " is held by the other client in this project. "
+                    + invocation + " as <name> joins under another name");
+        }
+        List<ParticipantId> joined = identified.records();
         throw new IllegalArgumentException("this " + role.displayName() + " session holds no Sideband instance here: "
                 + joined.stream().map(ParticipantId::value).collect(Collectors.joining(", "))
                 + (joined.size() == 1 ? " is" : " are") + " joined from other sessions. "
-                + invocation + " joins as " + role.id() + ", and " + invocation + " as <name> joins as " + role.id() + ":<name>");
+                + invocation + " joins as " + role.id() + ", and " + invocation + " as <name> joins as <name>");
     }
 
-    /** A hidden override that must name a client instance, never the operator. */
-    static ParticipantId client(ParticipantId override, String flag) {
-        if (override.isHuman()) {
-            throw new IllegalArgumentException(flag + " names a client instance, never the operator");
+    /** A hidden override naming an agent by its address in {@code project}, never the operator. */
+    static ParticipantId client(String override, String project, String flag) {
+        ParticipantId participant = ParticipantId.address(override, project);
+        if (participant.isHuman()) {
+            throw new IllegalArgumentException(flag + " names an agent, never the operator");
         }
-        return override;
+        return participant;
     }
 }

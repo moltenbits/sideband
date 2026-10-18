@@ -10,6 +10,7 @@ import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.host.HostProcesses
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.pending.Pending
+import com.moltenbits.sideband.project.Projects
 import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.ParticipantId
 import com.moltenbits.sideband.session.Sessions
@@ -149,24 +150,24 @@ class SessionCommandsSpec extends CommandSpec {
         given: "the operator typed into s1 before Claude joined there"
         run("init", "--repo", repo.toString(), "--skip-clients")
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(repo.resolve(".git/sideband"), Role.CLAUDE, "s1", "@codex review the locking")
+        held.hold(home.resolve(".sideband"), "repo", Role.CLAUDE, "s1", "@codex review the locking")
 
         when:
         Map joined = runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1", "--resume")
 
         then: "the entry is the operator's words through Claude, routed by its first token"
         joined.adopted.metadata.from == "operator"
-        joined.adopted.metadata.via == "claude"
-        joined.adopted.metadata.to == ["codex"]
+        joined.adopted.metadata.via == "repo/claude"
+        joined.adopted.metadata.to == ["repo/codex"]
         joined.adopted.metadata.type == "request"
         joined.adopted.body == "@codex review the locking"
-        joined.adopted.pushes == [[recipient: "codex", outcome: "no-session", detail: null]]
+        joined.adopted.pushes == [[recipient: "repo/codex", outcome: "no-session", detail: null]]
 
         and: "it is in the journal, after the watermark, and never shown to Claude as pending"
         joined.session.watermark == 0
         joined.end == 1
         joined.open == []
-        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1").isEmpty()
+        held.held(home.resolve(".sideband"), "repo", Role.CLAUDE, "s1").isEmpty()
 
         and: "a later join adopts nothing"
         runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted == null
@@ -176,7 +177,7 @@ class SessionCommandsSpec extends CommandSpec {
         given:
         run("init", "--repo", repo.toString(), "--skip-clients")
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(repo.resolve(".git/sideband"), Role.CLAUDE, "s1", "hello from s1")
+        held.hold(home.resolve(".sideband"), "repo", Role.CLAUDE, "s1", "hello from s1")
 
         when:
         Map joined = runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s2")
@@ -184,17 +185,17 @@ class SessionCommandsSpec extends CommandSpec {
         then:
         joined.adopted == null
         joined.end == 0
-        held.held(repo.resolve(".git/sideband"), Role.CLAUDE, "s1") == Optional.of("hello from s1")
+        held.held(home.resolve(".sideband"), "repo", Role.CLAUDE, "s1") == Optional.of("hello from s1")
     }
 
     void "the hook's last held prompt wins, and a held prompt is per role"() {
         given:
         run("init", "--repo", repo.toString(), "--skip-clients")
-        Path state = repo.resolve(".git/sideband")
+        Path state = home.resolve(".sideband")
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(state, Role.CLAUDE, "s1", "first")
-        held.hold(state, Role.CLAUDE, "s1", "second")
-        held.hold(state, Role.CODEX, "t1", "for codex")
+        held.hold(state, "repo", Role.CLAUDE, "s1", "first")
+        held.hold(state, "repo", Role.CLAUDE, "s1", "second")
+        held.hold(state, "repo", Role.CODEX, "t1", "for codex")
 
         expect:
         runJson("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1").adopted.body == "second"
@@ -204,17 +205,17 @@ class SessionCommandsSpec extends CommandSpec {
     void "a push that fails after the adopted prompt is journaled still lets join report it"() {
         given: "a capture whose delivery fails after the append"
         run("init", "--repo", repo.toString(), "--skip-clients")
-        Path state = repo.resolve(".git/sideband")
+        Path state = home.resolve(".sideband")
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
+        held.hold(state, "repo", Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
             Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
-                Entry entry = held.adopt(dir, via.role().get(), sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get().entry()
+            Optional<Captured> adopt(Path dir, ParticipantId via, Role client, String sessionId) {
+                Entry entry = held.adopt(dir, "repo", client, sessionId, { String prompt -> Draft.humanRequest(via, [Fixtures.CODEX], prompt) }).get().entry()
                 throw CaptureFailedException.afterAppend(entry, new IOException("codex queue unreachable"))
             }
         }
-        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(Projects), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
                 context.getBean(Pending), failing, context.getBean(ObjectMapper))
         stdout = new StringWriter()
         CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
@@ -230,22 +231,22 @@ class SessionCommandsSpec extends CommandSpec {
         json().adopted.pushes == []
         json().end == 1
         stderr.toString().contains("adopted " + json().adopted.metadata.id + " but could not deliver it: codex queue unreachable")
-        held.held(state, Role.CLAUDE, "s1").isEmpty()
+        held.held(state, "repo", Role.CLAUDE, "s1").isEmpty()
     }
 
     void "a failure inside the adoption fails the join and keeps the hold"() {
         given:
         run("init", "--repo", repo.toString(), "--skip-clients")
-        Path state = repo.resolve(".git/sideband")
+        Path state = home.resolve(".sideband")
         HeldPrompts held = context.getBean(HeldPrompts)
-        held.hold(state, Role.CLAUDE, "s1", "@codex look at this")
+        held.hold(state, "repo", Role.CLAUDE, "s1", "@codex look at this")
         HumanCapture failing = new HumanCapture() {
             Captured capture(Path dir, ParticipantId via, String body) { throw new UnsupportedOperationException() }
-            Optional<Captured> adopt(Path dir, ParticipantId via, String sessionId) {
+            Optional<Captured> adopt(Path dir, ParticipantId via, Role client, String sessionId) {
                 throw new CaptureFailedException(CaptureFailedException.Stage.UNCERTAIN, null, new IOException("disk full"))
             }
         }
-        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
+        def command = new JoinCommand(context.getBean(SidebandHome), context.getBean(Projects), context.getBean(HostEnvironment), context.getBean(HostProcesses), context.getBean(Sessions),
                 context.getBean(Pending), failing, context.getBean(ObjectMapper))
         CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true).setExecutionExceptionHandler(ExitCode.HANDLER)
         cli.out = new PrintWriter(stdout, true)
@@ -253,7 +254,7 @@ class SessionCommandsSpec extends CommandSpec {
 
         expect:
         cli.execute("--repo", repo.toString(), "--role", "claude", "--session-id", "s1") != ExitCode.OK
-        held.held(state, Role.CLAUDE, "s1") == Optional.of("@codex look at this")
+        held.held(state, "repo", Role.CLAUDE, "s1") == Optional.of("@codex look at this")
     }
 
     void "pending never reports an adopted prompt"() {
