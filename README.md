@@ -1,9 +1,10 @@
 # sideband
 
 Lets Claude Code and Codex work together on one task, in their own sessions,
-with the human in the loop. The two agents talk through an append-only journal
-that lives inside the repository's `.git` directory: one delegates, the other
-answers, and each is woken in its own conversation when something arrives. One
+with the human in the loop. The agents talk through an append-only journal
+in `~/.sideband`, one for every project on the machine with each project's
+discussion kept apart, and an agent in one project can reach one in another:
+one delegates, the other answers, and each is woken in its own conversation when something arrives. One
 native executable owns the protocol; each client gets a thin skill that tells
 it when to call the executable and what to do with the result.
 
@@ -20,6 +21,8 @@ native image, and everything a client runs is a subcommand of it.
   - [2.1 Claude Code](#21-claude-code)
   - [2.2 Codex](#22-codex)
   - [2.3 Talk](#23-talk)
+  - [2.4 Several sessions of one client](#24-several-sessions-of-one-client)
+  - [2.5 Other projects](#25-other-projects)
 - [3. How it works](#3-how-it-works)
   - [3.1 The journal](#31-the-journal)
   - [3.2 Claude Code](#32-claude-code)
@@ -46,13 +49,22 @@ Or from source, which needs a GraalVM JDK with `native-image` and
 just install          # builds the native executable and puts it on PATH
 ```
 
-Set up the repository. `init` creates the private state directory and its
-database, installs both skills, registers the hooks, and prints what to do
-next; rerunning it is safe:
+Set up each project. `init` creates the private state directory and its
+database the first time, registers the project under its directory's name,
+installs both skills, registers the hooks, and prints what to do next;
+rerunning it is safe. A project is a Git repository, all its worktrees
+included, or a plain directory:
 
 ```bash
-cd <your repository>
+cd <your project>
 sideband init
+```
+
+Another project already called that, or a directory name with nothing usable
+in it, needs a name of its own, which then stays the project's name:
+
+```bash
+sideband init as api-two
 ```
 
 Check the result at any time. `doctor` reports the database, every
@@ -132,7 +144,7 @@ know all pass straight through to the notifier.
 
 ### 2.1 Claude Code
 
-In the Claude Code session working on the repository, join:
+In the Claude Code session working on the project, join:
 
 ```text
 /sideband
@@ -140,7 +152,7 @@ In the Claude Code session working on the repository, join:
 
 ### 2.2 Codex
 
-In the Codex session working on the same repository, join:
+In the Codex session working on the same project, join:
 
 ```text
 $sideband
@@ -178,22 +190,27 @@ either agent, `@all` can speak to both at once, and either agent can read in
 ### 2.4 Several sessions of one client
 
 More than one Claude Code or Codex session can take part in the same
-discussion, say one Claude running Opus and another running Fable. The first
-of each joins as usual and is the unnamed `claude` or `codex`; every further
-one joins under a name:
+discussion, say one Claude running Opus and another running Fable. Every
+session has a name: the first of each client joins as usual and takes the
+client's own, `claude` or `codex`; every further one joins under a name of
+its own:
 
 ```text
 /sideband as fable
 ```
 
-That session is now `claude:fable`, with its own bookmark and its own pending
-work, and `@claude:fable` at the start of a prompt reaches it. `@claude`
-still reaches only the unnamed Claude, and `@all` reaches every session that
-has joined. An agent's reply goes back to the session that asked. A name is a
-lowercase letter followed by up to 31 lowercase letters, digits, and hyphens.
+That session is now `fable`, with its own bookmark and its own pending work,
+and `@fable` at the start of a prompt reaches it. `@claude` still reaches
+only the session called `claude`, and `@all` reaches every session that has
+joined in the project. An agent's reply goes back to the session that asked.
+A name is a lowercase letter followed by up to 31 lowercase letters, digits,
+and hyphens; `all` and `operator` are taken. The name says nothing about the
+client: a Codex session can be `fable` as well, as long as no Claude session
+holds it in that project.
 
-Joining under a name another session holds takes the name over, and the
-join says which session it replaced. Claude Code tells Sideband which process
+Joining under a name another session of the same client holds takes the name
+over, and the join says which session it replaced; joining under a name the
+other client holds is refused. Claude Code tells Sideband which process
 every session runs in, so a second Claude Code terminal that has not joined
 is never folded into an instance whose client is still running elsewhere:
 its prompts wait for its own `/sideband` or `/sideband as <name>`, and a
@@ -203,6 +220,23 @@ second Codex terminal takes the instance over with its first prompt, so join
 a second Codex under a name before typing into it. With two or more Codex
 instances joined, a cleared conversation is told which instances it could
 be, and `$sideband` or `$sideband as <name>` settles it.
+
+### 2.5 Other projects
+
+Names are per project, so `astra` in `sideband` and `astra` in `listenly`
+are two sessions. Within a project you address a session by its name;
+another project's needs the project's name first:
+
+```text
+listenly/@opus what does the export endpoint return for an empty account?
+```
+
+An agent does the same with `sideband append --to listenly/opus`, and the
+answer comes back to whoever asked, in whichever project. Each project's
+`sideband log` shows its own discussion, exchanges with other projects
+included, and nothing else. A project name nobody registered goes nowhere:
+your prompt is still recorded where you typed it, and the agent is told the
+route failed and to say so rather than act on it.
 
 ## 3. How it works
 
@@ -225,8 +259,9 @@ be, and `$sideband` or `$sideband as <name>` settles it.
   any agent having to record it. Normally
   each agent is spoken to in its own session; `@codex` at the start of a
   prompt typed into Claude Code routes it to Codex anyway, `@claude` does the
-  reverse, `@claude:fable` reaches a named session (2.4), and `@all`
-  reaches every session that has joined.
+  reverse, `@fable` reaches a session by its name (2.4), `listenly/@opus`
+  one in another project (2.5), and `@all` every session that has joined in
+  the project.
 - **Nothing is lost, and nothing is tracked outside the journal.** A request
   stays listed for its recipient until the journal holds that recipient's
   acknowledgement or reply, and listed for its sender until a reply exists.
@@ -234,23 +269,25 @@ be, and `$sideband` or `$sideband as <name>` settles it.
   before any action. The only thing kept beside the journal is each
   instance's session record: how far it has read, which conversation and, for
   Claude Code, which process it is, and for Codex the thread to push into.
-  Whoever joins under an identifier last holds it; nothing is refused.
+  Whoever of the same client joins under a name last holds it.
 
 ### 3.1 The journal
 
-`sideband.db` is one SQLite database in the state directory holding every
-entry and every instance's session record. An entry is its metadata plus the
-verbatim body, and `sideband log` prints the discussion as Markdown for a
-person to read:
+`~/.sideband/journal.db` is one SQLite database holding every registered
+project, every entry, and every session's record. An entry is its metadata
+plus the verbatim body, with each participant named `<project>/<name>`, and
+`sideband log` prints the current project's discussion as Markdown for a
+person to read, naming its own sessions by name and another project's as
+`listenly/@opus`:
 
 ```markdown
-## Operator → Codex (via Claude)
+## Operator → codex (via claude)
 
 - position: 12
 - id: …
 - created: 2026-09-07T18:07:52-05:00
 - type: request (expects a reply)
-- to: codex
+- to: sideband/codex
 
 @codex review the locking behavior.
 
@@ -262,7 +299,7 @@ command for the page before them, `sideband log --before <position>`;
 `--limit <n>` sets the page size. `--after <position>` reads forward instead,
 oldest first, so `sideband log --after 0` prints the whole discussion.
 `sideband log --id <id>` prints one entry, and `sideband log --trace <id>`
-prints an entry and the entries it came from, following `caused_by`,
+prints an entry and the entries it came from, both from the whole journal, following `caused_by`,
 otherwise `reply_to`, back to one with neither: for a request one agent sent
 the other, that is the prompt of yours it started from, and everything said
 between.
@@ -271,8 +308,12 @@ Entries are immutable and inserted in transactions that SQLite serializes
 across processes, so two clients writing at once never interleave. Positions
 are the addressing scheme: each entry gets the next sequence number, a session
 records the last position when it joins as its watermark, and everything
-after it is live. A state directory from before the database still holds
-`journal.md` and `sessions/`; nothing reads them, and they can be deleted.
+after it is live.
+
+Earlier versions kept a journal per repository, under `.git/sideband`, or in
+a `.sideband` directory of a plain directory; run from your home directory,
+that was `~/.sideband/sideband.db`, which is why the journal is called
+`journal.db`. Nothing reads those old journals, and they can be deleted.
 
 ### 3.2 Claude Code
 
@@ -284,21 +325,21 @@ instance's record on the conversation you are in, and the writer reaches that
 conversation through the registry Claude Code keeps: Claude Code registers
 every session in `~/.claude/sessions/<pid>.json` with its working directory
 and an inbox socket, the channel its own cross-session messaging uses. The
-writer considers the registered sessions working in this repository,
+writer considers the registered sessions working in the recipient's project,
 worktrees included, and posts the envelope to one socket as one
 newline-terminated frame. The recipient is the session the instance's record
-names, by session id or, right after a clear, by process. An entry for the
-unnamed `claude` also reaches a Claude Code session that has never run
-`/sideband`, as long as no other instance holds it; it loads the skill from
-the envelope's first line. A socket that refuses the connection belongs to a
-session that has ended, and the entry then waits in the journal.
+names, by session id or, right after a clear, by process; an entry for a name
+nobody has joined under waits in the journal until someone does. A socket
+that refuses the connection belongs to a session that has ended, and the
+entry then waits in the journal.
 
 Claude Code introduces everything on that socket to the model as a message
 from another Claude session; no frame can change that. The frame does carry
 the shape Claude Code's own cross-session messaging uses, a
 `<cross-session-message>` tag whose `from-name` Claude Code parses into the
-message's origin, so the envelope arrives named for its author: Codex,
-`Claude (fable)`, or the operator, rather than an anonymous session.
+message's origin, so the envelope arrives named for its author as the
+recipient's project sees it, `codex`, `listenly/@opus`, or the operator,
+rather than an anonymous session.
 
 One setting is yours to make (section 1.2), and without it Claude falls
 back to listening. A pushed envelope reaches Claude Code from a process that

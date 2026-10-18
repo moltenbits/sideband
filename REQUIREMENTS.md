@@ -59,15 +59,17 @@ invocations such as `claude -p` or `codex exec resume`.
 - **Client**: a supported interactive agent host, initially Claude Code or
   Codex.
 - **Author**: the participant that composed a message.
-- **Via**: the client in which a human entered a message.
-- **Recipient**: a participant addressed by a message: a client instance,
-  `claude`, `codex`, or a named one such as `claude:fable`, or the one human,
-  `operator`.
-- **Instance**: one client session taking part in the discussion under its
-  own participant identifier (section 9.5a): the bare role, `claude` or
-  `codex`, which is the unnamed instance, or `<role>:<name>`, a named one.
-  Several instances of a role may take part at once; one unnamed instance of
-  each is the default and is everything version one had.
+- **Via**: the instance in which a human entered a message.
+- **Project**: a Git repository, all its worktrees included, or a directory
+  outside Git, registered in the journal under a unique name (section 5.1).
+- **Recipient**: a participant addressed by a message: an agent,
+  `<project>/<name>` such as `sideband/astra`, or the one human, `operator`.
+- **Instance**: one client session taking part in a project's discussion
+  under its own name (section 9.5a): `claude` or `codex` when it joined
+  without one, otherwise the name it joined under. The name, qualified by its
+  project, is its participant identifier; the client is recorded on its
+  session record and is not part of the identifier. Several instances of a
+  client may take part at once.
 - **Live message**: a message appended after the recipient's session
   watermark (section 9.3), so it is pushed into the running session.
 - **Listener**: where this document says a role's listener delivers an entry,
@@ -85,13 +87,13 @@ invocations such as `claude -p` or `codex exec resume`.
 
 Version one supports:
 
-- One local Git repository.
-- Claude Code and Codex sessions per repository, each taking part as its own
-  instance (9.5a): one unnamed instance of each by default, and any number of
-  named ones.
+- Every project on one machine, Git repositories and plain directories alike.
+- Claude Code and Codex sessions per project, each taking part as its own
+  instance (9.5a) under a name unique in its project.
 - One shared native `sideband` executable used by both client skills.
-- A single append-only journal shared by both clients, in one embedded
-  database.
+- A single append-only journal for every project, in one embedded database,
+  each project's discussion kept apart within it and reachable from another
+  project only by addressing it (8.1).
 - Human-to-agent, agent-to-agent, and agent-to-human entries.
 - Direct and broadcast routing.
 - Immediate handling of live messages.
@@ -102,46 +104,58 @@ Version one supports:
 
 ### 5.1 Location
 
-Sideband state must live beneath Git's shared private metadata directory, as
-resolved by:
-
-```bash
-git rev-parse --path-format=absolute --git-common-dir
-```
-
-For a normal checkout this resolves to its `.git` directory. For additional
-Git worktrees it resolves to the same common Git directory used by the primary
-checkout. Consequently, every worktree sees the same Sideband conversation,
-while Sideband state remains absent from `git status` and cannot be committed
-or pushed accidentally.
-
-The layout is:
+Sideband state lives in one directory, `.sideband` in the user's home
+directory, for every project on the machine. Nothing is written into a
+project, so nothing is ever tracked by it, and no project needs a
+`.gitignore` entry for it.
 
 ```text
-<git-common-dir>/sideband/
-├── sideband.db
+~/.sideband/
+├── journal.db
 └── sqlite-jdbc-<version>-<os>-<arch>/
     └── libsqlitejdbc.<ext>
 ```
 
-`sideband.db` is one SQLite database holding the journal and every instance's
-session records. Beside it the executable keeps the SQLite native library the
-driver loads, written once so no command extracts it again; a copy the driver
-cannot load, damaged or from another platform, is ignored in favour of the
-driver's own extraction. SQLite's own locking serializes access to it; no lock file
-exists beside it. A state directory written before the database existed held
-`journal.md`, `sessions/<role>.json`, and `journal.lock`; nothing reads those
-files any more, and they may be deleted.
+`journal.db` is one SQLite database holding every registered project, the
+journal, and every instance's session record. Beside it the executable keeps
+the SQLite native library the driver loads, written once so no command
+extracts it again; a copy the driver cannot load, damaged or from another
+platform, is ignored in favour of the driver's own extraction. SQLite's own
+locking serializes access to it; no lock file exists beside it.
 
-Outside any Git repository, the state directory is `.sideband` in the
-working directory itself, with the same contents.
+The file is not called `sideband.db` because an earlier version, run in a
+directory outside Git, kept that directory's own journal in a `.sideband`
+directory there as `sideband.db`; run from the home directory itself, that is
+`~/.sideband/sideband.db`. Such a file is left as it is, and so are the
+journals earlier versions kept under each repository's
+`<git-common-dir>/sideband/`: nothing reads or imports them (#32).
+
+A project is located from a working directory:
+
+- Inside a Git repository, it is the repository's common Git directory, as
+  resolved by `git rev-parse --path-format=absolute --git-common-dir`, so every
+  worktree is the same project, and its root, where its client configuration
+  lives, is that directory's parent.
+- Outside Git, it is the working directory itself, its own root. A
+  subdirectory is a project of its own; nothing walks up to a parent.
+
+A project is registered under a name, by `sideband init` or implicitly by the
+first `join` or `append` there; hooks never register one, so a directory
+nobody registered is not using Sideband. The name is the root directory's
+name, lowercased, every run of other characters made one hyphen, anything
+before the first letter and any trailing hyphen dropped, and cut to 32
+characters; `sideband init as <project-name>` gives another. Names are unique:
+registering a name another project holds is refused (exit 2) with that hint,
+at `init` and at the implicit registration alike, so two projects whose names
+differ only before normalization are never merged. A registered project keeps
+its name; `init as` with another name is refused. Moving or renaming a
+project's directory starts a new project.
 
 ### 5.2 Persistence boundaries
 
-- Cloning the repository elsewhere does not transfer its Sideband journal.
-- Removing the repository's Git metadata also removes its journal.
-- Sideband must never place the journal in tracked repository content by
-  default.
+- Cloning or moving a repository does not take its discussion along.
+- Removing a project leaves its discussion in the journal.
+- Sideband must never place the journal in a project's content.
 - The Sideband state directory and its contents should be private to the local
   user.
 
@@ -157,20 +171,31 @@ position it saw asks for everything after it. The same metadata is what every
 command prints as JSON, for example:
 
 ```json
-{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"claude","to":["claude","codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}
+{"id":"019a","created_at":"2026-09-02T16:42:00-05:00","from":"operator","via":"sideband/claude","to":["sideband/claude","sideband/codex"],"type":"request","route":"broadcast","reply_to":null,"caused_by":null,"expects_reply":true,"delivery":{"live":"auto","backlog":"confirm"}}
 ```
 
-`sideband log` renders entries as Markdown for a person: a heading naming
-author and recipients, the metadata as a list, and the body verbatim. A
-journal grows without bound, so by default it prints a page: the newest 20
+An entry involves every project its author, `via`, and recipients belong to.
+The database records those projects beside the entry, in the same
+transaction, so a project's reads page by an index; nothing else about an
+entry is stored twice, and an entry across projects is stored once.
+
+`sideband log` renders the current project's discussion as Markdown for a
+person: every entry involving the project, those to or from other projects
+included, with a heading naming author and recipients as the project sees
+them (`astra` for its own agents, `listenly/@astra` for another project's),
+the metadata as a list, and the body verbatim. A directory nobody registered
+has said nothing, so `log` there prints nothing. A journal grows without
+bound, so by default it prints a page: the newest 20
 entries, newest first, ending with the line
 ``Earlier entries: `sideband log --before <position>` `` when older entries
 exist, where the position is the oldest one shown and any `--limit` is carried
 over. `--before <position>` prints the page below that position, and
 `--limit <n>` sets the page size; `--limit 0` prints nothing. `--after
 <position>` prints every entry after it, oldest first, at most `--limit` of
-them. `--id <id>` prints one entry. `--trace <id>` prints the entry and the
-entries it came from, oldest first: each step follows `caused_by` when it is
+them. `--id <id>` prints one entry, and `--trace <id>` the entry and the
+entries it came from, from the whole journal: an id is asked for by name, and
+a trace follows its causes into whichever project wrote them. A trace runs
+oldest first: each step follows `caused_by` when it is
 set, otherwise `reply_to` (the same precedence as 8.3), until an entry has
 neither. Unlike the lineage rule it does not stop at the first human-authored
 entry, since it shows the discussion rather than deciding authority. A link
@@ -186,11 +211,11 @@ Every entry must include:
 
 - `id`: a globally unique, stable message identifier.
 - `created_at`: an RFC 3339 timestamp including an offset.
-- `from`: the actual author: `operator` or a client instance, `claude`,
-  `codex`, or a named one such as `claude:fable` (9.5a).
-- `to`: a non-empty array of intended participant identifiers: client
-  instances or `operator`. There is exactly one human per journal, so nothing
-  about who they are is configured or recorded.
+- `from`: the actual author: `operator` or an agent, `<project>/<name>` such
+  as `sideband/astra` (9.5a).
+- `to`: a non-empty array of intended participant identifiers: agents, of
+  the author's project or another, or `operator`. There is exactly one human
+  per journal, so nothing about who they are is configured or recorded.
 - `type`: `request`, `reply`, `status`, or `ack` (section 9.8). There is no
   separate human-only type: a human's prompt and an agent's delegation are
   both requests. A request defaults to actionable regardless of author, but
@@ -203,8 +228,9 @@ Every entry must include:
 
 The following fields are conditional:
 
-- `via`: required for human-authored messages and identifies the client
-  instance where the human entered the message; it is never `operator`. A
+- `via`: required for human-authored messages and identifies the instance
+  where the human entered the message, and so the project the words belong
+  to; it is never `operator`. A
   captured turn (7.5) names its own author here: what the agent said in its
   own terminal, recorded by that client's hooks. An agent entry may carry a
   `via` naming itself for other reasons, so a captured turn is recognized by
@@ -224,9 +250,10 @@ behind, whether for a write or a read, so what an earlier executable recorded
 a database still at version zero, one another process is creating, reads as
 absent. `init` and `doctor` report the database's schema, its
 `PRAGMA user_version`; when opening it for the report migrated it, the line
-says from which schema (`schema 5, migrated from 4`), and a schema above the
+says from which schema (`schema 2, migrated from 1`), and a schema above the
 executable's latest migration, one a newer Sideband applied, is reported
-beside it (`schema 6, newer than this Sideband's 5`) and left alone. Neither
+beside it (`schema 3, newer than this Sideband's 2`) and left alone. The
+journal in the home directory starts at schema 1. Neither
 asks for `init` to bring a database up to date: any command that opens it does.
 Readers of the JSON form must ignore unknown fields.
 
@@ -372,7 +399,7 @@ as `/sideband @codex look at this`, is the operator's words typed as the
 skill's argument: the hook records the text after the invocation and routes
 it by its first token. The skill invoked alone or with one of its own words
 (`help`, `status`, `pending`, `off`) is a command and is not captured. `as`
-is reserved the same way: `as <name>` joins as a named instance (9.5a), and
+is reserved the same way: `as <name>` joins under that name (9.5a), and
 `as` alone, with a name that is not valid, or with anything after the name
 is a usage error the model reports, never a message. The skill invoked to
 join moves no instance to the session it was typed into (9.5a); the join
@@ -568,21 +595,32 @@ each client's question tool.
 ### 8.1 Human routing directives
 
 The first non-whitespace token of a direct human message may be one of these
-case-insensitive routing directives:
+case-insensitive routing directives, read in the project of the instance the
+message was entered into:
 
 | Directive | Recipients |
 | --- | --- |
-| None | Only the client instance where the message was entered |
-| `@claude` | The unnamed Claude Code instance |
-| `@codex` | The unnamed Codex instance |
-| `@claude:<name>`, `@codex:<name>` | That named instance (9.5a) |
-| `@all` | Both unnamed instances and every named instance that has joined |
+| None | Only the instance where the message was entered |
+| `@<name>` | That name in this project, such as `@codex` or `@opus` (9.5a) |
+| `<project>/@<name>` | That name in another registered project, such as `listenly/@opus` |
+| `@all` | Every instance with a session record in this project |
 
-A named instance is reached only by its own directive: `@claude` never fans
-out to `claude:fable`. A directive naming an instance nobody has joined as
-still addresses it, and the entry waits in the journal as one for an absent
-role always has. A token that is not a valid identifier, such as
-`@claude:Fable!`, is not a directive.
+Any valid name is a directive, whether or not anyone has joined under it:
+the entry then waits in the journal until someone does, and nothing is pushed
+meanwhile. `all` and `operator` are not names. A token that is not a valid
+address, such as `@Fable!`, `@claude:fable`, or `listenly/opus` without the
+`@`, is not a directive. Naming the current project is the same as leaving
+it out.
+
+A `<project>/@<name>` directive naming a project nobody registered does not
+route anywhere else: the message is recorded as an undirected one, for the
+instance it was entered into, only so the operator's words are not lost, and
+the capture says the route failed (`unrouted`, naming the project). The hook
+note, the `adopted` entry of a join, and `append --from operator` all report
+it, and the instance must report that failure to the operator and must
+neither act on the request nor send it on. An agent's own `append --to`
+naming an unregistered project, and a hidden `--from` or `--via` override
+naming one, are refused before anything is written (exit 2).
 
 A token elsewhere in the message is ordinary content and must not alter
 routing. For example, asking "What does `@all` mean?" must not accidentally
@@ -592,16 +630,19 @@ The original body, including any routing directive, remains in the journal.
 
 ### 8.2 Broadcasts
 
-- `@all` creates one journal entry with every recipient of the table above in
-  `to`; it must not create duplicate per-recipient entries. An instance
-  counts as joined when it has a session record (9.5).
-- The client instance through which the broadcast entered is recorded in `via`.
+- `@all` creates one journal entry with every instance that has a session
+  record in the project in `to`; it must not create duplicate per-recipient
+  entries, and it reaches no other project. An instance counts as joined
+  when it has a session record (9.5), whether or not its client still runs.
+- The instance through which the broadcast entered is recorded in `via`.
 - The originating client acts on the human's existing turn and must not inject
   a second copy into its own conversation.
-- Other recipients receive the journal entry through their listeners.
-- A broadcast targets both unnamed instances even if one is offline, and every
-  named instance with a record, whether or not its client is still running. An
-  offline recipient handles it under the backlog policy when it returns.
+- Other recipients receive the journal entry through their listeners; an
+  offline one handles it under the backlog policy when it returns.
+- With nobody joined in the project, `@all` names no recipient and is refused
+  (exit 2), nothing written. The prompt hook records only while the instance
+  typed into has joined, so it always has a recipient; `append --from
+  operator` before any join can hit the refusal.
 
 ### 8.3 Loop prevention
 
@@ -665,10 +706,14 @@ address the human rather than create another actionable peer message.
 
 ### 8.4 Isolation boundary
 
-Routing is logical, not a security boundary. A client must ignore entries that
-do not address it, but both clients can technically read the shared journal.
-True recipient confidentiality would require separate journals or encryption
-and is not a version-one requirement.
+Each project's discussion is kept apart by its participants' identifiers:
+`sideband/astra` and `listenly/astra` are two participants, so pending work,
+deliveries, bookmarks, and attention are a project's own, and an agent sees
+another project's entries only when they are addressed to it. Routing is
+logical, not a security boundary: every project's entries are in the one
+journal, readable by anyone who can read the file. True recipient
+confidentiality would require separate journals or encryption and is not a
+version-one requirement.
 
 ## 9. Delivery behavior
 
@@ -749,15 +794,15 @@ The usual `confirm` policy, lineage checks, and authority limits still apply.
 ### 9.5 Session record
 
 Where this section says role, read instance (9.5a): each instance has its
-own record, and the unnamed instance's is the role's record of version one.
-The only state an instance keeps outside the journal is its session record: the
-host's session identifier (for Codex the thread id, which pushes address),
+own record. The only state an instance keeps outside the journal is its
+session record: the client it runs in, the host's session identifier (for Codex the thread id, which pushes address),
 the host process when the host names one, when it joined, the journal size
 at that moment (its watermark), and its read position, the bookmark. Beside
 the records, a session that holds no instance yet has at most one held
-prompt awaiting adoption (7.1). Whoever joins under an identifier last holds it:
-`join` replaces any earlier record for that identifier and nothing is
-refused; the record's process is never used to refuse anything, only to tell
+prompt awaiting adoption (7.1), kept per project. Whoever joins under a name
+from the same client last holds it: `join` replaces that client's earlier
+record for the name; a name the other client holds in the project is refused
+(9.5a). The record's process is never used to refuse anything, only to tell
 which instance a calling session is (9.5a). The address alone also follows the operator
 without a join: when the operator's own input reaches a hook from a
 conversation the instance continues, as after a clear, the record's
@@ -816,38 +861,49 @@ is leaving it open. Neither touches anything but the journal.
 
 Several sessions of one client may take part in one discussion at once, such
 as two Claude Code sessions running different models. Each takes part as an
-instance with its own participant identifier:
+instance under a name unique in its project:
 
-- The unnamed instance is the bare role, `claude` or `codex`. It is what a
-  plain `/sideband` or `$sideband` joins as, and it is everything version one
-  had: a discussion that never names an instance behaves as before, except
-  for the narrowing of step 3 below.
-- A named instance is `<role>:<name>`, joined with `/sideband as <name>` in
-  Claude Code or `$sideband as <name>` in Codex, which run
-  `sideband join --as <name>`. A name is a lowercase letter followed by up to
-  31 lowercase letters, digits, and hyphens, so it is safe in a routing
-  directive, in a hook's context field, and in the `from-name` Claude Code
-  parses (10.2). Its display name is the role's followed by the name in
-  parentheses, `Claude (fable)`.
+- A plain `/sideband` or `$sideband` joins under the client's own name,
+  `claude` or `codex`. It is an ordinary name; nothing else about it is
+  special.
+- `/sideband as <name>` in Claude Code or `$sideband as <name>` in Codex,
+  which run `sideband join --as <name>`, joins under that name. A name is a
+  lowercase letter followed by up to 31 lowercase letters, digits, and
+  hyphens, so it is safe in a routing directive, in a hook's context field,
+  and in the `from-name` Claude Code parses (10.2); `all` and `operator` are
+  reserved.
+
+The instance's participant identifier is its project and its name,
+`<project>/<name>` such as `sideband/opus`, so the same name in two projects
+is two instances. The client is not part of it: the session record says which
+client an instance runs in, and that is where delivery and the handling
+instructions read it from. Within its project an instance is shown and
+addressed by its name alone, and from another project as
+`<project>/@<name>`.
 
 An instance is a participant in every sense: it is `from` on what it writes
 and `via` on what the operator types into it, it is addressed in `to`, and it
 has its own session record, bookmark, delivery records, and pending report.
 A reply goes back to the instance that asked, since a reply's recipients
-default to the author of the entry it answers (9.6). The operator addresses
-a named instance with `@<role>:<name>` (8.1). Nothing is stored about
-instances beyond their session records: an identifier in `to` needs no
-registration, and one nobody has joined as simply waits in the journal. The
-causal-path rule and the delegation depth cap (8.3) apply between two
-instances of one role exactly as between two roles.
+default to the author of the entry it answers (9.6), in whichever project it
+is. The operator addresses an instance with `@<name>`, or `<project>/@<name>`
+from another project (8.1). Nothing is stored about instances beyond their
+session records: a name in `to` needs no registration, and one nobody has
+joined as simply waits in the journal, though its project must be registered.
+The causal-path rule and the delegation depth cap (8.3) apply between any two
+instances, of one client or two, of one project or two.
 
-Joining keeps the version-one rule, per identifier: whoever joins under an
-identifier last holds it, and nothing is refused. The join output names the
-session it replaced, when it replaced one, so a forgotten client losing its
-identifier is at least visible. A session holds one instance at a time:
-joining removes the record of any other instance of the role that names the
-joining session, so switching a conversation from `claude` to
-`claude:fable` leaves the unnamed instance unjoined.
+A name belongs to one client in a project. Joining under a name the same
+client holds takes it over: whoever joins last holds it, and the join output
+names the session it replaced, so a forgotten client losing its name is at
+least visible. Joining under a name the other client holds is refused (exit
+2), naming that client; the check and the write are one transaction, so two
+clients joining one name at once leave exactly one holder. Records are not
+retired, so a name a finished session of the other client held stays refused
+until clearing a session is possible (a follow-up to #32). A session holds
+one instance at a time: joining removes the record of any other instance of
+the client that names the joining session, so switching a conversation from
+`claude` to `fable` leaves `claude` unjoined.
 
 Beside the host's session identifier, an instance's record holds the host
 process when the host names it: its process id together with its start
@@ -862,16 +918,16 @@ app-server daemon that every Codex terminal shared, so a process said
 nothing about which terminal was calling, and Sideband records none for
 Codex.
 
-A live process belongs to at most one instance of its role. Whenever a
+A live process belongs to at most one instance of its client. Whenever a
 record takes a process, by a join or by any of the steps below, every other
-record of the role naming that process loses it: its address and pending
+record of the client naming that process loses it: its address and pending
 work stay, but it no longer claims to be running there. That happens when a
 client switches its conversation to another instance's session, as Claude
 Code's `/resume` can inside one process, and when a session joins in a
 process an older record still names.
 
 Which instance a calling session is, is decided in one place, from the
-records of its role:
+records of its client in the project it works in:
 
 1. The instance whose record names the calling session is the one calling.
    When the caller names a process the record does not, the record takes
@@ -882,7 +938,7 @@ records of its role:
    session.
 3. Otherwise, an instance may be continued by the caller when nothing shows
    it is still running elsewhere: its record names no process, or one that is
-   no longer alive. When exactly one instance of the role qualifies, its
+   no longer alive. When exactly one instance of the client qualifies, its
    address moves to the calling session, as after a restart, or after a clear
    in Codex. When none does, the calling session holds no instance. When
    several do, which one continues cannot be told, and the calling session
@@ -913,9 +969,10 @@ authored a command: a session displaced by a takeover would be taken for
 whichever retained record happens to qualify. So a command acts as an
 instance only when its record names the calling session (step 1) or names
 the calling process, alive and with the recorded start time (step 2).
-Otherwise, when the role has no instance records at all, the command acts as
-the unnamed instance, which covers a client of a role that has never joined,
-as in version one. In every other case it refuses as invalid input, saying
+Otherwise, when the client has no records in the project, the command acts
+under the client's own name, which covers a client that has never joined
+there, unless the other client holds that name, which is refused naming it.
+In every other case it refuses as invalid input, saying
 the session holds no instance and that joining settles it; acting as any
 joined instance would write under its identity and move its bookmark. A
 session whose instance another join took over while it was working is
@@ -923,13 +980,15 @@ refused on its next command this way, and so is a restarted client that has
 not rejoined and has not been typed into, which a join or the operator's
 first prompt settles. `join` is never refused.
 
-Delivery reaches an instance through its own record: Codex's pusher queues
-into the thread the instance's record names (10.3), and Claude Code's posts
-to the registration naming the record's session or process (10.2).
+Delivery reaches an instance through its own record, by the pusher of the
+client the record names: Codex's queues into the thread the record names
+(10.3), and Claude Code's posts to the registration naming the record's
+session or process (10.2). A name nobody has joined under has no record, so
+nothing is pushed for it, whatever the name; the entry waits.
 
 Instances of deleted worktrees or finished experiments are not retired: their
-records stay until someone joins under their identifier again, and `@all`
-keeps addressing them. A registry with a retired state is later work.
+records stay until someone of the same client joins under their name again,
+and `@all` keeps addressing them. A registry with a retired state is later work.
 
 ### 9.6 Asynchronous requests and replies
 
@@ -1050,8 +1109,8 @@ outside version-one scope.
 
 Each client-specific Sideband skill must, through the shared tool:
 
-1. Locate the repository's Sideband state directory.
-2. Initialize it safely when absent.
+1. Locate the Sideband state directory and the working directory's project.
+2. Initialize the state directory, and register the project, safely when absent.
 3. Read what the journal says is still waiting for that client.
 4. Apply backlog confirmation rules.
 5. Start no timer or polling loop; delivery is the writer's push, and the one
@@ -1087,7 +1146,7 @@ cross-session messaging uses, and registers every session in
 `~/.claude/sessions/<pid>.json` with its working directory and socket path.
 Claude therefore runs no listener. Whoever appends an entry addressed to a
 Claude instance considers the registered sessions whose working directory
-resolves to this repository's state directory, worktrees included, and posts
+is in the recipient's project, worktrees included, and posts
 the envelope to one socket as one newline-terminated frame; an idle session
 starts a new turn with it and a busy one reads it between tool calls. The
 recipient is a registration the instance's record names (9.5a), and every such
@@ -1096,16 +1155,11 @@ record's, since a resumed session can be registered twice, and then those of
 the record's process while it runs with its recorded start time, since a clear
 changes the identifier in place and the push may run before the session-start
 hook has moved the record. A registration whose session identifier another
-instance's record names is never taken by process. A named instance is
-reached only that way, and an entry for one whose registrations are gone or
-refuse waits in the journal. The unnamed instance keeps version one's reach
-as well: when it has no record, when its record names no registration, or
-when every registration its record names refuses, the registrations that no
-instance's record claims, by session or by a live process, are tried newest
-first, so a single Claude that has never joined, or restarted without joining
-while the old registration lingers, is still reached and finds the skill
-through the envelope's intent sentence (section 7.4). A registration another
-instance's record claims is never a fallback. A socket that refuses the
+instance's record names is never taken by process. An instance is reached
+only that way, whatever its name: an entry for one with no record, or whose
+registrations are gone or refuse, waits in the journal, and no registration
+that no record claims is ever a fallback (#32 removed the one `claude` had).
+A socket that refuses the
 connection belongs to a session that has ended, so the next candidate is
 tried, and the entry waits in the journal when none accepts. A frame past
 Claude Code's cap of about a million characters is refused before any
@@ -1118,8 +1172,11 @@ introduction (verified against Claude Code 2.1.263, 2026-09-07). The frame's
 content therefore takes the shape Claude Code's own cross-session messaging
 sends, a `<cross-session-message>` tag whose `from-name` the receiving side
 parses into the message's origin, with the envelope inside it; the name is the
-entry author's display name, such as `Codex` or `Claude (fable)`, so the
-message is attributed to its author rather than to an anonymous session. The Claude adapter tells the
+entry author as the recipient's project sees it, such as `codex` or
+`sideband/@astra`, cut to the author's name alone when that address passes
+Claude Code's 64-character limit, so the message is attributed to its author
+rather than to an anonymous session. `metadata.from` in the envelope always
+carries the full identifier. The Claude adapter tells the
 model to trust that name and `metadata.from` over the introduction.
 
 Claude Code recognizes only text its own serializer would leave alone, and
@@ -1217,11 +1274,11 @@ Registration on disk alone does not establish that guarantee.
   waits; the reply is pushed when it is written.
 - Messages written while a client is absent remain durable in the journal.
 - A returning client drains the backlog using the confirmation workflow.
-- Several instances of each client role may take part in one repository,
-  each under its own identifier (9.5a). A second join under the same
-  identifier replaces that instance's record and holds it from then on; no
-  join is refused. Instances may operate from the same worktree or
-  from different ones.
+- Several instances of each client may take part in one project, each under
+  its own name (9.5a). A second join under the same name from the same client
+  replaces that instance's record and holds it from then on; a join under a
+  name the other client holds is refused. Instances may operate from the same
+  worktree or from different ones.
 
 ### 10.5 Activation
 
@@ -1395,10 +1452,9 @@ Version one does not provide:
 - Audit-grade guaranteed capture of every human input byte.
 
 Per-instance identity, once design direction here, is specified in section
-9.5a (2026-09-26), with two departures from the direction first sketched:
-`@claude` reaches only the unnamed instance rather than fanning out, and
-names are chosen by the operator at join rather than derived from the
-worktree. An instance registry with a retired state, which would report
+9.5a (2026-09-26), with names chosen by the operator at join rather than
+derived from the worktree; since #32 (2026-10-18) the identifier is the
+project and the name, and the client is no longer part of it. An instance registry with a retired state, which would report
 backlog for deleted worktrees as orphaned rather than leave it pending
 forever, remains later work.
 
@@ -1456,8 +1512,35 @@ appear in the journal without interleaving or corruption.
 ### 14.8 Worktrees
 
 Given Claude and Codex operate from different worktrees of the same Git
-repository, both resolve and use the same Sideband journal. Instances of one
-role in different worktrees share it the same way (14.10a).
+repository, both are in the same project, under its one name, and share its
+discussion. Instances of one client in different worktrees share it the same
+way (14.10a).
+
+### 14.8a Projects in one journal
+
+Given two registered projects, `alpha` and `beta`, each with an instance
+named `astra`, and a third, `gamma`:
+
+- both discussions are in `~/.sideband/journal.db`, and nothing is written
+  into either repository;
+- an entry for `@codex` typed in `alpha` reaches `alpha/codex` and never
+  `beta/codex`, and `beta`'s `log` does not show it;
+- `alpha/astra` sends `beta/astra` a request with `--to beta/astra`: `beta`'s
+  `astra` lists it as open although the two share a name, its ack and reply
+  default back to `alpha/astra`, the reply closes the request under
+  `alpha/astra`'s outgoing, both sides see their part after joining again,
+  and `gamma` sees neither entry in `pending` or `log`, while both `alpha`'s
+  and `beta`'s logs show both;
+- `log --trace` of that request run in `beta` reaches the `alpha` prompt it
+  came from;
+- `--to nowhere/opus` is refused with nothing written, and a typed
+  `nowhere/@opus` is recorded for the instance typed into and reported as
+  unrouted (8.1);
+- `sideband init` in a second directory named `alpha` is refused with the
+  `init as` hint, and `sideband init as alpha-two` registers it, whose
+  agents `alpha/astra` reaches as `alpha-two/@astra`; and
+- an older Sideband's `~/.sideband/sideband.db` beside the journal is left
+  untouched (5.1).
 
 ### 14.9 Restart and replay
 
@@ -1470,7 +1553,7 @@ it; only its reply closes the request.
 
 ### 14.10 Duplicate role activation
 
-Given one Codex session has joined a repository as `codex`, when another
+Given one Codex session has joined a project as `codex`, when another
 Codex session joins it as `codex` too, the second join replaces that
 instance's record and holds it; nothing is refused, and the join output names
 the session it replaced. Codex names no process, so a prompt typed into the
@@ -1483,31 +1566,37 @@ the second session's process is alive.
 ### 14.10a Named instances
 
 Given one Claude Code session joined as `claude` and another joined with
-`/sideband as fable` as `claude:fable`, in the same worktree or in two:
+`/sideband as fable` as `fable`, in the same worktree or in two:
 
 - each receives only entries addressed to it, prompts typed into each are
   recorded with that instance as `via`, and their bookmarks are independent;
-- `@claude` reaches only `claude`, `@claude:fable` only `claude:fable`, and
-  `@all` both of them, `codex`, and every other named instance with a record;
-- a reply to a request `claude:fable` wrote is delivered to `claude:fable`;
-- a request from `claude` to `claude:fable` traces to a human entry and is
-  bounded by the delegation depth cap exactly as one between roles;
+- `@claude` reaches only `claude`, `@fable` only `fable`, and `@all` both of
+  them and every other instance with a record in the project;
+- a reply to a request `fable` wrote is delivered to `fable`;
+- a request from `claude` to `fable` traces to a human entry and is bounded
+  by the delegation depth cap exactly as one between clients;
 - `/clear` in either session keeps that session's instance, moves its
   address to the new conversation, and leaves the other instance alone;
 - a prompt typed into a third Claude Code session that has not joined is
-  held for its join and moves neither instance; and
-- `/sideband as fable` from the third session takes `claude:fable` over, and
-  its join output names the session it replaced; and
-- when the first session's client switches its conversation to
-  `claude:fable`'s session, as `/resume` can, `claude:fable` takes the
-  process and `claude`'s record gives it up, so no process is named by two
-  records and no push for one instance reaches the other through it.
+  held for its join and moves neither instance;
+- `/sideband as fable` from the third session takes `fable` over, and its
+  join output names the session it replaced, while `$sideband as fable` from
+  a Codex session is refused naming Claude; and
+- when the first session's client switches its conversation to `fable`'s
+  session, as `/resume` can, `fable` takes the process and `claude`'s record
+  gives it up, so no process is named by two records and no push for one
+  instance reaches the other through it.
 
 Given a single Claude joined as `claude` that crashed, leaving its
 registration behind with a socket that refuses, and restarted without
-joining, an entry for `claude` reaches the restarted session.
+joining, an entry for `claude` waits in the journal until the restarted
+session joins or is typed into.
 
-Given two Codex sessions joined as `codex` and `codex:review`, when either is
+Given Codex joined under the name `claude`, a Claude Code session's command
+with no records of its own is refused, naming that the other client holds
+`claude`, rather than writing as it.
+
+Given two Codex sessions joined as `codex` and `review`, when either is
 cleared, the session-start hook cannot tell which instance the new thread
 continues, moves neither, and tells the new conversation so; joining again
 settles it.
@@ -1538,8 +1627,8 @@ threshold of ten is configured, the tenth exchange causes one `status` entry
 addressed to the human, and the eleventh is still delivered under its live
 policy.
 
-Given the human asks `claude:fable`, which delegates to `claude:opus`, which
-asks `codex:astra` to review commit after commit, each new request linked by
+Given the human asks `fable`, which delegates to `opus`, which asks `astra`
+to review commit after commit, each new request linked by
 `caused_by` to Astra's reply to the previous one, every one of those requests
 has delegation depth two and is delivered under its live policy. A request
 from Fable linked to one of those replies is a delegation, at depth three.
@@ -1601,13 +1690,13 @@ Codex without Codex running any listener, and the entry is marked delivered
 for Codex. Given Codex has not activated, the push reports no session and the
 entry waits as backlog.
 
-Given a Claude Code session is running in the repository, joined or not, when
-any process appends an entry addressed to Claude, the writer posts the
-envelope to that session's inbox socket and the entry is marked pushed for
-Claude; a session that has never joined loads the skill from the envelope.
-Given no Claude Code session is registered for the repository, or every
-registered socket refuses the connection, the push reports no session or
-failure and the entry waits as backlog. A pushed result is the host's
+Given a Claude Code session in the project has joined as `claude`, when any
+process appends an entry addressed to `claude`, the writer posts the envelope
+to that session's inbox socket and the entry is marked pushed for it. Given
+nobody has joined as `claude` there, or the session its record names is not
+registered in the project, or every registration it names refuses the
+connection, the push reports no session or failure and the entry waits as
+backlog. A pushed result is the host's
 acceptance of the envelope, never evidence that the model read it; the
 recipient's ack is that evidence.
 
@@ -1635,22 +1724,22 @@ a prompt into each and then joins in either, that join adopts its own
 session's prompt, and the other session's prompt stays held for its own
 join; a command typed into one drops only its own session's hold.
 
-Given `claude:fable` in session A is mid-turn when session B joins as
-`claude:fable` and `claude` is held by session C, when A's model next runs
+Given `fable` in Claude Code session A is mid-turn when session B joins as
+`fable` and `claude` is held by session C, when A's model next runs
 `append` or `pending`, the command refuses and says A holds no instance,
-rather than writing as `claude:fable` or `claude`. It refuses the same way
-when a retained `claude:old` record names a dead process, and when A was
-`codex:review`, B took it over, and B's is the only Codex record: an
-instance a hook could continue by step 3 is never one a command writes as.
-Given no Claude instance record exists at all, a command from a Claude
-session acts as `claude`, as in version one.
+rather than writing as `fable` or `claude`. It refuses the same way when a
+retained `old` record names a dead process, and when A was Codex's `review`,
+B took it over, and B's is the only Codex record: an instance a hook could
+continue by step 3 is never one a command writes as. Given no Claude record
+exists in the project, a command from a Claude session acts as `claude`,
+unless Codex holds that name.
 
 ### 14.16a Turn capture
 
 Given a session that holds an instance by a record naming it or its process,
 when its client's hooks fire, the agent's words in that session are recorded
 from its transcript as captured turns (7.5). The commands' fallback to the
-unnamed instance when a client has no records does not count: a client that
+client's own name when it has no records does not count: a client that
 never joined records nothing.
 
 - **Once, in order.** Each capture reads the transcript from where the last
@@ -2213,17 +2302,19 @@ which client it runs inside: each recognizes the client from the environment
 the client gives its subprocesses, so `--role`, `--via`, and `--client` are
 hidden overrides for tests. `append --from` is the one visible author flag:
 `operator` means the entry is the operator's own words; a client name is an
-override for tests. Which instance of the client is calling, and when a
-command refuses because the session holds none, is the command rule of
+override for tests. Addresses in `--to`, `--from`, and `--via` are a name in
+the current project or `<project>/<name>`, with or without the `@`; a project
+nobody registered is refused. Which instance of the client is calling, and
+when a command refuses because the session holds none, is the command rule of
 section 9.5a; only `join --as` names an instance explicitly.
 
 ```text
-sideband init [--skip-clients]                     # state directory and database, both skill stubs, both clients' hook registrations
-sideband join [--as <name>] [--resume]             # start this session as the unnamed or a named instance, taking it over; prints the first pending report
+sideband init [--skip-clients] [as <project-name>]  # state directory and database, the project registered, both skill stubs, both clients' hook registrations
+sideband join [--as <name>] [--resume]             # start this session under the client's own name or another, taking it over from the same client; prints the first pending report
 sideband append --from operator [--body-file <path>] # the operator's own words, routed by their first token
-sideband append --type request --to <instance> --caused-by <id> [--body-file <path>]
+sideband append --type request --to <name|project/name> --caused-by <id> [--body-file <path>]
 sideband append --type reply --reply-to <id> [--to ...] [--expects-reply true] [--body-file <path>]
-sideband append --type status --to <role|operator> [--reply-to <id>] [--body-file <path>]
+sideband append --type status --to <name|project/name|operator> [--reply-to <id>] [--body-file <path>]
 sideband append --type ack --reply-to <id>         # receipt; body optional; never delivered as such
 sideband pending                                   # open, in progress, updates, outgoing; advances the bookmark
 sideband pending --wait [--timeout <s>]            # block until something new, then report; never advances
