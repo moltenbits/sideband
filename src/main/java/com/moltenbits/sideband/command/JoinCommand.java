@@ -31,10 +31,9 @@ import java.util.concurrent.Callable;
 /**
  * Joins the project's discussion under this client's own name, {@code claude} or {@code codex},
  * or with {@code --as} under another (REQUIREMENTS.md 9.5a), taking the name over from any
- * earlier session of the same client, refused when the other client holds it, and prints the
- * first pending report, with {@code replaced} naming the session the instance was taken
- * from when there was one. By default the
- * bookmark starts at the latest point, so only requests still unanswered are shown, every
+ * earlier session of either client, and prints the first pending report, with
+ * {@code replaced} naming the session the instance was taken from when there was one. By
+ * default the bookmark starts at the latest point, so only requests still unanswered are shown, every
  * one of them flagged for the operator's confirmation. With {@code --resume} the bookmark
  * starts where this instance last left off, so everything written for it since is shown too,
  * and the waiting requests are flagged only when there are several: a lone one is acted on.

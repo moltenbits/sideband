@@ -71,13 +71,11 @@ something said there.
 1. Join. The executable recognizes Claude Code from its shell environment
    and records this conversation, and the Claude Code process it runs in, as
    the one holding its name in this project: `claude`, or `<name>` after
-   `/sideband as <name>`. Whichever Claude Code session joins under a name
-   last holds it, so a restarted Claude simply joins again. A name belongs to
-   one client in a project: when Codex holds it, the join exits 2 saying so;
-   tell the user and offer `/sideband as <name>` with another name. A
-   report with `replaced` means this join took the name over from that
-   session: tell the user in one line, since a Claude Code session they
-   forgot may still be running there and no longer receives anything.
+   `/sideband as <name>`. Whichever session joins under a name last holds it,
+   Claude Code or Codex, so a restarted Claude simply joins again. A report
+   with `replaced` means this join took the name over from that session:
+   tell the user in one line, since a session they forgot, of either client,
+   may still be running there and no longer receives anything.
    Plain `join` starts at the latest point; `--resume` picks up from where Claude last
    left off, so replies and other updates written for it since are shown.
    Use `--resume` unless the user says to start fresh.

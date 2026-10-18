@@ -66,14 +66,12 @@ sideband join --resume
 
 The executable records the thread from `CODEX_THREAD_ID`, which is where
 pushes for this instance are queued: `codex`, or `<name>` after
-`$sideband as <name>`. Whichever Codex session joins under a name last holds
-it, so a restarted Codex simply joins again. A name belongs to one client in
-a project: when Claude holds it, the join exits 2 saying so; tell the user and
-offer `$sideband as <name>` with another name. A report with
+`$sideband as <name>`. Whichever session joins under a name last holds it,
+Codex or Claude Code, so a restarted Codex simply joins again. A report with
 `replaced` means this join took the name over from that session: tell the
-user in one line, since a Codex session they forgot may still be running
-there and no longer receives anything. Do not join again
-merely to check status or on each notification.
+user in one line, since a session they forgot, of either client, may still be
+running there and no longer receives anything. Do not join again merely to
+check status or on each notification.
 
 Use `--resume` unless the user explicitly asks to start fresh. It retains the
 previous read position (or starts at the beginning when the name has never

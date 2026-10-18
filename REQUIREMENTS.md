@@ -800,10 +800,9 @@ the host process when the host names one, when it joined, the journal size
 at that moment (its watermark), and its read position, the bookmark. Beside
 the records, a session that holds no instance yet has at most one held
 prompt awaiting adoption (7.1), kept per project. Whoever joins under a name
-from the same client last holds it: `join` replaces that client's earlier
-record for the name; a name the other client holds in the project is refused
-(9.5a). The record's process is never used to refuse anything, only to tell
-which instance a calling session is (9.5a). The address alone also follows the operator
+last holds it, from either client: `join` replaces the earlier record for the
+name (9.5a). The record's process is never used to refuse anything, only to
+tell which instance a calling session is (9.5a). The address alone also follows the operator
 without a join: when the operator's own input reaches a hook from a
 conversation the instance continues, as after a clear, the record's
 identifier changes and its watermark and bookmark stay (7.1). `join`
@@ -893,14 +892,12 @@ joined as simply waits in the journal, though its project must be registered.
 The causal-path rule and the delegation depth cap (8.3) apply between any two
 instances, of one client or two, of one project or two.
 
-A name belongs to one client in a project. Joining under a name the same
-client holds takes it over: whoever joins last holds it, and the join output
-names the session it replaced, so a forgotten client losing its name is at
-least visible. Joining under a name the other client holds is refused (exit
-2), naming that client; the check and the write are one transaction, so two
-clients joining one name at once leave exactly one holder. Records are not
-retired, so a name a finished session of the other client held stays refused
-until clearing a session is possible (a follow-up to #32). A session holds
+A name has one record in a project, whichever client holds it. Joining under
+a name takes it over, whichever client held it: whoever joins last holds it,
+the record's client becomes the joining one, and the join output names the
+session it replaced, so a forgotten client losing its name is at least
+visible. The read and the write are one transaction, so two clients joining
+one name at once leave exactly one holder, the later join. A session holds
 one instance at a time in a project: joining removes the record of any other
 instance of the client in the same project that names the joining session,
 so switching a conversation from `claude` to `fable` leaves `claude`
@@ -974,15 +971,16 @@ instance only when its record names the calling session (step 1) or names
 the calling process, alive and with the recorded start time (step 2).
 Otherwise, when the client has no records in the project, the command acts
 under the client's own name, which covers a client that has never joined
-there, unless the other client holds that name, which is refused naming it.
-In every other case it refuses as invalid input, saying
+there, unless the other client holds that name, which is refused naming it,
+since acting as it would write under the other client's instance; a join
+takes the name over. In every other case it refuses as invalid input, saying
 the session holds no instance and that joining settles it; acting as any
 joined instance would write under its identity and move its bookmark. A
 session whose instance another join took over while it was working is
 refused on its next command this way, and so is a restarted client that has
 not rejoined and has not been typed into, which a join or the operator's
-first prompt settles. `join` is never refused for a name the same client
-holds; it takes the name over.
+first prompt settles. `join` is never refused for a name someone holds; it
+takes the name over.
 
 Delivery reaches an instance through its own record, by the pusher of the
 client the record names: Codex's queues into the thread the record names
@@ -1279,10 +1277,9 @@ Registration on disk alone does not establish that guarantee.
 - Messages written while a client is absent remain durable in the journal.
 - A returning client drains the backlog using the confirmation workflow.
 - Several instances of each client may take part in one project, each under
-  its own name (9.5a). A second join under the same name from the same client
-  replaces that instance's record and holds it from then on; a join under a
-  name the other client holds is refused. Instances may operate from the same
-  worktree or from different ones.
+  its own name (9.5a). A second join under the same name, from either client,
+  replaces that instance's record and holds it from then on. Instances may
+  operate from the same worktree or from different ones.
 
 ### 10.5 Activation
 
@@ -1598,7 +1595,8 @@ session joins or is typed into.
 
 Given Codex joined under the name `claude`, a Claude Code session's command
 with no records of its own is refused, naming that the other client holds
-`claude`, rather than writing as it.
+`claude`, rather than writing as it; `/sideband` from that session takes
+`claude` over, and the Codex session stops receiving.
 
 Given two Codex sessions joined as `codex` and `review`, when either is
 cleared, the session-start hook cannot tell which instance the new thread

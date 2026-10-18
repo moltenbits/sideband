@@ -241,18 +241,18 @@ class SqliteSessionsSpec extends Specification {
 
     // --- one name, one client ---
 
-    void "a name the other client holds in the project is refused, and nothing changes"() {
+    void "a join under a name the other client holds takes it over, and the record's client becomes the joining one"() {
         given:
         sessions.join(dir, FABLE, Role.CODEX, "t1")
 
         when:
-        sessions.join(dir, FABLE, Role.CLAUDE, "s1")
+        Joining joining = sessions.join(dir, FABLE, Role.CLAUDE, "s1")
 
         then:
-        IllegalArgumentException e = thrown()
-        e.message.contains("fable is held by Codex")
-        sessions.load(dir, FABLE).get().client() == Role.CODEX
-        sessions.load(dir, FABLE).get().id() == "t1"
+        joining.replaced() == "t1"
+        sessions.load(dir, FABLE).get().client() == Role.CLAUDE
+        sessions.load(dir, FABLE).get().id() == "s1"
+        sessions.records(dir, "repo", Role.CODEX).isEmpty()
     }
 
     void "the same name in two projects is two instances, each with its own client"() {
@@ -297,7 +297,7 @@ class SqliteSessionsSpec extends Specification {
             Thread.start {
                 start.await()
                 try {
-                    outcomes << sessions.join(dir, FABLE, client, client.id() + "-session").session().client()
+                    outcomes << sessions.join(dir, FABLE, client, client.id() + "-session")
                 } catch (Throwable e) {
                     outcomes << e
                 }
@@ -310,9 +310,13 @@ class SqliteSessionsSpec extends Specification {
 
         then:
         outcomes.size() == 2
-        outcomes.count { it instanceof Role } == 1
-        outcomes.count { it instanceof IllegalArgumentException } == 1
-        sessions.load(dir, FABLE).get().client() == outcomes.find { it instanceof Role }
+        outcomes.every { it instanceof Joining }
+
+        and: "the joins ran one after the other: the later one replaced the earlier, and holds the name"
+        Joining first = outcomes.find { it.replaced() == null }
+        Joining last = outcomes.find { it.replaced() != null }
+        last.replaced() == first.session().id()
+        sessions.all(dir, "repo") == [(FABLE): last.session()]
     }
 
     void "identifying a command reads the records and writes nothing"() {

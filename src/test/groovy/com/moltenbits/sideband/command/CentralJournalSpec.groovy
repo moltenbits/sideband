@@ -171,14 +171,13 @@ class CentralJournalSpec extends CommandSpec {
                 "--body-file", body(alpha, "x").toString()).metadata.from == "alpha/claude"
     }
 
-    void "a name the other client holds in the project is refused; the same client takes it over"() {
+    void "joining a name takes it over whichever client held it, and the same name in another project is its own"() {
         given:
         join(alpha, "codex", "s1", "opus")
 
         expect:
-        refused("join", "--repo", alpha.toString(), "--role", "claude", "--session-id", "s2", "--as", "opus") == ExitCode.INVALID_INPUT
-        stderr.toString().contains("opus")
-        join(alpha, "codex", "s3", "opus").replaced == "s1"
+        join(alpha, "claude", "s2", "opus").replaced == "s1"
+        join(alpha, "codex", "s3", "opus").replaced == "s2"
         join(beta, "claude", "s4", "opus").session.id == "s4"
     }
 

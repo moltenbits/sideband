@@ -15,8 +15,9 @@ import java.util.SortedMap;
  * Nothing here reads or writes storage: the store runs these inside the transaction that
  * loaded the records and saves what they return, so the decision and the write are one unit.
  * <p>
- * A name belongs to one client in a project: a client never joins as, or defaults to, a name
- * the other client's record holds. Every result keeps the invariant that a live process
+ * A name has one record in a project, whichever client holds it: a join takes it over from
+ * either client, and a client never defaults to a name the other client's record holds.
+ * Every result keeps the invariant that a live process
  * belongs to at most one record: any record that takes a process takes it from every other
  * record of the client, which keeps its address and pending work but no longer claims to run there.
  */
@@ -78,12 +79,11 @@ public interface InstanceRule {
                         @Nullable HostProcess caller);
 
     /**
-     * Joining under an identifier: its record is replaced, any other record of the client
-     * naming the joining session is removed, since a session holds one instance, and the
-     * joining process is taken from any other record naming it.
+     * Joining under an identifier: its record is replaced, whichever client it was, any other
+     * record of the client naming the joining session is removed, since a session holds one
+     * instance, and the joining process is taken from any other record naming it.
      *
      * @param records every record of the project, whichever client
-     * @throws IllegalArgumentException when the other client holds the identifier
      */
     Joined join(Map<ParticipantId, Session> records, ParticipantId instance, Session session);
 

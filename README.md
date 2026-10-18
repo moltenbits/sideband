@@ -205,16 +205,14 @@ only the session called `claude`, and `@all` reaches every session that has
 joined in the project. An agent's reply goes back to the session that asked.
 A name is a lowercase letter followed by up to 31 lowercase letters, digits,
 and hyphens; `all` and `operator` are taken. The name says nothing about the
-client: a Codex session can be `fable` as well, as long as no Claude session
-holds it in that project.
+client: a Codex session can be `fable` as well.
 
-Joining under a name another session of the same client holds takes the name
-over, and the join says which session it replaced; joining under a name the
-other client holds is refused. Claude Code tells Sideband which process
-every session runs in, so a second Claude Code terminal that has not joined
-is never folded into an instance whose client is still running elsewhere:
-its prompts wait for its own `/sideband` or `/sideband as <name>`, and a
-cleared conversation keeps its instance. Codex offers no such signal. While
+Joining under a name another session holds takes the name over, whichever
+client that session is, and the join says which session it replaced. Claude
+Code tells Sideband which process every session runs in, so a second Claude
+Code terminal that has not joined is never folded into an instance whose
+client is still running elsewhere: its prompts wait for its own `/sideband`
+or `/sideband as <name>`, and a cleared conversation keeps its instance. Codex offers no such signal. While
 one Codex instance is joined, Codex behaves as it always has: a cleared or
 second Codex terminal takes the instance over with its first prompt, so join
 a second Codex under a name before typing into it. With two or more Codex

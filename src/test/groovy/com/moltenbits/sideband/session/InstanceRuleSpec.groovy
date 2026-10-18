@@ -250,13 +250,13 @@ class InstanceRuleSpec extends Specification {
         joined.records() == [(FABLE): at("s1", P1)]
     }
 
-    void "a join under a name the other client holds is refused"() {
+    void "a join under a name the other client holds takes it over, like any other join, and names the session it replaced"() {
         when:
-        rule.join([(FABLE): codex("t1")], FABLE, at("s1", P1))
+        InstanceRule.Joined joined = rule.join([(FABLE): codex("t1")], FABLE, at("s1", P1))
 
         then:
-        IllegalArgumentException e = thrown()
-        e.message.contains("fable is held by Codex")
+        joined.records() == [(FABLE): at("s1", P1)]
+        joined.replaced() == "t1"
     }
 
     void "a join releases only the joining client's other record of the same session id"() {

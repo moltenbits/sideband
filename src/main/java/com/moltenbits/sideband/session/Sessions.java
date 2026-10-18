@@ -32,12 +32,9 @@ public interface Sessions {
      * to pick up where the instance's previous session left off (or the start of the journal
      * when it never had one), so everything written for it since is shown. A resumed session
      * also means the operator wants what was waiting taken up: a lone request is acted on
-     * without asking, several are confirmed first. An earlier record of the same client for
-     * the instance is replaced; one of the other client's is refused, since a name belongs to
-     * one client in a project. Any other record of the client naming the joining session is
-     * removed, and the joining process is taken from any other record naming it.
-     *
-     * @throws IllegalArgumentException when the other client holds the instance's name in its project
+     * without asking, several are confirmed first. An earlier record for the instance is
+     * replaced, whichever client it was. Any other record of the client naming the joining
+     * session is removed, and the joining process is taken from any other record naming it.
      */
     Joining join(Path stateDirectory, ParticipantId instance, Role client, String sessionId, @Nullable HostProcess process,
                  boolean resume);

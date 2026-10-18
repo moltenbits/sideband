@@ -168,7 +168,8 @@ class InstanceCommandsSpec extends CommandSpec {
 
         expect:
         from("s9", append("s9"), "--type", "status", "--to", "operator", "--body-file", body("as whom?").toString()) == ExitCode.INVALID_INPUT
-        stderr.toString().contains("claude is held by the other client in this project")
+        stderr.toString().contains("claude is held by the other client in this project. "
+                + "/sideband joins as claude, taking it over, and /sideband as <name> joins as <name>")
         journal.end(state) == end
     }
 

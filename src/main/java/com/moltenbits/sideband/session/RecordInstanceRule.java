@@ -72,10 +72,6 @@ class RecordInstanceRule implements InstanceRule {
     @Override
     public Joined join(Map<ParticipantId, Session> records, ParticipantId instance, Session session) {
         Session earlier = records.get(instance);
-        if (earlier != null && earlier.client() != session.client()) {
-            throw new IllegalArgumentException(instance.name().orElseThrow() + " is held by " + earlier.client().displayName()
-                    + " in this project, and a name belongs to one client in a project; join under another name");
-        }
         String replaced = earlier != null && !earlier.id().equals(session.id()) ? earlier.id() : null;
         TreeMap<ParticipantId, Session> after = new TreeMap<>(records);
         after.entrySet().removeIf(e -> !e.getKey().equals(instance) && e.getValue().client() == session.client()

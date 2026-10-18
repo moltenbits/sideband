@@ -38,7 +38,7 @@ final class Caller {
         if (identified.taken() != null) {
             throw new IllegalArgumentException("this " + role.displayName() + " session holds no Sideband instance here, and "
                     + identified.taken().name().orElseThrow() + " is held by the other client in this project. "
-                    + invocation + " as <name> joins under another name");
+                    + invocation + " joins as " + role.id() + ", taking it over, and " + invocation + " as <name> joins as <name>");
         }
         List<ParticipantId> joined = identified.records();
         throw new IllegalArgumentException("this " + role.displayName() + " session holds no Sideband instance here: "
