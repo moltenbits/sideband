@@ -14,7 +14,6 @@ import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.env.Environment;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
-import com.moltenbits.sideband.journal.Journal;
 import picocli.CommandLine.IVersionProvider;
 
 import java.io.FileDescriptor;
@@ -70,8 +69,7 @@ public class SidebandCommand {
 
         @Override
         public String[] getVersion() {
-            return new String[] {"sideband " + BuildVersion.VERSION + " (protocol "
-                    + Journal.PROTOCOL_VERSION + ")"};
+            return new String[] {"sideband " + BuildVersion.VERSION};
         }
     }
 }

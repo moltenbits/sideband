@@ -280,14 +280,14 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
-    void "a session-start registration under any matcher but clear never fires on a clear, so it is stale, and init moves it beside the other handlers"() {
+    void "a session-start registration under any matcher but clear never fires on a clear, so it is broken, and init moves it beside the other handlers"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
         Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo started"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]},{"hooks":[{"type":"command","command":"\\"/old/sideband\\" hook session-start --agent codex"}]}]}}''')
 
         expect:
-        installer.inspect(home, project).codexHook().state() == "stale"
+        installer.inspect(home, project).codexHook().state() == "broken"
 
         when:
         InstallReport report = installer.install(home, project)
@@ -306,7 +306,7 @@ class ResourceInstallerSpec extends Specification {
         installer.install(home, project).codexHook().state() == "unchanged"
     }
 
-    void "a correct session-start handler beside a stray copy is stale in either order, and init removes the copy for good"() {
+    void "a correct session-start handler beside a stray copy is broken in either order, and init removes the copy for good"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
@@ -318,7 +318,7 @@ class ResourceInstallerSpec extends Specification {
         Files.writeString(hooksFile, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[' + groups.join(",") + "]}}")
 
         expect:
-        installer.inspect(home, project).codexHook().state() == "stale"
+        installer.inspect(home, project).codexHook().state() == "broken"
 
         when:
         InstallReport report = installer.install(home, project)
@@ -350,7 +350,7 @@ class ResourceInstallerSpec extends Specification {
         Files.writeString(hooksFile, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/old/sideband\\" hook session-start --agent codex"},{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}]}}')
 
         expect:
-        installer.inspect(home, project).codexHook().state() == "stale"
+        installer.inspect(home, project).codexHook().state() == "broken"
 
         when:
         InstallReport report = installer.install(home, project)
@@ -363,14 +363,14 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
-    void "a Claude session-start registration for clear alone misses compactions, so it is stale and init widens it"() {
+    void "a Claude session-start registration for clear alone misses compactions, so it is broken and init widens it"() {
         given:
         Path settings = project.resolve(".claude/settings.local.json")
         Files.createDirectories(settings.parent)
         Files.writeString(settings, '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent claude"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent claude"}]}]}}')
 
         expect:
-        installer.inspect(home, project).hook().state() == "stale"
+        installer.inspect(home, project).hook().state() == "broken"
 
         when:
         InstallReport report = installer.install(home, project)
@@ -402,14 +402,14 @@ class ResourceInstallerSpec extends Specification {
         [claude.hooks.Stop, claude.hooks.SessionEnd, codex.hooks.Stop, codex.hooks.SessionEnd, codex.hooks.Interrupt].every { it*.matcher == [null] }
     }
 
-    void "a registration from before the capture hook is stale until init adds it beside the operator's own handlers"() {
+    void "a registration from before the capture hook is broken until init adds it beside the operator's own handlers"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
         Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}],"SessionStart":[{"matcher":"clear","hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook session-start --agent codex"}]}],"Stop":[{"hooks":[{"type":"command","command":"grrr hook notify --codex"}]}]}}''')
 
         expect:
-        installer.inspect(home, project).codexHook().state() == "stale"
+        installer.inspect(home, project).codexHook().state() == "broken"
 
         when:
         installer.install(home, project)
@@ -422,14 +422,14 @@ class ResourceInstallerSpec extends Specification {
         installer.inspect(home, project).codexHook().state() == "installed"
     }
 
-    void "a registration from before the session-start hook is stale until init adds it"() {
+    void "a registration from before the session-start hook is broken until init adds it"() {
         given:
         Path hooksFile = project.resolve(".codex/hooks.json")
         Files.createDirectories(hooksFile.parent)
         Files.writeString(hooksFile, '''{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"\\"/opt/sideband/bin/sideband\\" hook prompt --agent codex"}]}]}}''')
 
         expect:
-        installer.inspect(home, project).codexHook().state() == "stale"
+        installer.inspect(home, project).codexHook().state() == "broken"
 
         when:
         InstallReport report = installer.install(home, project)

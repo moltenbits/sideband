@@ -13,9 +13,6 @@ import java.util.Optional;
  */
 public interface Journal {
 
-    /** The protocol version this implementation writes and the only one it reads. */
-    String PROTOCOL_VERSION = "v1";
-
     /**
      * Assigns an identifier and timestamp to the draft and appends it as one complete
      * entry, serialized against concurrent writers.

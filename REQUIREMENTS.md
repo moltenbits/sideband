@@ -222,7 +222,13 @@ migration the executable applies the first time it opens a database that is
 behind, whether for a write or a read, so what an earlier executable recorded
 (sessions above all) stays visible to the first command of a newer one; only
 a database still at version zero, one another process is creating, reads as
-absent. Readers of the JSON form must ignore unknown fields.
+absent. `init` and `doctor` report the database's schema, its
+`PRAGMA user_version`; when opening it for the report migrated it, the line
+says from which schema (`schema 5, migrated from 4`), and a schema above the
+executable's latest migration, one a newer Sideband applied, is reported
+beside it (`schema 6, newer than this Sideband's 5`) and left alone. Neither
+asks for `init` to bring a database up to date: any command that opens it does.
+Readers of the JSON form must ignore unknown fields.
 
 ### 6.3 Unambiguous framing
 
@@ -317,10 +323,30 @@ of 9.5a, the record naming the calling session or process; a conversation
 that is no instance hears nothing. Codex's registration matches `clear`
 alone. `init` places the handler under the client's matcher and moves one
 it finds under any other matcher, where it would miss a source; `doctor`
-reports a handler anywhere else as stale. Other sources (`startup`,
+reports a handler anywhere else as broken. Other sources (`startup`,
 `resume`, and for Codex `compact`) leave the record alone: they keep the
 conversation the role is in, or are a new client whose first prompt claims
 the role through the prompt hook.
+
+`doctor` lists, under each client's hook file, every event the client needs
+and every handler configured for it, with what each runs as far as can be
+told without running it: this executable; for a literal absolute path to
+another Sideband, the version its `--version` reports within two seconds,
+run directly rather than through a shell; `not resolved` for a Sideband
+command the shell would expand, such as this repository's launcher; and
+`another hook; not run` for anything else. An event whose Sideband handler
+is absent, under another matcher, registered more than once, names the other
+client or none, or runs a path that gives no version, says so on its line,
+and the file is `broken`. A file whose every event has one working Sideband
+handler is `installed` when all are this executable's own registration and
+`custom` otherwise; custom means configured differently, not proven to work,
+and neither state shows whether Codex trusts the definitions. A file with no
+Sideband handler is `missing`. When either file is `missing` or `broken`,
+`doctor` ends by naming the `init` that installs or fixes it. Since `init`
+rewrites both files, that line also counts the custom Sideband handlers in
+either file, those not known to run this executable, launchers included,
+which `init` replaces with this executable's registration or removes as
+duplicates; other hooks are left alone.
 
 The hooks cannot close the window between a clear and the first prompt in
 Codex. Measured on 2026-09-07 (section 17.2), Codex 0.153.4 creates the new

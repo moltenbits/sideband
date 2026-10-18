@@ -1,8 +1,14 @@
 package com.moltenbits.sideband.command;
 
 import com.moltenbits.sideband.install.InstallReport;
+import com.moltenbits.sideband.install.InstallReport.Event;
+import com.moltenbits.sideband.install.InstallReport.Handler;
 import com.moltenbits.sideband.install.InstallReport.Item;
 import com.moltenbits.sideband.store.StoreHealth;
+import io.micronaut.core.annotation.Nullable;
+
+import java.util.List;
+import java.util.Objects;
 
 /** The lines {@code init} and {@code doctor} share: the database in one line, and the client items one per line. */
 final class ReportLines {
@@ -10,14 +16,18 @@ final class ReportLines {
     private ReportLines() {
     }
 
-    /** Path, entry count, size, and SQLite's integrity verdict. */
+    /** Path, schema, entry count, size, and SQLite's integrity verdict. */
     static String database(StoreHealth health) {
-        return health.path() + ", " + health.entries() + (health.entries() == 1 ? " entry, " : " entries, ")
+        return health.path() + ", schema " + health.schema()
+                + (health.migratedFrom() != null ? ", migrated from " + health.migratedFrom() : "")
+                + (health.schema() > health.supported() ? ", newer than this Sideband's " + health.supported() : "")
+                + ", " + health.entries() + (health.entries() == 1 ? " entry, " : " entries, ")
                 + health.bytes() + " bytes, integrity " + health.integrity();
     }
 
     /**
-     * Label, state, path, and any note beneath, for each client item.
+     * Label, state, path, and any note beneath, for each client item; under a hook file, each
+     * event the client needs and every handler configured for it.
      *
      * @param inboundNote whether to print the inbound item's explanatory note under it
      */
@@ -35,5 +45,44 @@ final class ReportLines {
         if (note && item.note() != null) {
             text.append("      ").append(item.note()).append('\n');
         }
+        for (Event event : item.events()) {
+            text.append("      ").append(event.event());
+            if (event.matcher() != null) {
+                text.append(" (matcher ").append(event.matcher()).append(')');
+            }
+            if (event.problem() != null) {
+                text.append(": ").append(event.problem());
+            }
+            text.append('\n');
+            for (Handler handler : event.handlers()) {
+                text.append("        ");
+                if (!Objects.equals(handler.matcher(), event.matcher())) {
+                    text.append("[matcher ").append(handler.matcher() == null ? "none" : handler.matcher()).append("] ");
+                }
+                text.append(handler.command()).append("  (").append(handler.runs()).append(")\n");
+            }
+        }
+    }
+
+    /**
+     * The {@code init} that installs missing hooks or fixes broken ones, and the custom Sideband handlers it would lose
+     * in either file, since it rewrites both; null when neither file needs it.
+     */
+    static @Nullable String hooksNext(InstallReport clients) {
+        List<Item> files = List.of(clients.hook(), clients.codexHook());
+        boolean missing = files.stream().anyMatch(file -> file.state().equals("missing"));
+        boolean broken = files.stream().anyMatch(file -> file.state().equals("broken"));
+        if (!missing && !broken) {
+            return null;
+        }
+        String next = "Run sideband init here to " + (missing && broken ? "install the missing hooks and fix the broken ones"
+                : missing ? "install the missing hooks" : "fix the broken hooks") + ".";
+        long custom = files.stream().flatMap(file -> file.events().stream()).flatMap(event -> event.handlers().stream())
+                .filter(Handler::custom).count();
+        if (custom == 0) {
+            return next;
+        }
+        return next + " It also replaces or removes the " + custom + " custom Sideband handler" + (custom == 1 ? "" : "s")
+                + " shown above, registering " + clients.executable() + " instead; other hooks are left alone.";
     }
 }

@@ -2,6 +2,8 @@ package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.journal.Journal
+import com.moltenbits.sideband.store.Databases
+import io.micronaut.serde.ObjectMapper
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -105,7 +107,7 @@ class InitAndDoctorSpec extends CommandSpec {
         String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
 
         then:
-        report.readLines()[0] ==~ /sideband \S+ \(protocol v1\)/
+        report.readLines()[0] ==~ /sideband \d+\.\d+\.\d+(-dev)?/
         report.contains("Not initialized")
         !report.contains("Instances:")
         report.readLines().find { it.startsWith("  claude skill") }.contains("missing")
@@ -126,7 +128,7 @@ class InitAndDoctorSpec extends CommandSpec {
 
         then:
         lines.find { it.startsWith("State directory: ") }.endsWith(repo.toRealPath().resolve(".git/sideband").toString() + " (rwx------)")
-        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + repo.toRealPath().resolve(".git/sideband/sideband.db").toString() + ", 1 entry, ")
+        lines.find { it.startsWith("Database: ") }.startsWith("Database: " + repo.toRealPath().resolve(".git/sideband/sideband.db").toString() + ", schema 5, 1 entry, ")
         lines.find { it.startsWith("Database: ") }.endsWith("integrity ok")
         lines.find { it.startsWith("  codex") }.contains("session s1")
         lines.find { it.startsWith("  codex") }.contains("1 open")
@@ -147,5 +149,204 @@ class InitAndDoctorSpec extends CommandSpec {
         lines[start + 1] ==~ /  claude        not joined; .*/
         lines[start + 2] ==~ /  claude:fable  session f1, read up to position 0; .*/
         lines[start + 3] ==~ /  codex         not joined; .*/
+    }
+
+    void "doctor brings a database an older Sideband left up to date, and says it did, without asking for init"() {
+        given:
+        Path database = Files.createDirectories(repo.resolve(".git/sideband")).resolve("sideband.db")
+        Databases.atSchema4(database)
+
+        when:
+        String report = text("doctor", "--repo", repo.toString(), "--home", home.toString())
+
+        then:
+        String line = report.readLines().find { it.startsWith("Database: ") }
+        line.contains(", schema 5, migrated from 4, 1 entry, ")
+        !line.contains("init")
+        Databases.query(database, "PRAGMA user_version") == "5"
+
+        and: "the next look finds it current"
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 5, 1 entry, ")
+    }
+
+    void "init reports the migration it applied to an older database"() {
+        given:
+        Databases.atSchema4(Files.createDirectories(repo.resolve(".git/sideband")).resolve("sideband.db"))
+
+        expect:
+        text("init", "--repo", repo.toString(), "--skip-clients").readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 5, migrated from 4, 1 entry, ")
+    }
+
+    void "a database a newer Sideband migrated is reported beside the schema this one supports"() {
+        given:
+        run("init", "--repo", repo.toString(), "--skip-clients")
+        Databases.execute(repo.resolve(".git/sideband/sideband.db"), "PRAGMA user_version = 99")
+
+        expect:
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+                .find { it.startsWith("Database: ") }.contains(", schema 99, newer than this Sideband's 5, 0 entries, ")
+    }
+
+    static final String EXECUTABLE = ProcessHandle.current().info().command().get()
+
+    void "doctor names the executable and lists each hook's handlers under its line, with what each runs"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  claude hook") }
+
+        then:
+        lines[1] == "Executable: $EXECUTABLE"
+        lines[start].contains(" installed ")
+        lines[start + 1..start + 8] == [
+                "      UserPromptSubmit",
+                "        \"$EXECUTABLE\" hook prompt --agent claude  (this executable)",
+                "      SessionStart (matcher clear|compact)",
+                "        \"$EXECUTABLE\" hook session-start --agent claude  (this executable)",
+                "      Stop",
+                "        \"$EXECUTABLE\" hook capture --agent claude  (this executable)",
+                "      SessionEnd",
+                "        \"$EXECUTABLE\" hook capture --agent claude  (this executable)",
+        ]
+        lines[start + 9].startsWith("  codex hook")
+        !lines.any { it.startsWith("Run sideband init") }
+    }
+
+    void "a broken hook says what is wrong on its event's line, and doctor ends by saying init fixes it"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Map parsed = context.getBean(ObjectMapper).readValue(Files.readString(hooks), Map)
+        parsed.hooks.remove("Interrupt")
+        parsed.hooks.SessionStart[0].matcher = "startup"
+        parsed.hooks.Stop[0].hooks << [type: "command", command: "echo stopped"]
+        Files.writeString(hooks, context.getBean(ObjectMapper).writeValueAsString(parsed))
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  codex hook") }
+
+        then:
+        lines[start].contains(" broken ")
+        lines[start + 3..start + 7] == [
+                "      SessionStart (matcher clear): under matcher startup, needs clear",
+                "        [matcher startup] \"$EXECUTABLE\" hook session-start --agent codex  (this executable)",
+                "      Stop",
+                "        \"$EXECUTABLE\" hook capture --agent codex  (this executable)",
+                "        echo stopped  (another hook; not run)",
+        ]
+        lines.contains("      Interrupt: no Sideband handler")
+        lines.last() == "Run sideband init here to fix the broken hooks."
+    }
+
+    void "a hook run through a launcher is custom, and needs nothing done"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Files.writeString(hooks, Files.readString(hooks).replace("\\\"$EXECUTABLE\\\"", '\\"$(git rev-parse --show-toplevel)/scripts/sideband\\"'))
+
+        when:
+        List<String> lines = text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        int start = lines.findIndexOf { it.startsWith("  codex hook") }
+
+        then:
+        lines[start].contains(" custom ")
+        lines[start + 2] == '        "$(git rev-parse --show-toplevel)/scripts/sideband" hook prompt --agent codex  (not resolved)'
+        !lines.any { it.startsWith("Run sideband init") }
+    }
+
+    static final String LAUNCHER = '"$(git rev-parse --show-toplevel)/scripts/sideband"'
+
+    /** Edits a hook file init wrote, through its parsed JSON. */
+    void edit(String file, Closure change) {
+        ObjectMapper json = context.getBean(ObjectMapper)
+        Path hooks = repo.resolve(file)
+        Map parsed = json.readValue(Files.readString(hooks), Map)
+        change(parsed)
+        Files.writeString(hooks, json.writeValueAsString(parsed))
+    }
+
+    /** Points every Sideband handler in the Codex file at the launcher. */
+    void codexThroughLauncher() {
+        Path hooks = repo.resolve(".codex/hooks.json")
+        Files.writeString(hooks, Files.readString(hooks).replace("\\\"$EXECUTABLE\\\"", LAUNCHER.replace('"', '\\"')))
+    }
+
+    String closing() {
+        text("doctor", "--repo", repo.toString(), "--home", home.toString()).readLines().last()
+    }
+
+    void "a hook file with no Sideband handler ends doctor with the init that installs it"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+
+        expect:
+        closing() == "Run sideband init here to install the missing hooks."
+    }
+
+    void "missing and broken hooks share one closing line"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+        edit(".codex/hooks.json") { it.hooks.remove("Interrupt") }
+
+        expect:
+        closing() == "Run sideband init here to install the missing hooks and fix the broken ones."
+    }
+
+    void "when init would also lose custom Sideband handlers in either file, the closing line counts them"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        codexThroughLauncher()
+        if (claude == "missing") {
+            Files.writeString(repo.resolve(".claude/settings.local.json"), "{}")
+        } else {
+            edit(".claude/settings.local.json") { it.hooks.remove("Stop") }
+        }
+
+        expect:
+        closing() == "Run sideband init here to ${action}. It also replaces or removes the 5 custom Sideband handlers " +
+                "shown above, registering $EXECUTABLE instead; other hooks are left alone."
+
+        where:
+        claude    || action
+        "missing" || "install the missing hooks"
+        "broken"  || "fix the broken hooks"
+    }
+
+    void "a custom handler init would remove as a duplicate or move off the wrong matcher counts, and other hooks do not"() {
+        given:
+        run("init", "--repo", repo.toString(), "--home", home.toString())
+        edit(".codex/hooks.json", change)
+
+        expect:
+        closing() == "Run sideband init here to fix the broken hooks. It also replaces or removes the 1 custom Sideband " +
+                "handler shown above, registering $EXECUTABLE instead; other hooks are left alone."
+
+        where:
+        change << [
+                { Map hooks ->
+                    hooks.hooks.Stop[0].hooks << [type: "command", command: "$LAUNCHER hook capture --agent codex".toString()]
+                    hooks.hooks.Stop[0].hooks << [type: "command", command: "echo stopped"]
+                },
+                { Map hooks ->
+                    hooks.hooks.SessionStart[0].matcher = "startup"
+                    hooks.hooks.SessionStart[0].hooks[0].command = "$LAUNCHER hook session-start --agent codex".toString()
+                },
+        ]
+    }
+
+    void "init says which executable, and which version, the hooks it registered run"() {
+        when:
+        List<String> lines = text("init", "--repo", repo.toString(), "--home", home.toString()).readLines()
+        String version = text("--version").trim()
+
+        then:
+        lines.contains("The hooks run $EXECUTABLE (${version}).".toString())
     }
 }

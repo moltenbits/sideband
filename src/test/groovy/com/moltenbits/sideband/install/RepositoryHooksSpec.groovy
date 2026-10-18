@@ -42,4 +42,19 @@ class RepositoryHooksSpec extends Specification {
         !rewritten.contains("scripts/sideband")
         rewritten == Files.readString(Path.of(".codex/hooks.json")).replace(LAUNCHER, "/opt/sideband/bin/sideband")
     }
+
+    void "doctor finds the committed Codex hooks custom: each runs the launcher, which it does not resolve"() {
+        given:
+        Path project = Files.createDirectories(Files.createTempDirectory("project").resolve(".codex")).parent
+        Files.copy(Path.of(".codex/hooks.json"), project.resolve(".codex/hooks.json"))
+        Installer installer = new ResourceInstaller(context.getBean(ObjectMapper), "/opt/sideband/bin/sideband")
+
+        when:
+        InstallReport.Item item = installer.inspect(Files.createTempDirectory("home"), project).codexHook()
+
+        then:
+        item.state() == "custom"
+        item.events()*.problem().every { it == null }
+        item.events()*.handlers().flatten()*.runs().every { it == "not resolved" }
+    }
 }

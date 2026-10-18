@@ -11,14 +11,17 @@ import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -69,10 +72,23 @@ class ResourceInstaller implements Installer {
     private static final List<String> INBOUND_LADDER = List.of(INBOUND_ACCEPT, "hold", "refuse");
     private static final String CODEX_SETTINGS = ".codex/hooks.json";
     private static final Pattern AGENT_OVERRIDE = Pattern.compile("\\s+--agent(?:=|\\s+)(codex|claude)$");
+    /**
+     * A command whose executable is a literal absolute path the shell passes on unchanged:
+     * double-quoted with nothing inside that expands, or unquoted with no character the shell
+     * treats specially. Any other command is shown as configured and never resolved.
+     */
+    private static final Pattern LITERAL_TARGET = Pattern.compile(
+            "(?:\"(/[^\"$`\\\\]+)\"|(/[^\\s\"'$`\\\\;&|<>(){}\\[\\]*?~#!]+))\\s+hook\\s.*");
+    private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
+    private static final String THIS_EXECUTABLE = "this executable";
+    private static final String NOT_RESOLVED = "not resolved";
+    private static final String ANOTHER_HOOK = "another hook; not run";
 
     private final ObjectMapper json;
+    private final String executable;
     /** {@code "<executable>" hook}: every registration is this plus a subcommand and the client. */
     private final String hookCommand;
+    private final VersionProbe probe;
 
     @Inject
     ResourceInstaller(ObjectMapper json) {
@@ -80,8 +96,14 @@ class ResourceInstaller implements Installer {
     }
 
     ResourceInstaller(ObjectMapper json, String executable) {
+        this(json, executable, PROBE_TIMEOUT);
+    }
+
+    ResourceInstaller(ObjectMapper json, String executable, Duration probeTimeout) {
         this.json = json;
+        this.executable = executable;
         this.hookCommand = "\"" + executable + "\" hook";
+        this.probe = new VersionProbe(probeTimeout);
     }
 
     /** The absolute path of the running executable, so the hook works whatever PATH the hook shell has. */
@@ -133,7 +155,7 @@ class ResourceInstaller implements Installer {
             skills.add(installSkill(source, homeDir.resolve(SKILLS.get(source))));
         }
         Path settings = projectDir.resolve(LOCAL_SETTINGS);
-        return new InstallReport(skills, installHook(settings, "claude-prompt-hook", Role.CLAUDE),
+        return new InstallReport(executable, skills, installHook(settings, "claude-prompt-hook", Role.CLAUDE),
                 installHook(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX),
                 inboundItem(homeDir, projectDir));
     }
@@ -145,10 +167,10 @@ class ResourceInstaller implements Installer {
             Path target = homeDir.resolve(SKILLS.get(source));
             skills.add(new InstallReport.Item(client(source), target.toString(), skillState(source, target)));
         }
-        Path settings = projectDir.resolve(LOCAL_SETTINGS);
-        Path codexSettings = projectDir.resolve(CODEX_SETTINGS);
-        return new InstallReport(skills, new InstallReport.Item("claude-prompt-hook", settings.toString(), hookState(settings, Role.CLAUDE)),
-                new InstallReport.Item("codex-prompt-hook", codexSettings.toString(), hookState(codexSettings, Role.CODEX)),
+        Map<Path, VersionProbe.Result> probes = new HashMap<>(); // each path once per inspection
+        return new InstallReport(executable, skills,
+                hookItem(projectDir.resolve(LOCAL_SETTINGS), "claude-prompt-hook", Role.CLAUDE, probes),
+                hookItem(projectDir.resolve(CODEX_SETTINGS), "codex-prompt-hook", Role.CODEX, probes),
                 inboundItem(homeDir, projectDir));
     }
 
@@ -300,32 +322,6 @@ class ResourceInstaller implements Installer {
         return changed ? "updated" : "added";
     }
 
-    /**
-     * Whether the event holds this registration exactly as {@code register} would leave it:
-     * one Sideband handler for the subcommand, under the registration's matcher, with the
-     * current command. A stray copy anywhere else would run beside it or never run at all.
-     */
-    private boolean placed(List<?> event, Registration registration, String command) {
-        int current = 0;
-        int others = 0;
-        for (Object candidate : event) {
-            if (!(candidate instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> handlers)) {
-                continue;
-            }
-            boolean matcher = Objects.equals(registration.matcher(), group.get("matcher"));
-            for (Object handler : handlers) {
-                if (handler instanceof Map<?, ?> h && isSidebandHook(String.valueOf(h.get("command")), registration.subcommand())) {
-                    if (matcher && command.equals(h.get("command"))) {
-                        current++;
-                    } else {
-                        others++;
-                    }
-                }
-            }
-        }
-        return current == 1 && others == 0;
-    }
-
     private String registrationCommand(Registration registration, Role client) {
         return hookCommand + " " + registration.subcommand() + " --agent " + client.id();
     }
@@ -418,21 +414,106 @@ class ResourceInstaller implements Installer {
                 || command.endsWith("/skills/sideband-claude/hooks/prompt.sh"));
     }
 
-    private String hookState(Path settings, Role client) {
-        try {
-            if (!Files.exists(settings)) {
-                return "missing";
-            }
-            Object hooks = readSettings(settings).get("hooks");
-            boolean installed = hooks instanceof Map<?, ?> events && registrations(client).stream().allMatch(r ->
-                    events.get(r.event()) instanceof List<?> event && placed(event, r, registrationCommand(r, client)));
-            if (installed) {
-                return "installed";
-            }
-            return Files.readString(settings, UTF_8).contains("sideband") ? "stale" : "missing";
-        } catch (IOException e) {
-            return "unreadable";
+    /**
+     * Each event the client needs, with every handler configured for it and what each runs.
+     * Only a handler {@link #isSidebandHook} recognizes as this event's registration counts:
+     * exactly one must sit under the registration's matcher, name this client, and run either
+     * this executable or a Sideband that answers {@code --version}. A file whose handlers all
+     * do, but not all with this executable's command, is custom; one with no Sideband handler
+     * in any of the events is missing; anything else is broken.
+     */
+    private InstallReport.Item hookItem(Path settings, String name, Role client, Map<Path, VersionProbe.Result> probes) {
+        if (!Files.exists(settings)) {
+            return new InstallReport.Item(name, settings.toString(), "missing");
         }
+        Map<?, ?> events;
+        try {
+            events = readSettings(settings).get("hooks") instanceof Map<?, ?> hooks ? hooks : Map.of();
+        } catch (IOException e) {
+            return new InstallReport.Item(name, settings.toString(), "unreadable");
+        }
+        List<InstallReport.Event> checked = new ArrayList<>();
+        boolean registered = false;
+        boolean exact = true;
+        for (Registration registration : registrations(client)) {
+            List<InstallReport.Handler> handlers = new ArrayList<>();
+            List<InstallReport.Handler> sideband = new ArrayList<>();
+            String failure = null;
+            if (events.get(registration.event()) instanceof List<?> groups) {
+                for (Object candidate : groups) {
+                    if (!(candidate instanceof Map<?, ?> group) || !(group.get("hooks") instanceof List<?> entries)) {
+                        continue;
+                    }
+                    String matcher = group.get("matcher") == null ? null : String.valueOf(group.get("matcher"));
+                    for (Object entry : entries) {
+                        if (!(entry instanceof Map<?, ?> handler)) {
+                            continue;
+                        }
+                        String command = String.valueOf(handler.get("command"));
+                        if (!isSidebandHook(command, registration.subcommand())) {
+                            handlers.add(new InstallReport.Handler(matcher, command, ANOTHER_HOOK, false));
+                            continue;
+                        }
+                        Path target = literalTarget(command);
+                        VersionProbe.Result result = target == null || target.toString().equals(executable)
+                                ? null : probes.computeIfAbsent(target, probe::probe);
+                        String runs = target == null ? NOT_RESOLVED
+                                : result == null ? THIS_EXECUTABLE
+                                : result.version() != null ? "sideband " + result.version() : result.failure();
+                        if (result != null && result.failure() != null) {
+                            failure = target + " " + result.failure();
+                        }
+                        InstallReport.Handler found = new InstallReport.Handler(matcher, command, runs, target == null || result != null);
+                        handlers.add(found);
+                        sideband.add(found);
+                        exact &= command.equals(registrationCommand(registration, client));
+                    }
+                }
+            }
+            registered |= !sideband.isEmpty();
+            checked.add(new InstallReport.Event(registration.event(), registration.matcher(),
+                    problem(registration, client, sideband, failure), handlers));
+        }
+        String state = !registered ? "missing"
+                : checked.stream().anyMatch(event -> event.problem() != null) ? "broken"
+                : exact ? "installed" : "custom";
+        return new InstallReport.Item(name, settings.toString(), state, null, checked);
+    }
+
+    /** Why the event's Sideband handlers will not run as the registration needs, or null when they will. */
+    private static @Nullable String problem(Registration registration, Role client, List<InstallReport.Handler> sideband,
+                                            @Nullable String failure) {
+        if (sideband.isEmpty()) {
+            return "no Sideband handler";
+        }
+        if (sideband.size() > 1) {
+            return "registered " + sideband.size() + " times";
+        }
+        InstallReport.Handler handler = sideband.getFirst();
+        if (!Objects.equals(handler.matcher(), registration.matcher())) {
+            return "under matcher " + label(handler.matcher()) + ", needs " + label(registration.matcher());
+        }
+        Matcher agent = AGENT_OVERRIDE.matcher(handler.command());
+        if (!agent.find()) {
+            return "no --agent, needs " + client.id();
+        }
+        if (!agent.group(1).equals(client.id())) {
+            return "--agent " + agent.group(1) + ", needs " + client.id();
+        }
+        return failure;
+    }
+
+    private static String label(@Nullable String matcher) {
+        return matcher == null ? "none" : matcher;
+    }
+
+    /** The executable a command runs when it is a literal absolute path, or null when the shell would have to work it out. */
+    private static @Nullable Path literalTarget(String command) {
+        Matcher literal = LITERAL_TARGET.matcher(command);
+        if (!literal.matches()) {
+            return null;
+        }
+        return Path.of(literal.group(1) != null ? literal.group(1) : literal.group(2));
     }
 
     @SuppressWarnings("unchecked")

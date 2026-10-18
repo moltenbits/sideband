@@ -123,6 +123,20 @@ exit $exit
         ran(run()) == "dev"
     }
 
+    void "a build that reports its version without the protocol suffix is compared like one that has it"() {
+        given:
+        fake(home.resolve(".local/bin"), "dev", "echo 'sideband $devVersion'")
+        brewed(brewVersion)
+
+        expect:
+        ran(run()) == winner
+
+        where:
+        devVersion  | brewVersion || winner
+        "1.1.3-dev" | "1.1.2"     || "dev"
+        "1.1.2-dev" | "1.1.3"     || "brew"
+    }
+
     void "with nothing installed it succeeds silently, so a hook does nothing"() {
         when:
         Map result = run(["hook", "prompt"], '{"prompt":"hi"}')
@@ -150,7 +164,9 @@ exit $exit
                 "echo 'sideband 9.9 (protocol v1)'",
                 "echo 'something 9.9.9 (protocol v1)'",
                 "echo 'sideband 9.9.9 (protocol v1)'; echo 'sideband 9.9.9 (protocol v1)'",
-                "printf 'sideband 9.9.9\\n(protocol v1)\\n'"]
+                "printf 'sideband 9.9.9\\n(protocol v1)\\n'",
+                "echo 'sideband 9.9.9 '",
+                "echo 'sideband 9.9.9 (protocol)'"]
     }
 
     void "probes get no stdin: the hook payload reaches only the Sideband that runs, whole"() {
