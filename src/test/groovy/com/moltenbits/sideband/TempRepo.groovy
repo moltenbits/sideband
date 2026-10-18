@@ -7,7 +7,12 @@ import java.nio.file.Path
 class TempRepo {
 
     static Path init(Path parent = Files.createTempDirectory("sideband")) {
-        Path repo = Files.createDirectories(parent.resolve("repo"))
+        named("repo", parent)
+    }
+
+    /** A repository whose directory, and so its default project name, is {@code name}. */
+    static Path named(String name, Path parent = Files.createTempDirectory("sideband")) {
+        Path repo = Files.createDirectories(parent.resolve(name))
         git(repo, "init", "-q")
         git(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false",
                 "commit", "-q", "--allow-empty", "-m", "initial")

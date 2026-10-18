@@ -18,8 +18,8 @@ import java.util.concurrent.TimeUnit
 class PendingWaitSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path stateDir = repo.resolve(".git/sideband")
-    Path journalFile = stateDir.resolve("sideband.db")
+    Path stateDir = home.resolve(".sideband")
+    Path journalFile = stateDir.resolve("journal.db")
 
     def setup() {
         Files.createDirectories(stateDir)
@@ -80,7 +80,7 @@ class PendingWaitSpec extends CommandSpec {
                 causedBy: null, expectsReply: false, body: "queued to codex")).seq()
         journal.append(stateDir, Fixtures.agentDraft(from: Fixtures.CLAUDE, to: [Fixtures.CODEX], type: MessageType.STATUS,
                 causedBy: null, expectsReply: false, body: "push failed"))
-        context.getBean(Deliveries).record(stateDir, pushed, ParticipantId.of(Role.CODEX), "thread-1")
+        context.getBean(Deliveries).record(stateDir, pushed, ParticipantId.of("repo", "codex"), "thread-1")
 
         when:
         int code = run("pending", "--repo", repo.toString(), "--role", "codex")

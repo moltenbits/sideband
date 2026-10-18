@@ -1,7 +1,6 @@
 package com.moltenbits.sideband.store;
 
 import io.micronaut.data.jdbc.annotation.JdbcRepository;
-import io.micronaut.data.model.Pageable;
 import io.micronaut.data.model.query.builder.sql.Dialect;
 import io.micronaut.data.repository.CrudRepository;
 
@@ -14,9 +13,7 @@ interface EntryRows extends CrudRepository<EntryRow, Long> {
 
     List<EntryRow> findBySeqGreaterThanOrderBySeq(long seq);
 
-    List<EntryRow> findBySeqLessThanOrderBySeqDesc(long seq, Pageable pageable);
-
-    boolean existsBySeqLessThan(long seq);
+    List<EntryRow> findBySeqInListOrderBySeq(List<Long> seqs);
 
     Optional<EntryRow> findByMessageId(String messageId);
 

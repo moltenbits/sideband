@@ -15,8 +15,8 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * What the hooks have recorded of one client session's own words, kept as one versioned
- * unit: where reading its transcript stopped, and a receipt for each turn. The capture that
+ * What the hooks have recorded of one client session's own words in one project, kept as one
+ * versioned unit: where reading its transcript stopped, and a receipt for each turn. The capture that
  * reads a transcript decides outside any transaction and commits here only if nothing
  * changed meanwhile, so two hooks firing for the same turn record it once.
  */
@@ -66,10 +66,10 @@ public interface CaptureLedger {
         }
     }
 
-    State load(Path stateDirectory, Role client, String sessionId);
+    State load(Path stateDirectory, String project, Role client, String sessionId);
 
     /** Which of {@code messageIds}, the identities transcript records carry, were recorded for the session. */
-    Set<String> recorded(Path stateDirectory, Role client, String sessionId, Collection<String> messageIds);
+    Set<String> recorded(Path stateDirectory, String project, Role client, String sessionId, Collection<String> messageIds);
 
     /**
      * Commits a decision made from {@code read}, in one transaction and only if the session's
@@ -78,7 +78,7 @@ public interface CaptureLedger {
      * they hold kept as recorded by {@code messageIds}, the cursor replaced, the given turns
      * written, and the version advanced. Empty, with nothing written, when either check fails.
      */
-    Optional<List<Entry>> commit(Path stateDirectory, Role client, String sessionId, @Nullable HostProcess caller,
+    Optional<List<Entry>> commit(Path stateDirectory, String project, Role client, String sessionId, @Nullable HostProcess caller,
                                  State read, @Nullable ParticipantId author, List<Draft> drafts,
                                  Collection<String> messageIds, @Nullable Cursor cursor, Collection<Turn> turns);
 }

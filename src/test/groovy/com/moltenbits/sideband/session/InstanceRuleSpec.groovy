@@ -14,9 +14,9 @@ import java.time.ZoneOffset
 /** The rule of REQUIREMENTS 9.5a, on records alone: which instance a calling session is, and what that changes. */
 class InstanceRuleSpec extends Specification {
 
-    static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
-    static final ParticipantId OLD = ParticipantId.of(Role.CLAUDE, "old")
+    static final ParticipantId CLAUDE = ParticipantId.of("repo", "claude")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
+    static final ParticipantId OLD = ParticipantId.of("repo", "old")
     static final OffsetDateTime T0 = OffsetDateTime.of(2026, 9, 26, 10, 0, 0, 0, ZoneOffset.ofHours(-5))
     static final HostProcess P1 = new HostProcess(100, Instant.parse("2026-09-26T15:00:00Z"))
     static final HostProcess P2 = new HostProcess(200, Instant.parse("2026-09-26T15:01:00Z"))
@@ -29,8 +29,12 @@ class InstanceRuleSpec extends Specification {
     HostProcesses processes = { long pid -> Optional.ofNullable(running.find { it.pid() == pid }) } as HostProcesses
     InstanceRule rule = new RecordInstanceRule(processes)
 
-    static Session at(String sessionId, HostProcess process = null, long offset = 5) {
-        new Session(sessionId, T0, 3, offset, false, process)
+    static Session at(String sessionId, HostProcess process = null, long offset = 5, Role client = Role.CLAUDE) {
+        new Session(sessionId, client, T0, 3, offset, false, process)
+    }
+
+    static Session codex(String sessionId) {
+        at(sessionId, null, 5, Role.CODEX)
     }
 
     void "the component is exposed only through its interface"() {
@@ -138,8 +142,8 @@ class InstanceRuleSpec extends Specification {
 
     void "several candidates cannot be told apart, and nothing moves"() {
         given:
-        ParticipantId review = ParticipantId.of(Role.CODEX, "review")
-        ParticipantId codex = ParticipantId.of(Role.CODEX)
+        ParticipantId review = ParticipantId.of("repo", "review")
+        ParticipantId codex = ParticipantId.of("repo", "codex")
         Map records = [(codex): at("t1"), (review): at("t2")]
 
         when:
@@ -167,8 +171,8 @@ class InstanceRuleSpec extends Specification {
         Map records = [(CLAUDE): at("s1", P1), (FABLE): at("s2", P2)]
 
         expect:
-        rule.identify(Role.CLAUDE, records, "s2", P3).instance() == FABLE
-        rule.identify(Role.CLAUDE, records, "s9", P2).instance() == FABLE
+        rule.identify("repo", Role.CLAUDE, records, "s2", P3).instance() == FABLE
+        rule.identify("repo", Role.CLAUDE, records, "s9", P2).instance() == FABLE
     }
 
     void "a command never infers its author the way a hook continues an instance"() {
@@ -177,18 +181,42 @@ class InstanceRuleSpec extends Specification {
         Map records = [(CLAUDE): at("s1", P1), (FABLE): at("s2", P2), (OLD): at("s0", P3)]
 
         when: "the displaced session runs a command"
-        InstanceRule.Identified identified = rule.identify(Role.CLAUDE, records, "s4", new HostProcess(400, Instant.EPOCH))
+        InstanceRule.Identified identified = rule.identify("repo", Role.CLAUDE, records, "s4", new HostProcess(400, Instant.EPOCH))
 
         then:
         identified.instance() == null
         identified.records() == [CLAUDE, FABLE, OLD]
     }
 
-    void "a command acts as the unnamed instance only when the role has no records at all"() {
+    void "a command acts as the client's own name only when the client has no records in the project"() {
         expect:
-        rule.identify(Role.CLAUDE, [:], "s1", P1).instance() == CLAUDE
-        rule.identify(Role.CODEX, [:], "t1", null).instance() == ParticipantId.of(Role.CODEX)
-        rule.identify(Role.CLAUDE, [(FABLE): at("s2", P2)], "s1", P1).instance() == null
+        rule.identify("repo", Role.CLAUDE, [:], "s1", P1).instance() == CLAUDE
+        rule.identify("repo", Role.CODEX, [:], "t1", null).instance() == ParticipantId.of("repo", "codex")
+        rule.identify("repo", Role.CLAUDE, [(FABLE): at("s2", P2)], "s1", P1).instance() == null
+        rule.identify("listenly", Role.CLAUDE, [:], "s1", P1).instance() == ParticipantId.of("listenly", "claude")
+    }
+
+    void "the other client's records do not count as the client's own, and never make its default"() {
+        given:
+        Map records = [(FABLE): codex("t1")]
+
+        expect: "Codex under fable leaves Claude with no records, so Claude is claude"
+        rule.identify("repo", Role.CLAUDE, records, "s1", P1).instance() == CLAUDE
+        rule.identify("repo", Role.CLAUDE, records, "t1", null).instance() == CLAUDE // session ids are each client's own
+        rule.identify("repo", Role.CODEX, records, "t1", null).instance() == FABLE
+    }
+
+    void "a client's own name held by the other client is refused, naming it"() {
+        given:
+        Map records = [(CLAUDE): codex("t1")]
+
+        when:
+        InstanceRule.Identified identified = rule.identify("repo", Role.CLAUDE, records, "s1", P1)
+
+        then:
+        identified.instance() == null
+        identified.records() == []
+        identified.taken() == CLAUDE
     }
 
     // --- joining ---
@@ -220,6 +248,23 @@ class InstanceRuleSpec extends Specification {
 
         then:
         joined.records() == [(FABLE): at("s1", P1)]
+    }
+
+    void "a join under a name the other client holds takes it over, like any other join, and names the session it replaced"() {
+        when:
+        InstanceRule.Joined joined = rule.join([(FABLE): codex("t1")], FABLE, at("s1", P1))
+
+        then:
+        joined.records() == [(FABLE): at("s1", P1)]
+        joined.replaced() == "t1"
+    }
+
+    void "a join releases only the joining client's other record of the same session id"() {
+        given: "the two clients' session identifiers are separate namespaces"
+        Map records = [(CLAUDE): codex("same")]
+
+        expect:
+        rule.join(records, FABLE, at("same", P1)).records() == [(CLAUDE): codex("same"), (FABLE): at("same", P1)]
     }
 
     void "a join takes its process from any other record naming it"() {

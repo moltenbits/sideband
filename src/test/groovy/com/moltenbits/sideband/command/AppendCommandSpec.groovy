@@ -1,6 +1,7 @@
 package com.moltenbits.sideband.command
 
 import com.moltenbits.sideband.TempRepo
+import com.moltenbits.sideband.journal.Journal
 
 import java.nio.file.Files
 import java.nio.file.Path
@@ -31,9 +32,9 @@ class AppendCommandSpec extends CommandSpec {
         then:
         code == ExitCode.OK
         with(json().metadata) {
-            from == "claude"
+            from == "repo/claude"
             via == null
-            to == ["codex"]
+            to == ["repo/codex"]
             type == "request"
             route == "direct"
             caused_by == humanId
@@ -77,7 +78,7 @@ class AppendCommandSpec extends CommandSpec {
         then:
         code == ExitCode.INVALID_INPUT
         stderr.toString().contains("human-authored")
-        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
+        context.getBean(Journal).end(home.resolve(".sideband")) == 0
     }
 
     void "an actionable agent message pointing at a missing ancestor is refused"() {
@@ -163,7 +164,7 @@ class AppendCommandSpec extends CommandSpec {
         (stdout = new StringWriter()) != null
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "operator", "--type", "reply",
                 "--reply-to", humanId, "--body-file", body("both of you").toString()) == ExitCode.OK
-        json().metadata.to == ["claude", "operator"]
+        json().metadata.to == ["repo/claude", "operator"]
     }
 
     void "an unknown --reply-to is invalid input with or without --to, and no --reply-to needs --to"() {
@@ -173,7 +174,7 @@ class AppendCommandSpec extends CommandSpec {
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "ack", "--reply-to", "ghost") == ExitCode.INVALID_INPUT
         run("append", "--repo", repo.toString(), "--from", "codex", "--to", "claude", "--type", "reply", "--reply-to", "ghost",
                 "--body-file", body("orphan").toString()) == ExitCode.INVALID_INPUT
-        !Files.exists(repo.resolve(".git/sideband/sideband.db"))
+        context.getBean(Journal).end(home.resolve(".sideband")) == 0
         run("append", "--repo", repo.toString(), "--from", "codex", "--type", "status",
                 "--body-file", body("note").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--to is required unless --reply-to")
@@ -181,7 +182,7 @@ class AppendCommandSpec extends CommandSpec {
 
     void "multiple recipients make a broadcast"() {
         given:
-        String humanId = captureHuman("@all do the thing")
+        String humanId = captureHuman("do the thing")
 
         when:
         run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "operator", "--type", "status",
@@ -189,6 +190,6 @@ class AppendCommandSpec extends CommandSpec {
 
         then:
         json().metadata.route == "broadcast"
-        json().metadata.to == ["codex", "operator"]
+        json().metadata.to == ["repo/codex", "operator"]
     }
 }

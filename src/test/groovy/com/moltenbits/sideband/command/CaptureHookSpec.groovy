@@ -4,6 +4,7 @@ import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.capture.AgentCapture
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.project.Projects
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.journal.Entry
 import com.moltenbits.sideband.journal.Journal
@@ -18,7 +19,7 @@ import java.nio.file.Path
 class CaptureHookSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path stateDir = repo.resolve(".git/sideband")
+    Path stateDir = home.resolve(".sideband")
     Path transcript = Files.createTempFile("transcript", ".jsonl")
     ObjectMapper json = context.getBean(ObjectMapper)
 
@@ -47,7 +48,7 @@ class CaptureHookSpec extends CommandSpec {
                 role() >> Optional.empty()
                 process(_) >> Optional.empty()
             }
-            def command = new HookCommand.Capture(context.getBean(SidebandHome), host, context.getBean(AgentCapture), json)
+            def command = new HookCommand.Capture(context.getBean(SidebandHome), context.getBean(Projects), host, context.getBean(AgentCapture), json)
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.out = new PrintWriter(stdout, true)
             cli.err = new PrintWriter(stderr, true)
@@ -128,7 +129,7 @@ class CaptureHookSpec extends CommandSpec {
         System.in = new ByteArrayInputStream("not json".bytes)
         int unreadable
         try {
-            def command = new HookCommand.Capture(context.getBean(SidebandHome), Stub(HostEnvironment), context.getBean(AgentCapture), json)
+            def command = new HookCommand.Capture(context.getBean(SidebandHome), context.getBean(Projects), Stub(HostEnvironment), context.getBean(AgentCapture), json)
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.err = new PrintWriter(stderr, true)
             unreadable = cli.execute("--agent", "claude")
@@ -157,7 +158,7 @@ class CaptureHookSpec extends CommandSpec {
         int code
         try {
             HostEnvironment host = Stub() { process(_) >> Optional.empty() }
-            def command = new HookCommand.Capture(context.getBean(SidebandHome), host, failing, json)
+            def command = new HookCommand.Capture(context.getBean(SidebandHome), context.getBean(Projects), host, failing, json)
             CommandLine cli = new CommandLine(command).setCaseInsensitiveEnumValuesAllowed(true)
             cli.err = new PrintWriter(stderr, true)
             code = cli.execute("--agent", "claude")

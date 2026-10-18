@@ -8,6 +8,8 @@ import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.host.HostProcess;
 import com.moltenbits.sideband.host.HostProcesses;
 import com.moltenbits.sideband.pending.Pending;
+import com.moltenbits.sideband.project.Project;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.pending.PendingReport;
 import com.moltenbits.sideband.protocol.ParticipantId;
 import com.moltenbits.sideband.protocol.Role;
@@ -27,11 +29,11 @@ import java.util.List;
 import java.util.concurrent.Callable;
 
 /**
- * Joins the journal as this client's unnamed instance, or with {@code --as} as a named one
- * (REQUIREMENTS.md 9.5a), taking the instance over from any earlier session, and prints the
- * first pending report, with {@code replaced} naming the session the instance was taken
- * from when there was one. By default the
- * bookmark starts at the latest point, so only requests still unanswered are shown, every
+ * Joins the project's discussion under this client's own name, {@code claude} or {@code codex},
+ * or with {@code --as} under another (REQUIREMENTS.md 9.5a), taking the name over from any
+ * earlier session of either client, and prints the first pending report, with
+ * {@code replaced} naming the session the instance was taken from when there was one. By
+ * default the bookmark starts at the latest point, so only requests still unanswered are shown, every
  * one of them flagged for the operator's confirmation. With {@code --resume} the bookmark
  * starts where this instance last left off, so everything written for it since is shown too,
  * and the waiting requests are flagged only when there are several: a lone one is acted on.
@@ -61,13 +63,14 @@ public class JoinCommand implements Callable<Integer> {
     Long pid;
 
     @Option(names = "--as", paramLabel = "NAME",
-            description = "Join as the named instance <client>:NAME, such as claude:fable, rather than as the client itself")
+            description = "Join under NAME, such as opus, rather than under the client's own name")
     String name;
 
     @Option(names = "--resume", description = "Start from where this client last left off, showing everything written for it since; otherwise start at the latest point")
     boolean resume;
 
     private final SidebandHome home;
+    private final Projects projects;
     private final HostEnvironment host;
     private final HostProcesses processes;
     private final Sessions sessions;
@@ -75,9 +78,10 @@ public class JoinCommand implements Callable<Integer> {
     private final HumanCapture capture;
     private final ObjectMapper json;
 
-    JoinCommand(SidebandHome home, HostEnvironment host, HostProcesses processes, Sessions sessions, Pending pending,
-                HumanCapture capture, ObjectMapper json) {
+    JoinCommand(SidebandHome home, Projects projects, HostEnvironment host, HostProcesses processes, Sessions sessions,
+                Pending pending, HumanCapture capture, ObjectMapper json) {
         this.home = home;
+        this.projects = projects;
         this.host = host;
         this.processes = processes;
         this.sessions = sessions;
@@ -89,16 +93,17 @@ public class JoinCommand implements Callable<Integer> {
     @Override
     public Integer call() throws IOException {
         Role who = role != null ? role : host.requireRole("--role");
-        ParticipantId instance = name == null ? ParticipantId.of(who) : ParticipantId.of(who, name);
         String id = sessionId != null ? sessionId : host.sessionId(who).orElseThrow(() -> new IllegalArgumentException(
                 "cannot tell the " + who.id() + " session id from the environment; pass --session-id"));
-        Path stateDirectory = repository.stateDirectory(home);
+        Project project = repository.project(home, projects);
+        ParticipantId instance = ParticipantId.of(project.name(), name == null ? who.id() : name);
+        Path stateDirectory = home.stateDirectory();
         // The environment's session and process describe one caller: overriding the session drops its process too.
         HostProcess process = sessionId == null ? host.process(who).orElse(null)
                 : pid == null ? null : processes.describe(pid).orElse(null);
-        Joining joining = sessions.join(stateDirectory, instance, id, process, resume);
-        Captured adopted = adopt(stateDirectory, instance, id);
-        PendingReport report = pending.report(stateDirectory, instance).withAdopted(adopted).withReplaced(joining.replaced());
+        Joining joining = sessions.join(stateDirectory, instance, who, id, process, resume);
+        Captured adopted = adopt(stateDirectory, instance, who, id);
+        PendingReport report = pending.report(stateDirectory, instance, who).withAdopted(adopted).withReplaced(joining.replaced());
         sessions.advance(stateDirectory, instance, report.end());
         Output.print(spec, json, report);
         return ExitCode.OK;
@@ -110,9 +115,9 @@ public class JoinCommand implements Callable<Integer> {
      * saying on stderr what failed; a failure before or inside the append propagates, and
      * the hold stays for the next join.
      */
-    private Captured adopt(Path stateDirectory, ParticipantId instance, String id) {
+    private Captured adopt(Path stateDirectory, ParticipantId instance, Role client, String id) {
         try {
-            return capture.adopt(stateDirectory, instance, id).orElse(null);
+            return capture.adopt(stateDirectory, instance, client, id).orElse(null);
         } catch (CaptureFailedException e) {
             if (e.stage() != CaptureFailedException.Stage.JOURNALED || e.journaled() == null) {
                 throw e;

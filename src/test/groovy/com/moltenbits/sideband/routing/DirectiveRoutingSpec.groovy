@@ -2,25 +2,32 @@ package com.moltenbits.sideband.routing
 
 import com.moltenbits.sideband.Fixtures
 import com.moltenbits.sideband.protocol.ParticipantId
-import com.moltenbits.sideband.protocol.Role
 import com.moltenbits.sideband.protocol.Route
 import spock.lang.Specification
 
+import java.util.function.Predicate
+
 class DirectiveRoutingSpec extends Specification {
 
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
-    static final ParticipantId REVIEW = ParticipantId.of(Role.CODEX, "review")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
+    static final ParticipantId REVIEW = ParticipantId.of("repo", "review")
+    static final Predicate<String> REGISTERED = { String name -> name in ["repo", "listenly"] }
 
     Routing routing = new DirectiveRouting()
 
+    Destination resolve(String body, ParticipantId via, Collection<ParticipantId> joined = []) {
+        routing.resolve(body, via, joined as Set, REGISTERED)
+    }
+
     void "the first non-whitespace token selects the recipients"() {
         when:
-        Destination resolution = routing.resolve(body, Fixtures.CLAUDE, [] as Set)
+        Destination resolution = resolve(body, Fixtures.CLAUDE, [Fixtures.CLAUDE, Fixtures.CODEX])
 
         then:
         resolution.to() == to
         resolution.route() == route
         resolution.directed() == directed
+        resolution.unrouted() == null
 
         where:
         body                                      | to                                 | route           | directed
@@ -34,50 +41,80 @@ class DirectiveRoutingSpec extends Specification {
         "please @codex do this"                   | [Fixtures.CLAUDE]                  | Route.DIRECT    | false
         "@all, review this"                       | [Fixtures.CLAUDE]                  | Route.DIRECT    | false
         "@codex"                                  | [Fixtures.CODEX]                   | Route.DIRECT    | true
-        "@everyone hi"                            | [Fixtures.CLAUDE]                  | Route.DIRECT    | false
         ""                                        | [Fixtures.CLAUDE]                  | Route.DIRECT    | false
     }
 
-    void "a named instance is reached by its own directive, whether or not anyone has joined as it"() {
+    void "any name is reached by its own directive in the project typed in, whether or not anyone has joined as it"() {
         expect:
-        routing.resolve(body, Fixtures.CODEX, joined as Set).to() == to
+        resolve(body, Fixtures.CODEX, joined).to() == to
 
         where:
-        body                          | joined  | to
-        "@claude:fable review this"   | []      | [FABLE]
-        "@claude:fable review this"   | [FABLE] | [FABLE]
-        "@Claude:Fable mixed case"    | []      | [FABLE]
-        "@codex:review look"          | []      | [REVIEW]
+        body                       | joined  | to
+        "@fable review this"       | []      | [FABLE]
+        "@fable review this"       | [FABLE] | [FABLE]
+        "@Fable mixed case"        | []      | [FABLE]
+        "@review look"             | []      | [REVIEW]
+        "@everyone hi"             | []      | [ParticipantId.of("repo", "everyone")]
     }
 
-    void "the bare role reaches only the unnamed instance, never a named one"() {
-        expect:
-        routing.resolve("@claude look", Fixtures.CODEX, [Fixtures.CLAUDE, FABLE] as Set).to() == [Fixtures.CLAUDE]
+    void "project/@name reaches that name in another registered project"() {
+        when:
+        Destination resolution = resolve("listenly/@opus look at the schema", Fixtures.CLAUDE)
+
+        then:
+        resolution.to() == [ParticipantId.of("listenly", "opus")]
+        resolution.directed()
+        resolution.unrouted() == null
+
+        and: "naming the project typed in is the same as leaving it out"
+        resolve("repo/@fable hi", Fixtures.CLAUDE).to() == [FABLE]
     }
 
-    void "a token that is not a valid instance is ordinary content"() {
+    void "a directive to a project nobody registered goes to the instance typed into, and says the route failed"() {
+        when:
+        Destination resolution = resolve("nowhere/@opus look", Fixtures.CLAUDE)
+
+        then:
+        resolution.to() == [Fixtures.CLAUDE]
+        !resolution.directed()
+        resolution.unrouted() == "nowhere"
+    }
+
+    void "a token that names nothing is ordinary content"() {
         expect:
-        with(routing.resolve(body, Fixtures.CODEX, [FABLE] as Set)) {
+        with(resolve(body, Fixtures.CODEX, [FABLE])) {
             to() == [Fixtures.CODEX]
             !directed()
+            unrouted() == null
         }
 
         where:
-        body << ["@claude:fable! look", "@claude: look", "@claude:2nd look", "@gemini:x look", "@operator hello", "@claude:fable:x hi"]
+        body << ["@fable! look", "@ look", "@2nd look", "@operator hello", "@claude:fable hi", "listenly/opus hi",
+                 "Listenly/@ hi", "/@opus hi", "a/b/@c hi", "listenly/@@opus hi", "2bad/@opus hi"]
     }
 
-    void "@all reaches both unnamed instances and every joined named one, once each"() {
+    void "@all reaches every participant joined in the project typed in, once each, and nobody elsewhere"() {
         when:
-        Destination all = routing.resolve("@all look", Fixtures.CLAUDE, [FABLE, Fixtures.CODEX, REVIEW] as Set)
+        Destination all = resolve("@all look", Fixtures.CLAUDE,
+                [FABLE, Fixtures.CODEX, REVIEW, Fixtures.CLAUDE, ParticipantId.of("listenly", "opus")])
 
         then:
-        all.to() == [Fixtures.CLAUDE, FABLE, Fixtures.CODEX, REVIEW]
+        all.to() == [Fixtures.CLAUDE, Fixtures.CODEX, FABLE, REVIEW]
         all.route() == Route.BROADCAST
+    }
+
+    void "@all with nobody joined in the project is refused"() {
+        when:
+        resolve("@all look", Fixtures.CLAUDE, [ParticipantId.of("listenly", "opus")])
+
+        then:
+        IllegalArgumentException e = thrown()
+        e.message.contains("no joined participants in this project")
     }
 
     void "an undirected message goes to the instance it was typed into"() {
         expect:
-        routing.resolve("hello", Fixtures.CODEX, [] as Set).to() == [Fixtures.CODEX]
-        routing.resolve("hello", FABLE, [FABLE] as Set).to() == [FABLE]
+        resolve("hello", Fixtures.CODEX).to() == [Fixtures.CODEX]
+        resolve("hello", FABLE, [FABLE]).to() == [FABLE]
     }
 }

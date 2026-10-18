@@ -5,6 +5,7 @@ import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.ancestry.Ancestry
 import com.moltenbits.sideband.capture.HumanCapture
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.project.Projects
 import com.moltenbits.sideband.host.HostEnvironment
 import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.pending.Pending
@@ -23,10 +24,10 @@ import java.nio.file.Path
 class InstanceCommandsSpec extends CommandSpec {
 
     static final ParticipantId CLAUDE = Fixtures.CLAUDE
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
 
     Path repo = TempRepo.init()
-    Path state = repo.resolve(".git/sideband")
+    Path state = home.resolve(".sideband")
     Sessions sessions = context.getBean(Sessions)
     Journal journal = context.getBean(Journal)
 
@@ -62,12 +63,12 @@ class InstanceCommandsSpec extends CommandSpec {
     }
 
     PendingCommand pending(String session) {
-        new PendingCommand(context.getBean(SidebandHome), shell(session), sessions, context.getBean(Pending),
+        new PendingCommand(context.getBean(SidebandHome), context.getBean(Projects), shell(session), sessions, context.getBean(Pending),
                 context.getBean(JournalWatcher), context.getBean(ObjectMapper))
     }
 
     AppendCommand append(String session) {
-        new AppendCommand(context.getBean(SidebandHome), shell(session), journal, context.getBean(Ancestry),
+        new AppendCommand(context.getBean(SidebandHome), context.getBean(Projects), shell(session), journal, context.getBean(Ancestry),
                 context.getBean(HumanCapture), context.getBean(Pushes), sessions, context.getBean(ObjectMapper))
     }
 
@@ -105,7 +106,7 @@ class InstanceCommandsSpec extends CommandSpec {
         expect:
         run("join", "--repo", repo.toString(), "--role", "claude", "--as", name, "--session-id", "s1") == ExitCode.INVALID_INPUT
         stderr.toString().contains("a lowercase letter followed by")
-        sessions.all(state).isEmpty()
+        sessions.all(state, "repo").isEmpty()
 
         where:
         name << ["Fable", "2nd", "fable:x", "a b"]
@@ -153,14 +154,26 @@ class InstanceCommandsSpec extends CommandSpec {
 
         expect:
         from("s2", pending("s2")) == ExitCode.INVALID_INPUT
-        stderr.toString().contains("this Claude session holds no Sideband instance here: claude, claude:fable are joined from other sessions")
-        stderr.toString().contains("/sideband joins as claude, and /sideband as <name> joins as claude:<name>")
+        stderr.toString().contains("this Claude session holds no Sideband instance here: repo/claude, repo/fable are joined from other sessions")
+        stderr.toString().contains("/sideband joins as claude, and /sideband as <name> joins as <name>")
         from("s2", append("s2"), "--type", "status", "--to", "codex", "--body-file", body("lost").toString()) == ExitCode.INVALID_INPUT
         journal.end(state) == end
         sessions.load(state, FABLE).get().offset() == end
     }
 
-    void "a command acts as the unnamed instance when the role has no records at all, as before instances"() {
+    void "a command from a Claude session is refused when Codex holds Claude's own name, and writes nothing"() {
+        given:
+        runJson("join", "--repo", repo.toString(), "--role", "codex", "--as", "claude", "--session-id", "t1")
+        long end = journal.end(state)
+
+        expect:
+        from("s9", append("s9"), "--type", "status", "--to", "operator", "--body-file", body("as whom?").toString()) == ExitCode.INVALID_INPUT
+        stderr.toString().contains("claude is held by the other client in this project. "
+                + "/sideband joins as claude, taking it over, and /sideband as <name> joins as <name>")
+        journal.end(state) == end
+    }
+
+    void "a command acts as the client's own name when the client has no records in the project"() {
         when:
         from("s9", append("s9"), "--type", "status", "--to", "codex", "--body-file", body("never joined").toString())
 
@@ -194,6 +207,6 @@ class InstanceCommandsSpec extends CommandSpec {
                 "--body-file", body("done").toString())
 
         then:
-        reply.metadata.to == ["claude:fable"]
+        reply.metadata.to == ["repo/fable"]
     }
 }
