@@ -18,8 +18,10 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
  * Wakes a Codex session with {@code codex queue --thread <thread id> --message <text>}.
- * The thread id is the session id the recipient instance recorded when it joined. The text is passed as one
- * argument vector element, never through a shell.
+ * The thread id is the session id the recipient instance recorded when it joined, read only
+ * from a record Codex holds: one Claude Code took over since the pusher was chosen names no
+ * thread, so the entry waits in the journal. The text is passed as one argument vector
+ * element, never through a shell.
  */
 @Singleton
 class CodexQueuePusher implements HostPusher {
@@ -41,7 +43,7 @@ class CodexQueuePusher implements HostPusher {
 
     @Override
     public PushResult push(Path stateDirectory, ParticipantId recipient, ParticipantId from, String text) {
-        Optional<Session> session = sessions.load(stateDirectory, recipient);
+        Optional<Session> session = sessions.load(stateDirectory, recipient).filter(record -> record.client() == Role.CODEX);
         if (session.isEmpty()) {
             return new PushResult(recipient, PushOutcome.NO_SESSION, null);
         }

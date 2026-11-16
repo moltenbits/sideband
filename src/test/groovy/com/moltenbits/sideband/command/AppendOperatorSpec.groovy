@@ -12,8 +12,8 @@ import java.nio.file.Path
 class AppendOperatorSpec extends CommandSpec {
 
     Path repo = TempRepo.init()
-    Path stateDir = repo.resolve(".git/sideband")
-    Path journalFile = stateDir.resolve("sideband.db")
+    Path stateDir = home.resolve(".sideband")
+    Path journalFile = stateDir.resolve("journal.db")
 
     Path body(String text) {
         Files.writeString(repo.resolve("body.md"), text)
@@ -28,8 +28,8 @@ class AppendOperatorSpec extends CommandSpec {
         code == ExitCode.OK
         with(json()) {
             metadata.from == "operator"
-            metadata.via == "claude"
-            metadata.to == ["claude"]
+            metadata.via == "repo/claude"
+            metadata.to == ["repo/claude"]
             metadata.type == "request"
             metadata.route == "direct"
             metadata.expects_reply == true
@@ -53,20 +53,25 @@ class AppendOperatorSpec extends CommandSpec {
                 "--body-file", body("@codex review the locking behavior.").toString())
 
         then:
-        json().metadata.to == ["codex"]
+        json().metadata.to == ["repo/codex"]
         json().body == "@codex review the locking behavior."
-        json().pushes == [[recipient: "codex", outcome: "no-session", detail: null]]
+        json().pushes == [[recipient: "repo/codex", outcome: "no-session", detail: null]]
     }
 
-    void "@all is one broadcast entry naming both clients and the originating client"() {
+    void "@all is one broadcast entry naming everyone joined in the project, the originating client included"() {
+        given:
+        run("join", "--repo", repo.toString(), "--role", "claude", "--session-id", "s1")
+        run("join", "--repo", repo.toString(), "--role", "codex", "--session-id", "t1")
+        stdout = new StringWriter()
+
         when:
         run("append", "--from", "operator", "--repo", repo.toString(), "--via", "codex",
                 "--body-file", body("@all review this").toString())
 
         then:
-        json().metadata.to == ["claude", "codex"]
+        json().metadata.to == ["repo/claude", "repo/codex"]
         json().metadata.route == "broadcast"
-        json().metadata.via == "codex"
+        json().metadata.via == "repo/codex"
         context.getBean(Journal).readAfter(stateDir, 0).entries().size() == 1
     }
 
@@ -96,14 +101,28 @@ class AppendOperatorSpec extends CommandSpec {
         !Files.exists(journalFile)
         run("append", "--repo", repo.toString(), "--from", "claude", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
         stderr.toString().contains("--type is required")
-        run("append", "--repo", repo.toString(), "--from", "gemini", "--type", "status", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--repo", repo.toString(), "--from", "Gemini!", "--type", "status", "--to", "codex", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
     }
 
-    void "the via option names a client instance and is validated"() {
+    void "the via option names an agent by its address and is validated"() {
         expect:
-        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude:fable", "--body-file", body("hi").toString()) == ExitCode.OK
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "fable", "--body-file", body("hi").toString()) == ExitCode.OK
         run("append", "--from", "operator", "--repo", repo.toString(), "--via", "operator", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
-        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "gemini", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude:fable", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+        run("append", "--from", "operator", "--repo", repo.toString(), "--via", "Gemini!", "--body-file", body("hi").toString()) == ExitCode.INVALID_INPUT
+    }
+
+    void "words addressed to a project nobody registered are recorded for the client typed into, and the failed route is reported"() {
+        when:
+        int code = run("append", "--from", "operator", "--repo", repo.toString(), "--via", "claude",
+                "--body-file", body("nowhere/@opus look at this").toString())
+
+        then:
+        code == ExitCode.OK
+        json().metadata.to == ["repo/claude"]
+        json().unrouted == "nowhere"
+        json().pushes == []
+        stderr.toString().contains("nowhere is not a Sideband project")
     }
 
     void "reads the body from standard input when no file is given"() {
@@ -131,13 +150,15 @@ class AppendOperatorSpec extends CommandSpec {
         !Files.exists(journalFile)
     }
 
-    void "a directory outside a repository gets a .sideband directory of its own"() {
+    void "a directory outside a repository is a project of its own, kept in the one journal"() {
         given:
-        Path plain = TempRepo.plainDirectory()
+        Path plain = Files.createDirectories(TempRepo.plainDirectory().resolve("notes"))
         Path text = Files.writeString(plain.resolve("body.md"), "hello")
 
         expect:
         run("append", "--from", "operator", "--repo", plain.toString(), "--via", "claude", "--body-file", text.toString()) == ExitCode.OK
-        Files.exists(plain.resolve(".sideband/sideband.db"))
+        json().metadata.via == "notes/claude"
+        Files.exists(journalFile)
+        !Files.exists(plain.resolve(".sideband"))
     }
 }

@@ -9,6 +9,7 @@ import io.micronaut.data.annotation.MappedEntity;
 @MappedEntity("capture_cursors")
 record CaptureCursorRow(
         @Id @GeneratedValue @Nullable Long id,
+        String project,
         String role,
         String sessionId,
         @Nullable String transcript,

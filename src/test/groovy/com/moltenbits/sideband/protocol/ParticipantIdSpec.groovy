@@ -4,21 +4,19 @@ import spock.lang.Specification
 
 class ParticipantIdSpec extends Specification {
 
-    void "client instances and the operator are participants"() {
+    void "agents of a project and the operator are participants"() {
         expect:
         new ParticipantId(value).isHuman() == human
-        new ParticipantId(value).role() == Optional.ofNullable(role)
+        new ParticipantId(value).project() == Optional.ofNullable(project)
         new ParticipantId(value).name() == Optional.ofNullable(name)
-        new ParticipantId(value).displayName() == display
 
         where:
-        value               | human | role        | name        | display
-        "claude"            | false | Role.CLAUDE | null        | "Claude"
-        "codex"             | false | Role.CODEX  | null        | "Codex"
-        "operator"          | true  | null        | null        | "Operator"
-        "claude:fable"      | false | Role.CLAUDE | "fable"     | "Claude (fable)"
-        "codex:review-2"    | false | Role.CODEX  | "review-2"  | "Codex (review-2)"
-        "claude:a" + "b" * 31 | false | Role.CLAUDE | "a" + "b" * 31 | "Claude (a${"b" * 31})"
+        value                        | human | project    | name
+        "sideband/claude"            | false | "sideband" | "claude"
+        "sideband/astra"             | false | "sideband" | "astra"
+        "listenly/review-2"          | false | "listenly" | "review-2"
+        "operator"                   | true  | null       | null
+        "a${"b" * 31}/a${"b" * 31}"  | false | "a" + "b" * 31 | "a" + "b" * 31
     }
 
     void "anything else is rejected"() {
@@ -30,46 +28,76 @@ class ParticipantIdSpec extends Specification {
         e.message.contains(value)
 
         where:
-        value << ["Claude", "human:james", "Operator", "gemini", "", "a b",
-                  "claude:", "claude:Fable", "claude:2nd", "claude:-x", "claude:a_b", "claude:fable:x",
-                  "operator:james", "gemini:x", ":fable", "claude:" + "a" * 33, "claude: fable"]
+        value << ["claude", "codex", "claude:fable", "Operator", "", "a b", "sideband/", "/astra", "sideband/Astra",
+                  "sideband/2nd", "sideband/-x", "sideband/a_b", "a/b/c", "Sideband/astra", "sideband/" + "a" * 33,
+                  "sideband/all", "sideband/operator", "sideband/ astra", "sideband/@astra"]
     }
 
-    void "factories produce the canonical strings"() {
+    void "an agent is its project and its name"() {
         expect:
-        ParticipantId.of(Role.CODEX).value() == "codex"
-        ParticipantId.of(Role.CLAUDE, "fable").value() == "claude:fable"
+        ParticipantId.of("sideband", "astra").value() == "sideband/astra"
+        ParticipantId.of("sideband", "astra") != ParticipantId.of("listenly", "astra")
+        ParticipantId.of("sideband", "astra").belongsTo("sideband")
+        !ParticipantId.of("sideband", "astra").belongsTo("listenly")
+        !ParticipantId.OPERATOR.belongsTo("sideband")
         ParticipantId.OPERATOR.value() == "operator"
-        ParticipantId.OPERATOR.toString() == "operator"
     }
 
-    void "a named instance is not its role's unnamed instance"() {
-        expect:
-        ParticipantId.of(Role.CLAUDE, "fable") != ParticipantId.of(Role.CLAUDE)
-        !ParticipantId.of(Role.CLAUDE, "fable").isUnnamed()
-        ParticipantId.of(Role.CLAUDE).isUnnamed()
-        !ParticipantId.OPERATOR.isUnnamed()
-    }
-
-    void "the named factory refuses a missing name rather than naming the instance null"() {
+    void "all and operator are reserved and cannot be names"() {
         when:
-        ParticipantId.of(Role.CLAUDE, null)
-
-        then:
-        NullPointerException e = thrown()
-        e.message == "name"
-
-        and: "a name that happens to be spelled null is still a name"
-        ParticipantId.of(Role.CLAUDE, "null").name() == Optional.of("null")
-    }
-
-    void "a name that is not valid is refused by the factory with the rule"() {
-        when:
-        ParticipantId.of(Role.CLAUDE, "Fable")
+        ParticipantId.of("sideband", name)
 
         then:
         InvalidEntryException e = thrown()
-        e.message.contains("'claude:Fable'")
+        e.message.contains("reserved")
+
+        where:
+        name << ["all", "operator"]
+    }
+
+    void "a name or project name that is not valid is refused with the rule"() {
+        when:
+        ParticipantId.of(project, name)
+
+        then:
+        InvalidEntryException e = thrown()
         e.message.contains("lowercase letter")
+
+        where:
+        project    | name
+        "sideband" | "Fable"
+        "Sideband" | "fable"
+        "sideband" | null
+    }
+
+    void "an address is read from the project it is written in: #address"() {
+        expect:
+        ParticipantId.address(address, "sideband").value() == expected
+
+        where:
+        address            | expected
+        "astra"            | "sideband/astra"
+        "@astra"           | "sideband/astra"
+        "listenly/astra"   | "listenly/astra"
+        "listenly/@astra"  | "listenly/astra"
+        "operator"         | "operator"
+    }
+
+    void "an address that names nothing is refused: #address"() {
+        when:
+        ParticipantId.address(address, "sideband")
+
+        then:
+        thrown(InvalidEntryException)
+
+        where:
+        address << ["", "@", "/astra", "listenly/", "a/b/c", "@all", "Astra", "listenly/@@astra", "claude:fable"]
+    }
+
+    void "a label is the name within its own project and the address elsewhere"() {
+        expect:
+        ParticipantId.of("sideband", "astra").label("sideband") == "astra"
+        ParticipantId.of("sideband", "astra").label("listenly") == "sideband/@astra"
+        ParticipantId.OPERATOR.label("sideband") == "Operator"
     }
 }

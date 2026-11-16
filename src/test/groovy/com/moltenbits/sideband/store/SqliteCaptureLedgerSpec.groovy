@@ -33,7 +33,7 @@ class SqliteCaptureLedgerSpec extends Specification {
     Path transcript = dir.resolve("t.jsonl")
 
     def setup() {
-        sessions.join(dir, Fixtures.CLAUDE, "s1")
+        sessions.join(dir, Fixtures.CLAUDE, Role.CLAUDE, "s1")
     }
 
     Draft said(String text) {
@@ -47,13 +47,13 @@ class SqliteCaptureLedgerSpec extends Specification {
 
     void "a session nothing was captured for has no state"() {
         expect:
-        ledger.load(dir, Role.CLAUDE, "s1") == new State(0, null, [:])
-        ledger.load(Files.createTempDirectory("absent"), Role.CLAUDE, "s1").version() == 0
+        ledger.load(dir, "repo", Role.CLAUDE, "s1") == new State(0, null, [:])
+        ledger.load(Files.createTempDirectory("absent"), "repo", Role.CLAUDE, "s1").version() == 0
     }
 
     void "a commit journals its drafts in order, keeps the cursor and turns, and advances the version"() {
         when:
-        def entries = ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), Fixtures.CLAUDE,
+        def entries = ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, ledger.load(dir, "repo", Role.CLAUDE, "s1"), Fixtures.CLAUDE,
                 [said("first"), said("second")], ["u-1", "u-2"], new Cursor(transcript, 120, "p-1"),
                 [new Turn("p-1", "prompt-1", Mode.TRANSCRIPT, true)])
 
@@ -62,81 +62,106 @@ class SqliteCaptureLedgerSpec extends Specification {
         journal.readAfter(dir, 0).entries()*.body() == ["first", "second"]
 
         and: "the messages are kept as recorded, for this session only"
-        ledger.recorded(dir, Role.CLAUDE, "s1", ["u-1", "u-2", "u-3"]) == ["u-1", "u-2"] as Set
-        ledger.recorded(dir, Role.CLAUDE, "s2", ["u-1"]).isEmpty()
-        ledger.recorded(dir, Role.CLAUDE, "s1", []).isEmpty()
+        ledger.recorded(dir, "repo", Role.CLAUDE, "s1", ["u-1", "u-2", "u-3"]) == ["u-1", "u-2"] as Set
+        ledger.recorded(dir, "repo", Role.CLAUDE, "s2", ["u-1"]).isEmpty()
+        ledger.recorded(dir, "repo", Role.CLAUDE, "s1", []).isEmpty()
 
         and:
-        State state = ledger.load(dir, Role.CLAUDE, "s1")
+        State state = ledger.load(dir, "repo", Role.CLAUDE, "s1")
         state.version() == 1
         state.cursor() == new Cursor(transcript, 120, "p-1")
         state.turn("p-1") == new Turn("p-1", "prompt-1", Mode.TRANSCRIPT, true)
         state.turn("p-2") == Turn.untouched("p-2")
     }
 
+    void "the same host session, turn, and message ids in two projects keep two capture states"() {
+        given:
+        ParticipantId elsewhere = ParticipantId.of("listenly", "claude")
+        sessions.join(dir, elsewhere, Role.CLAUDE, "s1")
+
+        when:
+        ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, ledger.load(dir, "repo", Role.CLAUDE, "s1"), Fixtures.CLAUDE,
+                [said("in repo")], ["u-1"], new Cursor(transcript, 10, "p-1"), [new Turn("p-1", "prompt-1", Mode.TRANSCRIPT, true)])
+
+        then: "the other project's state for the same ids is untouched"
+        ledger.load(dir, "listenly", Role.CLAUDE, "s1") == new State(0, null, [:])
+        ledger.recorded(dir, "listenly", Role.CLAUDE, "s1", ["u-1"]).isEmpty()
+
+        when: "and it commits on its own version"
+        def committed = ledger.commit(dir, "listenly", Role.CLAUDE, "s1", null, ledger.load(dir, "listenly", Role.CLAUDE, "s1"), elsewhere,
+                [Draft.capturedTurn(elsewhere, null, "in listenly")], ["u-1"], new Cursor(transcript, 99, "p-1"),
+                [new Turn("p-1", "prompt-9", Mode.TRANSCRIPT, false)])
+
+        then:
+        committed.isPresent()
+        ledger.load(dir, "repo", Role.CLAUDE, "s1").cursor().position() == 10
+        ledger.load(dir, "listenly", Role.CLAUDE, "s1").cursor().position() == 99
+        ledger.load(dir, "listenly", Role.CLAUDE, "s1").turn("p-1").promptEntryId() == "prompt-9"
+    }
+
     void "turns not named in a commit keep their receipts, and a named one is replaced"() {
         given:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [], null,
+        ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, ledger.load(dir, "repo", Role.CLAUDE, "s1"), null, [], [], null,
                 [new Turn("p-1", "prompt-1", Mode.NONE, false), new Turn("p-2", "prompt-2", Mode.NONE, false)])
 
         when:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [], null,
+        ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, ledger.load(dir, "repo", Role.CLAUDE, "s1"), null, [], [], null,
                 [new Turn("p-2", "prompt-2", Mode.PAYLOAD, true)])
 
         then:
-        ledger.load(dir, Role.CLAUDE, "s1").turns() == [
+        ledger.load(dir, "repo", Role.CLAUDE, "s1").turns() == [
                 "p-1": new Turn("p-1", "prompt-1", Mode.NONE, false),
                 "p-2": new Turn("p-2", "prompt-2", Mode.PAYLOAD, true)]
     }
 
     void "a commit from a state that has since changed writes nothing, even at an unchanged cursor"() {
         given: "two captures read the same state"
-        State read = ledger.load(dir, Role.CLAUDE, "s1")
+        State read = ledger.load(dir, "repo", Role.CLAUDE, "s1")
 
         when: "the first records a payload final without moving any cursor"
-        def first = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
+        def first = ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
                 [new Turn("p-1", null, Mode.PAYLOAD, true)])
 
         and: "the second decided the same from the same read"
-        def second = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
+        def second = ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], [], null,
                 [new Turn("p-1", null, Mode.PAYLOAD, true)])
 
         then:
         first.present
         second.empty
         journal.readAfter(dir, 0).entries()*.body() == ["Done."]
-        ledger.load(dir, Role.CLAUDE, "s1").version() == 1
+        ledger.load(dir, "repo", Role.CLAUDE, "s1").version() == 1
     }
 
     void "a commit for an instance the session no longer is writes nothing"() {
         given:
-        State read = ledger.load(dir, Role.CLAUDE, "s1")
+        State read = ledger.load(dir, "repo", Role.CLAUDE, "s1")
 
         when: "another session takes the instance over between the read and the commit"
-        sessions.join(dir, Fixtures.CLAUDE, "s2")
-        def entries = ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("lost")], ["u-lost"],
+        sessions.join(dir, Fixtures.CLAUDE, Role.CLAUDE, "s2")
+        def entries = ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("lost")], ["u-lost"],
                 new Cursor(transcript, 10, "p-1"), [])
 
         then:
         entries.empty
         journal.end(dir) == 0
-        ledger.load(dir, Role.CLAUDE, "s1").version() == 0
-        ledger.recorded(dir, Role.CLAUDE, "s1", ["u-lost"]).isEmpty()
+        ledger.load(dir, "repo", Role.CLAUDE, "s1").version() == 0
+        ledger.recorded(dir, "repo", Role.CLAUDE, "s1", ["u-lost"]).isEmpty()
     }
 
     void "a commit names the exact instance: another instance of the same client is not enough"() {
         given:
-        ParticipantId fable = new ParticipantId("claude:fable")
-        State read = ledger.load(dir, Role.CLAUDE, "s1")
+        ParticipantId fable = ParticipantId.of("repo", "fable")
+        State read = ledger.load(dir, "repo", Role.CLAUDE, "s1")
 
         expect:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, read, fable, [said("as fable")], [], null, []).empty
+        ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, read, fable, [said("as fable")], [], null, []).empty
         journal.end(dir) == 0
     }
 
     void "of many captures committing from one read, exactly one is written"() {
         given:
-        State read = ledger.load(dir, Role.CLAUDE, "s1")
+        State read = ledger.load(dir, "repo", Role.CLAUDE, "s1")
         CountDownLatch start = new CountDownLatch(1)
         def pool = Executors.newFixedThreadPool(8)
 
@@ -144,7 +169,7 @@ class SqliteCaptureLedgerSpec extends Specification {
         def results = (1..8).collect { n ->
             pool.submit({
                 start.await()
-                ledger.commit(dir, Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], ["u-done"],
+                ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, read, Fixtures.CLAUDE, [said("Done.")], ["u-done"],
                         new Cursor(transcript, 50, "p-1"), [new Turn("p-1", null, Mode.TRANSCRIPT, true)]).present
             } as Callable<Boolean>)
         }
@@ -159,11 +184,11 @@ class SqliteCaptureLedgerSpec extends Specification {
 
     void "sessions and clients keep separate state"() {
         when:
-        ledger.commit(dir, Role.CLAUDE, "s1", null, ledger.load(dir, Role.CLAUDE, "s1"), null, [], [],
+        ledger.commit(dir, "repo", Role.CLAUDE, "s1", null, ledger.load(dir, "repo", Role.CLAUDE, "s1"), null, [], [],
                 new Cursor(transcript, 5, "p-1"), [])
 
         then:
-        ledger.load(dir, Role.CLAUDE, "s2").version() == 0
-        ledger.load(dir, Role.CODEX, "s1").version() == 0
+        ledger.load(dir, "repo", Role.CLAUDE, "s2").version() == 0
+        ledger.load(dir, "repo", Role.CODEX, "s1").version() == 0
     }
 }

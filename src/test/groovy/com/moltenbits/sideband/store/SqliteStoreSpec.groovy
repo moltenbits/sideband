@@ -51,32 +51,6 @@ class SqliteStoreSpec extends Specification {
         journal.readAfter(dir, 0).entries()*.body() == ["kept"]
     }
 
-    void "inspecting a database an older Sideband left behind migrates it and says from which schema"() {
-        given:
-        schema4()
-
-        when:
-        StoreHealth health = store.inspect(dir).get()
-
-        then:
-        health.schema() == Database.SCHEMA_VERSION
-        health.migratedFrom() == 4
-        tables().contains("captured_turns")
-        journal.readAfter(dir, 0).entries()*.body() == ["from schema 4"]
-
-        and: "once current, it was not migrated again"
-        store.inspect(dir).get().migratedFrom() == null
-    }
-
-    void "creating over an older database reports the migration, though its own inspection then finds it current"() {
-        given:
-        schema4()
-
-        expect:
-        store.create(dir).migratedFrom() == 4
-        store.create(dir).migratedFrom() == null
-    }
-
     void "a database a newer Sideband migrated is reported at its schema, beside the one this executable supports, and left alone"() {
         given:
         store.create(dir)
@@ -101,14 +75,6 @@ class SqliteStoreSpec extends Specification {
         store.inspect(empty).isEmpty()
         !Files.exists(empty.resolve(Store.FILE_NAME))
         store.inspect(dir).isEmpty()
-    }
-
-    private void schema4() {
-        Databases.atSchema4(file)
-    }
-
-    private List<String> tables() {
-        Databases.tables(file)
     }
 
     private String query(String text) {

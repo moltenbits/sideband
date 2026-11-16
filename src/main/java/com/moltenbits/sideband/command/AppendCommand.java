@@ -8,6 +8,7 @@ import com.moltenbits.sideband.home.SidebandHome;
 import com.moltenbits.sideband.host.HostEnvironment;
 import com.moltenbits.sideband.journal.Entry;
 import com.moltenbits.sideband.journal.Journal;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.protocol.Delivery;
 import com.moltenbits.sideband.protocol.Draft;
 import com.moltenbits.sideband.protocol.EntryMetadata;
@@ -50,17 +51,17 @@ public class AppendCommand implements Callable<Integer> {
     @Mixin
     Repository repository;
 
-    @Option(names = "--from", converter = ParticipantIdConverter.class,
+    @Option(names = "--from",
             description = "Author: operator for the operator's own words (routed by their first token), otherwise the calling client")
-    ParticipantId from;
+    String from;
 
-    @Option(names = "--via", hidden = true, converter = ParticipantIdConverter.class,
-            description = "With --from operator: override the client instance detected from the environment")
-    ParticipantId via;
+    @Option(names = "--via", hidden = true,
+            description = "With --from operator: override the agent detected from the environment")
+    String via;
 
-    @Option(names = "--to", arity = "1..*", converter = ParticipantIdConverter.class,
-            description = "Recipients: client instances (claude, codex, or a named one such as claude:fable) or operator. With --reply-to it defaults to the author of the entry being answered")
-    List<ParticipantId> to;
+    @Option(names = "--to", arity = "1..*",
+            description = "Recipients: an agent of this project by name (astra), one of another project as project/name (listenly/astra), or operator. With --reply-to it defaults to the author of the entry being answered")
+    List<String> to;
 
     @Option(names = "--type", description = "request, reply, status, or ack (required unless --from operator, whose entries are requests)")
     MessageType type;
@@ -79,6 +80,7 @@ public class AppendCommand implements Callable<Integer> {
     Path bodyFile;
 
     private final SidebandHome home;
+    private final Projects projects;
     private final HostEnvironment host;
     private final Journal journal;
     private final Ancestry ancestry;
@@ -87,9 +89,10 @@ public class AppendCommand implements Callable<Integer> {
     private final Sessions sessions;
     private final ObjectMapper json;
 
-    AppendCommand(SidebandHome home, HostEnvironment host, Journal journal, Ancestry ancestry, HumanCapture capture,
-                  Pushes pushes, Sessions sessions, ObjectMapper json) {
+    AppendCommand(SidebandHome home, Projects projects, HostEnvironment host, Journal journal, Ancestry ancestry,
+                  HumanCapture capture, Pushes pushes, Sessions sessions, ObjectMapper json) {
         this.home = home;
+        this.projects = projects;
         this.host = host;
         this.sessions = sessions;
         this.journal = journal;
@@ -101,13 +104,12 @@ public class AppendCommand implements Callable<Integer> {
 
     @Override
     public Integer call() throws IOException {
-        boolean operator = from != null && from.isHuman();
+        boolean operator = ParticipantId.OPERATOR_ID.equals(from);
         if (via != null && !operator) {
             throw new IllegalArgumentException("--via only applies with --from operator; an agent entry's author is --from or the calling client");
         }
         if (operator) {
-            Path stateDirectory = repository.stateDirectory(home);
-            return appendOperator(stateDirectory, via != null ? Caller.client(via, "--via") : Caller.identify(host, sessions, stateDirectory, "--via"));
+            return appendOperator();
         }
         if (type == null) {
             throw new IllegalArgumentException("--type is required: request, reply, status, or ack");
@@ -127,20 +129,24 @@ public class AppendCommand implements Callable<Integer> {
             actionable = expectsReply != null ? expectsReply : type == MessageType.REQUEST;
             body = Bodies.read(bodyFile);
         }
-        Path stateDirectory = repository.stateDirectory(home);
-        ParticipantId author = from != null ? from : Caller.identify(host, sessions, stateDirectory, "--from");
+        String project = repository.project(home, projects).name();
+        Path stateDirectory = home.stateDirectory();
+        ParticipantId author = from != null ? registered(stateDirectory, Caller.client(from, project, "--from"))
+                : Caller.identify(host, sessions, stateDirectory, project, "--from");
+        List<ParticipantId> recipients = to == null ? List.of()
+                : to.stream().map(address -> registered(stateDirectory, ParticipantId.address(address, project))).toList();
         EntryIndex index = id -> journal.find(stateDirectory, id).map(Entry::metadata);
         EntryMetadata answered = replyTo == null ? null : index.find(replyTo).orElse(null);
         if (replyTo != null && answered == null) {
             throw new IllegalArgumentException("--reply-to names no entry in this discussion: " + replyTo);
         }
-        if (to == null || to.isEmpty()) {
+        if (recipients.isEmpty()) {
             if (answered == null) {
                 throw new IllegalArgumentException("--to is required unless --reply-to names the entry being answered");
             }
-            to = List.of(answered.from()); // an answer goes to whoever asked
+            recipients = List.of(answered.from()); // an answer goes to whoever asked, in whichever project
         }
-        Draft draft = new Draft(author, null, to, type, Route.forRecipients(to),
+        Draft draft = new Draft(author, null, recipients, type, Route.forRecipients(recipients),
                 replyTo, causedBy, actionable, Delivery.DEFAULT, body);
         checkLineage(index, draft);
         Entry entry = journal.append(stateDirectory, draft);
@@ -149,14 +155,31 @@ public class AppendCommand implements Callable<Integer> {
     }
 
     /** The operator's own words: routed by their first token, never linked, always a request. */
-    private int appendOperator(Path stateDirectory, ParticipantId client) throws IOException {
+    private int appendOperator() throws IOException {
         if ((to != null && !to.isEmpty()) || replyTo != null || causedBy != null || expectsReply != null
                 || (type != null && type != MessageType.REQUEST)) {
             throw new IllegalArgumentException("--from operator takes only the body: recipients come from its first token, and it is always a request");
         }
         String body = Bodies.read(bodyFile);
-        Output.print(spec, json, capture.capture(stateDirectory, client, body));
+        String project = repository.project(home, projects).name();
+        Path stateDirectory = home.stateDirectory();
+        ParticipantId client = via != null ? registered(stateDirectory, Caller.client(via, project, "--via"))
+                : Caller.identify(host, sessions, stateDirectory, project, "--via");
+        Captured captured = capture.capture(stateDirectory, client, body);
+        Output.print(spec, json, captured);
+        if (captured.unrouted() != null) {
+            spec.commandLine().getErr().println("sideband append: recorded " + captured.metadata().id() + " for " + client
+                    + " only: " + captured.unrouted() + " is not a Sideband project, so the route it asked for failed");
+        }
         return ExitCode.OK;
+    }
+
+    /** The participant, refused when it belongs to a project nobody registered. */
+    private ParticipantId registered(Path stateDirectory, ParticipantId participant) {
+        participant.project().filter(name -> projects.named(stateDirectory, name).isEmpty()).ifPresent(name -> {
+            throw new IllegalArgumentException(name + " is not a Sideband project: no project is registered under that name");
+        });
+        return participant;
     }
 
     /** The draft has no identifier yet, so trace from a stand-in with the same links. */

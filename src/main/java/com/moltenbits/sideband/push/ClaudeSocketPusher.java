@@ -1,6 +1,8 @@
 package com.moltenbits.sideband.push;
 
 import com.moltenbits.sideband.home.SidebandHome;
+import com.moltenbits.sideband.project.Project;
+import com.moltenbits.sideband.project.Projects;
 import com.moltenbits.sideband.host.HostProcess;
 import com.moltenbits.sideband.host.HostProcesses;
 import com.moltenbits.sideband.install.InstallReport;
@@ -29,6 +31,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
@@ -41,12 +44,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
  * Wakes a Claude Code session by posting the text to its inbox socket, the same channel
  * Claude Code's own cross-session messaging uses. Claude Code registers every session in
  * {@code ~/.claude/sessions/<pid>.json} with its working directory and socket path, and the
- * recipient instance's session record says which of the sessions working in this repository
- * is its own (REQUIREMENTS.md 10.2). An idle session starts a new turn with it; a busy one
+ * recipient instance's session record says which of the sessions working in its project is
+ * its own (REQUIREMENTS.md 10.2). An idle session starts a new turn with it; a busy one
  * reads it between tool calls.
  * <p>
- * The unnamed instance is also reached through the registrations no record claims, newest
- * first, so a Claude that has never joined still receives the envelope. A socket that refuses
+ * Only a session the instance's record leads to is reached: an entry for a name nobody has
+ * joined as waits in the journal. A socket that refuses
  * the connection belongs to a session that has ended, so the next candidate is tried; the
  * entry waits in the journal when none accepts. On macOS and Linux the connection needs no
  * auth line. A frame beyond Claude Code's inbox cap is refused before any connection, and a
@@ -72,12 +75,16 @@ class ClaudeSocketPusher implements HostPusher {
      * own listener, which the adapter starts in that case, delivers the entry.
      */
 
+    /** The longest author name Claude Code attributes a message to as given. */
+    static final int FROM_NAME_LIMIT = 64;
+
     /** Claude Code refuses a message whose serialized form passes about a million characters. */
     static final int FRAME_CAP = 1_000_000;
 
     private final Path registry;
     private final Path homeDirectory;
     private final SidebandHome home;
+    private final Projects projects;
     private final Installer installer;
     private final Sessions sessions;
     private final HostProcesses processes;
@@ -87,19 +94,20 @@ class ClaudeSocketPusher implements HostPusher {
     @Inject
     ClaudeSocketPusher(@Value("${sideband.claude.sessions-directory:}") String registry,
                        @Value("${sideband.home-directory:}") String homeDirectory,
-                       SidebandHome home, Installer installer, Sessions sessions, HostProcesses processes, ObjectMapper json,
-                       @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
-        this(registry, homeDirectory, home, installer, sessions, processes, json, Duration.ofSeconds(timeoutSeconds));
+                       SidebandHome home, Projects projects, Installer installer, Sessions sessions, HostProcesses processes,
+                       ObjectMapper json, @Value("${sideband.claude.push-timeout-seconds:10}") long timeoutSeconds) {
+        this(registry, homeDirectory, home, projects, installer, sessions, processes, json, Duration.ofSeconds(timeoutSeconds));
     }
 
-    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Installer installer, Sessions sessions,
-                       HostProcesses processes, ObjectMapper json, Duration timeout) {
+    ClaudeSocketPusher(String registry, String homeDirectory, SidebandHome home, Projects projects, Installer installer,
+                       Sessions sessions, HostProcesses processes, ObjectMapper json, Duration timeout) {
         this.homeDirectory = homeDirectory == null || homeDirectory.isBlank()
                 ? Path.of(System.getProperty("user.home")) : Path.of(homeDirectory);
         this.registry = registry == null || registry.isBlank()
                 ? this.homeDirectory.resolve(".claude").resolve("sessions")
                 : Path.of(registry);
         this.home = home;
+        this.projects = projects;
         this.installer = installer;
         this.sessions = sessions;
         this.processes = processes;
@@ -114,23 +122,28 @@ class ClaudeSocketPusher implements HostPusher {
 
     @Override
     public PushResult push(Path stateDirectory, ParticipantId recipient, ParticipantId from, String text) {
-        List<Registration> candidates = candidates(recipient, sessions.records(stateDirectory, Role.CLAUDE), registered(stateDirectory));
+        String name = recipient.project().orElseThrow(() -> new IllegalArgumentException("the operator is never pushed to"));
+        Optional<Project> project = projects.named(stateDirectory, name);
+        if (project.isEmpty()) {
+            return new PushResult(recipient, PushOutcome.NO_SESSION, "no project is registered as " + name);
+        }
+        List<Registration> candidates = candidates(recipient, sessions.records(stateDirectory, name, Role.CLAUDE),
+                registered(project.get()));
         if (candidates.isEmpty()) {
-            return new PushResult(recipient, PushOutcome.NO_SESSION, recipient.isUnnamed() ? null
-                    : "no running Claude Code session is recorded for " + recipient);
+            return new PushResult(recipient, PushOutcome.NO_SESSION, "no running Claude Code session is recorded for " + recipient);
         }
         // Claude Code holds a frame from a process that is not the session's child unless the
         // operator's settings accept cross-session messages, and a held frame is an approval
         // dialog on every entry. The settings are read here, on each append, so nothing is
         // posted while they say hold; Claude's own listener delivers then.
-        InstallReport.Item inbound = installer.inbound(homeDirectory, home.projectRoot(stateDirectory));
+        InstallReport.Item inbound = installer.inbound(homeDirectory, project.get().root());
         if (!inbound.state().equals("installed")) {
             return new PushResult(recipient, PushOutcome.LISTENER_DELIVERS,
                     "Claude Code would hold the push (inbound " + inbound.state() + " per " + inbound.path() + "); " + inbound.note());
         }
         String frame;
         try {
-            frame = json.writeValueAsString(new Frame("user", new Message("user", attributed(from, text)))) + "\n";
+            frame = json.writeValueAsString(new Frame("user", new Message("user", attributed(from, name, text)))) + "\n";
         } catch (IOException e) {
             return new PushResult(recipient, PushOutcome.FAILED, "could not serialize the envelope: " + e.getMessage());
         }
@@ -159,10 +172,17 @@ class ClaudeSocketPusher implements HostPusher {
      * author's display name, a newline, the envelope, a newline, and the closing tag. Claude
      * Code parses only this exact form, and a name it would rewrite (quotes, angle brackets,
      * control characters, more than 64 characters) would make it fall back to an anonymous
-     * message; the display names here contain none of those.
+     * message. The name is the author as the recipient's project sees it, {@code astra} or
+     * {@code sideband/@astra}, which holds none of those characters; an address from another
+     * project too long for the limit is cut to the author's name alone, since the envelope
+     * names the author in full anyway.
      */
-    static String attributed(ParticipantId from, String text) {
-        return "<cross-session-message from-name=\"" + from.displayName() + "\">\n" + canonical(text) + "\n</cross-session-message>";
+    static String attributed(ParticipantId from, String recipientProject, String text) {
+        String label = from.label(recipientProject);
+        if (label.length() > FROM_NAME_LIMIT) {
+            label = from.name().orElse(label);
+        }
+        return "<cross-session-message from-name=\"" + label + "\">\n" + canonical(text) + "\n</cross-session-message>";
     }
 
     /**
@@ -214,31 +234,20 @@ class ClaudeSocketPusher implements HostPusher {
 
     /**
      * Where an entry for the instance may go, in the order to try them (REQUIREMENTS.md 10.2):
-     * every registration the instance owns first, those naming its record's session and then
-     * those of its record's process while it still runs, since a clear changes the session in
-     * place and the push may run before the session-start hook has moved the record; a
-     * registration whose session another record names is never taken by process. Then, for the unnamed instance only,
-     * the registrations no record claims, newest first, so a Claude that never joined, or
-     * restarted without joining while its old registration lingers, is still reached. A
-     * named instance is reached through its own record or not at all.
+     * the registrations naming its record's session, then those of its record's process while
+     * it still runs, since a clear changes the session in place and the push may run before
+     * the session-start hook has moved the record; a registration whose session another record
+     * names is never taken by process. An instance is reached through its own record or not at all.
      */
     private List<Registration> candidates(ParticipantId recipient, Map<ParticipantId, Session> records, List<Registration> registered) {
-        Set<String> claimedSessions = records.values().stream().map(Session::id).collect(Collectors.toSet());
-        Set<Long> claimedProcesses = records.values().stream().map(Session::process)
-                .filter(process -> process != null && processes.alive(process))
-                .map(HostProcess::pid)
-                .collect(Collectors.toSet());
-        Set<Registration> candidates = new LinkedHashSet<>();
         Session record = records.get(recipient);
-        if (record != null) {
-            registered.stream().filter(r -> record.id().equals(r.sessionId())).forEach(candidates::add);
-            byProcess(record, registered, claimedSessions).forEach(candidates::add);
+        if (record == null) {
+            return List.of();
         }
-        if (recipient.isUnnamed()) {
-            registered.stream()
-                    .filter(r -> !claimedSessions.contains(r.sessionId()) && (r.pid() == null || !claimedProcesses.contains(r.pid())))
-                    .forEach(candidates::add);
-        }
+        Set<String> claimedSessions = records.values().stream().map(Session::id).collect(Collectors.toSet());
+        Set<Registration> candidates = new LinkedHashSet<>();
+        registered.stream().filter(r -> record.id().equals(r.sessionId())).forEach(candidates::add);
+        byProcess(record, registered, claimedSessions).forEach(candidates::add);
         return List.copyOf(candidates);
     }
 
@@ -252,8 +261,8 @@ class ClaudeSocketPusher implements HostPusher {
                 .filter(r -> r.pid() != null && r.pid() == process.pid() && !claimedSessions.contains(r.sessionId()))
                 .toList();
     }
-    /** Sessions registered for this repository, newest first. Anything unreadable or elsewhere is skipped. */
-    private List<Registration> registered(Path stateDirectory) {
+    /** Sessions registered in the project, newest first. Anything unreadable or elsewhere is skipped. */
+    private List<Registration> registered(Project project) {
         if (!Files.isDirectory(registry)) {
             return List.of();
         }
@@ -261,7 +270,7 @@ class ClaudeSocketPusher implements HostPusher {
         try (Stream<Path> files = Files.list(registry)) {
             for (Path file : files.filter(f -> f.getFileName().toString().endsWith(".json")).toList()) {
                 Registration registration = read(file);
-                if (registration != null && worksIn(registration, stateDirectory)) {
+                if (registration != null && worksIn(registration, project)) {
                     found.add(registration);
                 }
             }
@@ -285,11 +294,11 @@ class ClaudeSocketPusher implements HostPusher {
         }
     }
 
-    /** True when the session's working directory resolves to the same Sideband state, worktrees included. */
-    private boolean worksIn(Registration registration, Path stateDirectory) {
+    /** True when the session's working directory is in the project, worktrees included. */
+    private boolean worksIn(Registration registration, Project project) {
         try {
             Path cwd = Path.of(registration.cwd());
-            return Files.isDirectory(cwd) && same(home.locate(cwd), stateDirectory);
+            return Files.isDirectory(cwd) && same(home.locate(cwd).path(), project.path());
         } catch (RuntimeException e) {
             return false;
         }

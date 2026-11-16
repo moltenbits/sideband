@@ -17,8 +17,8 @@ import java.time.ZoneOffset
 class Fixtures {
 
     static final ParticipantId OPERATOR = ParticipantId.OPERATOR
-    static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
-    static final ParticipantId CODEX = ParticipantId.of(Role.CODEX)
+    static final ParticipantId CLAUDE = ParticipantId.of("repo", "claude")
+    static final ParticipantId CODEX = ParticipantId.of("repo", "codex")
     static final OffsetDateTime T0 = OffsetDateTime.of(2026, 9, 2, 16, 42, 0, 0, ZoneOffset.ofHours(-5))
     static final Clock FIXED_CLOCK = Clock.fixed(T0.toInstant(), ZoneOffset.ofHours(-5))
 

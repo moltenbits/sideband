@@ -78,14 +78,14 @@ class JournalAgentCapture implements AgentCapture {
     @Override
     public List<Entry> beforePrompt(Path stateDirectory, Hook hook) {
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
-            State state = ledger.load(stateDirectory, hook.client(), hook.sessionId());
+            State state = ledger.load(stateDirectory, hook.project(), hook.client(), hook.sessionId());
             ParticipantId instance = instance(stateDirectory, hook);
             if (instance != null) {
                 Decision decision = decide(stateDirectory, state, hook, instance, null);
                 if (!decision.changes(state)) {
                     return List.of();
                 }
-                var committed = ledger.commit(stateDirectory, hook.client(), hook.sessionId(), hook.caller(), state, instance,
+                var committed = ledger.commit(stateDirectory, hook.project(), hook.client(), hook.sessionId(), hook.caller(), state, instance,
                         decision.drafts(), decision.messageIds(), decision.cursor(), decision.turns());
                 if (committed.isPresent()) {
                     return committed.get();
@@ -95,7 +95,7 @@ class JournalAgentCapture implements AgentCapture {
             // Nothing is recorded for a session that holds no instance; a later capture starts here instead.
             Cursor here = endOf(hook);
             if (here == null || here.equals(state.cursor())
-                    || ledger.commit(stateDirectory, hook.client(), hook.sessionId(), hook.caller(), state, null,
+                    || ledger.commit(stateDirectory, hook.project(), hook.client(), hook.sessionId(), hook.caller(), state, null,
                     List.of(), List.of(), here, List.of()).isPresent()) {
                 return List.of();
             }
@@ -109,10 +109,10 @@ class JournalAgentCapture implements AgentCapture {
             return;
         }
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
-            State state = ledger.load(stateDirectory, hook.client(), hook.sessionId());
+            State state = ledger.load(stateDirectory, hook.project(), hook.client(), hook.sessionId());
             Turn turn = state.turn(hook.turn());
             Turn prompted = new Turn(turn.id(), entryId, turn.mode(), turn.finalCaptured());
-            if (ledger.commit(stateDirectory, hook.client(), hook.sessionId(), hook.caller(), state, null,
+            if (ledger.commit(stateDirectory, hook.project(), hook.client(), hook.sessionId(), hook.caller(), state, null,
                     List.of(), List.of(), state.cursor(), List.of(prompted)).isPresent()) {
                 return;
             }
@@ -131,7 +131,7 @@ class JournalAgentCapture implements AgentCapture {
 
     private List<Entry> capture(Path stateDirectory, Hook hook, @Nullable Ending ending) {
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
-            State state = ledger.load(stateDirectory, hook.client(), hook.sessionId());
+            State state = ledger.load(stateDirectory, hook.project(), hook.client(), hook.sessionId());
             ParticipantId instance = instance(stateDirectory, hook);
             if (instance == null) {
                 return List.of();
@@ -140,7 +140,7 @@ class JournalAgentCapture implements AgentCapture {
             if (!decision.changes(state)) {
                 return List.of();
             }
-            var committed = ledger.commit(stateDirectory, hook.client(), hook.sessionId(), hook.caller(), state, instance,
+            var committed = ledger.commit(stateDirectory, hook.project(), hook.client(), hook.sessionId(), hook.caller(), state, instance,
                     decision.drafts(), decision.messageIds(), decision.cursor(), decision.turns());
             if (committed.isPresent()) {
                 return committed.get();
@@ -183,7 +183,7 @@ class JournalAgentCapture implements AgentCapture {
                 }
                 excerpt = transcripts.read(hook.client(), path, from, turnAt);
             }
-            Set<String> recorded = ledger.recorded(stateDirectory, hook.client(), hook.sessionId(),
+            Set<String> recorded = ledger.recorded(stateDirectory, hook.project(), hook.client(), hook.sessionId(),
                     excerpt.messages().stream().map(Message::id).filter(Objects::nonNull).toList());
             return fromTranscript(state, instance, excerpt, path, recorded);
         } catch (IOException e) {
@@ -275,11 +275,11 @@ class JournalAgentCapture implements AgentCapture {
 
     /**
      * The instance whose record names the session or its process. The commands' rule also
-     * names the unnamed instance when the client has no records at all; that lets a command
+     * names the client's default name when it has no records at all; that lets a command
      * act before any join, but says nothing about a session's words, so it records nothing.
      */
     private @Nullable ParticipantId instance(Path stateDirectory, Hook hook) {
-        InstanceRule.Identified identified = sessions.identify(stateDirectory, hook.client(), hook.sessionId(), hook.caller());
+        InstanceRule.Identified identified = sessions.identify(stateDirectory, hook.project(), hook.client(), hook.sessionId(), hook.caller());
         return identified.records().isEmpty() ? null : identified.instance();
     }
 

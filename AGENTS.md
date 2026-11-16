@@ -168,7 +168,8 @@ lists exactly what is read.
   bundled resource of that name after a failed load and skip its extraction
   fallback, so a damaged copy would lock the database (Codex reproduced this
   with an x86_64 library in an ARM state directory, 2026-09-07). The first
-  command in a repository takes ~1 s to write it.
+  command on a machine takes ~1 s to write it, since every project shares
+  the one state directory in `~/.sideband`.
 - **The skill instructions are embedded in the executable.** `build.gradle.kts`
   copies `skills/` into the resources, so a change under `skills/` needs
   `just install` before the installed hooks and skills reflect it.

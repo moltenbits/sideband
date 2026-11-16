@@ -5,13 +5,20 @@ import io.micronaut.context.ApplicationContext
 import io.micronaut.serde.ObjectMapper
 import picocli.CommandLine
 import spock.lang.AutoCleanup
-import spock.lang.Shared
 import spock.lang.Specification
 
-/** Runs the real command tree against a Micronaut context with captured output. */
+import java.nio.file.Files
+import java.nio.file.Path
+
+/**
+ * Runs the real command tree against a Micronaut context with captured output. Each feature
+ * gets its own home directory, and with it its own journal under {@code .sideband}.
+ */
 abstract class CommandSpec extends Specification {
 
-    @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
+    Path home = Files.createTempDirectory("sideband-home")
+
+    @AutoCleanup ApplicationContext context = ApplicationContext.run(["sideband.home-directory": home.toString()])
 
     StringWriter stdout = new StringWriter()
     StringWriter stderr = new StringWriter()

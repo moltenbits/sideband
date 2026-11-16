@@ -1,33 +1,28 @@
 package com.moltenbits.sideband.home;
 
+import com.moltenbits.sideband.project.ProjectLocation;
+
 import java.nio.file.Path;
 
 /**
- * Locates the Sideband state directory for a working directory.
+ * Where Sideband keeps its state, and where a working directory's project is.
  * <p>
- * Inside a Git repository, state lives beneath Git's shared private metadata directory so
- * that every worktree sees the same journal while nothing is ever tracked. Outside one, it
- * lives in a {@code .sideband} directory in the working directory itself.
+ * Every project's discussion lives in one journal, in a {@code .sideband} directory in the
+ * user's home directory, so nothing is ever written into a project or tracked by it. A
+ * project is located in Git through the shared common directory, so every worktree is the
+ * same project, and outside Git by the working directory itself.
  */
 public interface SidebandHome {
 
-    /** The directory name created beneath the Git common directory. */
-    String DIRECTORY_NAME = "sideband";
+    /** The directory name created in the home directory. */
+    String DIRECTORY_NAME = ".sideband";
 
-    /** The directory name created in a working directory that is not inside a repository. */
-    String PLAIN_DIRECTORY_NAME = ".sideband";
+    /** The state directory, without creating it. */
+    Path stateDirectory();
 
-    /** Resolves the state directory for {@code workingDirectory} without creating it. */
-    Path locate(Path workingDirectory);
+    /** The state directory, created private to the current user when absent. */
+    Path initialize();
 
-    /** Resolves the state directory and creates it, private to the current user, when absent. */
-    Path initialize(Path workingDirectory);
-
-    /** The directory whose client configuration ({@code .claude}, {@code .codex}) belongs to a state directory. */
-    default Path projectRoot(Path stateDirectory) {
-        if (stateDirectory.getFileName().toString().equals(PLAIN_DIRECTORY_NAME)) {
-            return stateDirectory.getParent();
-        }
-        return stateDirectory.getParent().getParent();
-    }
+    /** Where the project of {@code workingDirectory} is; nothing is created or registered. */
+    ProjectLocation locate(Path workingDirectory);
 }

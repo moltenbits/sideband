@@ -41,8 +41,8 @@ class JournalAgentCaptureSpec extends Specification {
     Path codex = dir.resolve("codex.jsonl")
 
     def setup() {
-        sessions.join(dir, Fixtures.CLAUDE, "s1")
-        sessions.join(dir, Fixtures.CODEX, "c1")
+        sessions.join(dir, Fixtures.CLAUDE, Role.CLAUDE, "s1")
+        sessions.join(dir, Fixtures.CODEX, Role.CODEX, "c1")
         // Each host creates its transcript when the session starts, before the first prompt.
         Files.createFile(claude)
         Files.createFile(codex)
@@ -90,11 +90,11 @@ class JournalAgentCaptureSpec extends Specification {
     }
 
     Hook claudeHook(String turn, Path transcript = claude, String session = "s1") {
-        new Hook(Role.CLAUDE, session, turn, transcript, null)
+        new Hook("repo", Role.CLAUDE, session, turn, transcript, null)
     }
 
     Hook codexHook(String turn) {
-        new Hook(Role.CODEX, "c1", turn, codex, null)
+        new Hook("repo", Role.CODEX, "c1", turn, codex, null)
     }
 
     List<Entry> captured() {
@@ -158,7 +158,7 @@ class JournalAgentCaptureSpec extends Specification {
         when: "a turn whose final came from the payload is replayed"
         Path gone = dir.resolve("gone.jsonl")
         capture.turnEnded(dir, claudeHook("q-1", gone, "s9"), "From the payload.")
-        sessions.join(dir, new ParticipantId("claude:fable"), "s9")
+        sessions.join(dir, ParticipantId.of("repo", "fable"), Role.CLAUDE, "s9")
         capture.turnEnded(dir, claudeHook("q-1", gone, "s9"), "From the payload.")
         capture.turnEnded(dir, claudeHook("q-1", gone, "s9"), "From the payload.")
 
@@ -294,7 +294,7 @@ class JournalAgentCaptureSpec extends Specification {
         when: "the operator types /sideband, the session joins during that turn, and the turn ends"
         capture.beforePrompt(dir, claudeHook("p-2", claude, "s2"))
         write(claude, prompt("p-2", "/sideband"), commentary("Joining."), tool("p-2"))
-        sessions.join(dir, Fixtures.CLAUDE, "s2")
+        sessions.join(dir, Fixtures.CLAUDE, Role.CLAUDE, "s2")
         write(claude, answer("Joined as Claude."))
         List<Entry> entries = capture.turnEnded(dir, claudeHook("p-2", claude, "s2"), "Joined as Claude.")
 
@@ -306,7 +306,7 @@ class JournalAgentCaptureSpec extends Specification {
     void "a client that has never joined here records nothing, though commands would act as its unnamed instance"() {
         given: "a repository where only Codex has joined, and one where nobody has"
         Path codexOnly = Files.createTempDirectory("codex-only")
-        sessions.join(codexOnly, Fixtures.CODEX, "c1")
+        sessions.join(codexOnly, Fixtures.CODEX, Role.CODEX, "c1")
         Path nobody = Files.createTempDirectory("nobody")
         write(claude, prompt("p-1"), answer("Not joined."))
         Path missing = dir.resolve("missing.jsonl")
@@ -321,8 +321,8 @@ class JournalAgentCaptureSpec extends Specification {
         }
 
         and: "the commit itself refuses a session that holds no record, even for the unnamed instance"
-        def state = ledger.load(nobody, Role.CLAUDE, "never-joined")
-        ledger.commit(nobody, Role.CLAUDE, "never-joined", null, state, Fixtures.CLAUDE,
+        def state = ledger.load(nobody, "repo", Role.CLAUDE, "never-joined")
+        ledger.commit(nobody, "repo", Role.CLAUDE, "never-joined", null, state, Fixtures.CLAUDE,
                 [com.moltenbits.sideband.protocol.Draft.capturedTurn(Fixtures.CLAUDE, null, "forced")], [], null, []).empty
     }
 
@@ -472,7 +472,7 @@ class JournalAgentCaptureSpec extends Specification {
         operatorPrompts(claudeHook("p-1"), "prompt-1")
         write(claude, prompt("p-1"), answer("Once."))
         Path missing = dir.resolve("missing.jsonl")
-        sessions.join(dir, new ParticipantId("claude:fable"), "s3")
+        sessions.join(dir, ParticipantId.of("repo", "fable"), Role.CLAUDE, "s3")
 
         when:
         CountDownLatch start = new CountDownLatch(1)
@@ -530,7 +530,7 @@ class JournalAgentCaptureSpec extends Specification {
         capture.turnEnded(dir, claudeHook("p-1"), "Done.")
 
         expect:
-        with(ledger.load(dir, Role.CLAUDE, "s1").turn("p-1")) {
+        with(ledger.load(dir, "repo", Role.CLAUDE, "s1").turn("p-1")) {
             promptEntryId() == "prompt-1"
             mode() == CaptureLedger.Mode.TRANSCRIPT
             finalCaptured()

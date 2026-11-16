@@ -24,7 +24,7 @@ import java.util.SortedMap;
 import java.util.TreeMap;
 
 /**
- * One row per instance in the {@code sessions} table. Joining and following read the role's
+ * One row per instance in the {@code sessions} table. Joining and following read the project's
  * records, decide by {@link InstanceRule}, and write what changed in the same transaction,
  * which SQLite serializes against every other writer.
  */
@@ -53,29 +53,31 @@ class SqliteSessions implements Sessions {
     }
 
     @Override
-    public SortedMap<ParticipantId, Session> all(Path stateDirectory) {
-        return database.read(stateDirectory, new TreeMap<>(), this::all);
+    public SortedMap<ParticipantId, Session> all(Path stateDirectory, String project) {
+        return database.read(stateDirectory, new TreeMap<>(), () -> all(project));
     }
 
     @Override
-    public SortedMap<ParticipantId, Session> records(Path stateDirectory, Role role) {
-        return rule.ofRole(all(stateDirectory), role);
+    public SortedMap<ParticipantId, Session> records(Path stateDirectory, String project, Role client) {
+        return rule.ofClient(all(stateDirectory, project), client);
     }
 
     @Override
-    public InstanceRule.Identified identify(Path stateDirectory, Role role, @Nullable String sessionId, @Nullable HostProcess caller) {
-        return rule.identify(role, records(stateDirectory, role), sessionId, caller);
+    public InstanceRule.Identified identify(Path stateDirectory, String project, Role client, @Nullable String sessionId,
+                                            @Nullable HostProcess caller) {
+        return rule.identify(project, client, all(stateDirectory, project), sessionId, caller);
     }
 
     @Override
-    public Joining join(Path stateDirectory, ParticipantId instance, String sessionId, @Nullable HostProcess process, boolean resume) {
-        Role role = instance.role().orElseThrow(() -> new IllegalArgumentException(instance + " is not a client instance"));
+    public Joining join(Path stateDirectory, ParticipantId instance, Role client, String sessionId, @Nullable HostProcess process,
+                        boolean resume) {
+        String project = instance.project().orElseThrow(() -> new IllegalArgumentException(instance + " is not an agent"));
         return database.write(stateDirectory, () -> {
             long end = journal.end();
-            SortedMap<ParticipantId, Session> before = records(role);
+            SortedMap<ParticipantId, Session> before = all(project);
             long offset = resume ? Math.min(Optional.ofNullable(before.get(instance)).map(Session::offset).orElse(0L), end) : end;
             InstanceRule.Joined joined = rule.join(before, instance,
-                    new Session(sessionId, now(), end, offset, resume, process));
+                    new Session(sessionId, client, now(), end, offset, resume, process));
             save(before, joined.records());
             return new Joining(joined.records().get(instance), joined.replaced());
         });
@@ -95,12 +97,12 @@ class SqliteSessions implements Sessions {
     }
 
     @Override
-    public InstanceRule.Followed follow(Path stateDirectory, Role role, String sessionId, @Nullable HostProcess caller) {
+    public InstanceRule.Followed follow(Path stateDirectory, String project, Role client, String sessionId, @Nullable HostProcess caller) {
         if (!Files.exists(SidebandDataSource.file(stateDirectory))) {
             return new InstanceRule.Followed(null, false, List.of(), new TreeMap<>());
         }
         return database.write(stateDirectory, () -> {
-            SortedMap<ParticipantId, Session> before = records(role);
+            SortedMap<ParticipantId, Session> before = rule.ofClient(all(project), client);
             InstanceRule.Followed followed = rule.follow(before, sessionId, caller);
             save(before, followed.records());
             return followed;
@@ -108,22 +110,20 @@ class SqliteSessions implements Sessions {
     }
 
     /** {@link #identify}, on the current connection, so a caller can decide inside its own transaction. */
-    InstanceRule.Identified identifyHere(Role role, @Nullable String sessionId, @Nullable HostProcess caller) {
-        return rule.identify(role, records(role), sessionId, caller);
+    InstanceRule.Identified identifyHere(String project, Role client, @Nullable String sessionId, @Nullable HostProcess caller) {
+        return rule.identify(project, client, all(project), sessionId, caller);
     }
 
-    /** Every record on the current connection. */
-    private SortedMap<ParticipantId, Session> all() {
+    /** The project's records on the current connection. */
+    private SortedMap<ParticipantId, Session> all(String project) {
         SortedMap<ParticipantId, Session> records = new TreeMap<>();
         for (SessionRow row : rows.findAll()) {
-            records.put(new ParticipantId(row.participant()), session(row));
+            ParticipantId participant = new ParticipantId(row.participant());
+            if (participant.belongsTo(project)) {
+                records.put(participant, session(row));
+            }
         }
         return records;
-    }
-
-    /** The role's records on the current connection. */
-    private SortedMap<ParticipantId, Session> records(Role role) {
-        return rule.ofRole(all(), role);
     }
 
     /** Writes what the rule changed on the current connection: removed, added, and altered records. */
@@ -145,7 +145,7 @@ class SqliteSessions implements Sessions {
 
     private static SessionRow row(ParticipantId instance, Session session) {
         HostProcess process = session.process();
-        return new SessionRow(instance.value(), session.id(), TIMESTAMP.format(session.startedAt()),
+        return new SessionRow(instance.value(), session.client().id(), session.id(), TIMESTAMP.format(session.startedAt()),
                 session.watermark(), session.offset(), session.resumed(),
                 process == null ? null : process.pid(),
                 process == null ? null : process.startedAt().toString());
@@ -154,7 +154,7 @@ class SqliteSessions implements Sessions {
     private static Session session(SessionRow row) {
         HostProcess process = row.hostPid() == null || row.hostStartedAt() == null ? null
                 : new HostProcess(row.hostPid(), Instant.parse(row.hostStartedAt()));
-        return new Session(row.sessionId(), OffsetDateTime.parse(row.startedAt(), TIMESTAMP),
+        return new Session(row.sessionId(), Role.fromId(row.client()).orElseThrow(), OffsetDateTime.parse(row.startedAt(), TIMESTAMP),
                 row.watermark(), row.bookmark(), row.resumed(), process);
     }
 

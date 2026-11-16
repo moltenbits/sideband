@@ -9,6 +9,7 @@ import com.moltenbits.sideband.journal.Read;
 import com.moltenbits.sideband.protocol.EntryMetadata;
 import com.moltenbits.sideband.protocol.MessageType;
 import com.moltenbits.sideband.protocol.ParticipantId;
+import com.moltenbits.sideband.protocol.Role;
 import com.moltenbits.sideband.session.Deliveries;
 import com.moltenbits.sideband.session.Session;
 import com.moltenbits.sideband.session.Sessions;
@@ -45,7 +46,7 @@ class JournalPending implements Pending {
     }
 
     @Override
-    public PendingReport report(Path stateDirectory, ParticipantId self) {
+    public PendingReport report(Path stateDirectory, ParticipantId self, Role client) {
         Read all = journal.readAfter(stateDirectory, 0);
         Optional<Session> session = sessions.load(stateDirectory, self);
         long watermark = session.map(Session::watermark).orElse(Long.MAX_VALUE);
@@ -97,7 +98,7 @@ class JournalPending implements Pending {
         // into has nothing in flight and is shown everything plainly.
         Map<Long, OffsetDateTime> pushed = session.map(s -> deliveries.pushedInto(stateDirectory, self, s.id())).orElse(Map.of());
         return new PendingReport(
-                Handling.forRole(self.role().orElseThrow()),
+                Handling.forRole(client),
                 session.orElse(null),
                 items(stateDirectory, open, confirmOld ? watermark : 0L, acknowledged, pushed),
                 items(stateDirectory, inProgress, confirmOld ? watermark : 0L, acknowledged, pushed),

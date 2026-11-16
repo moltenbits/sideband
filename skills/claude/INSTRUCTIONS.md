@@ -1,7 +1,10 @@
 # Sideband (Claude Code adapter)
 
-Sideband is a shared append-only journal under the repository's `.git`
-directory. This adapter is the Claude Code side. Everything protocol-related
+Sideband is a shared append-only journal in `~/.sideband`, one for every
+project on the machine, each project's discussion kept apart within it. A
+project is a Git repository, all its worktrees included, or a directory
+outside Git, and it is named after its directory unless `sideband init as
+<project-name>` named it otherwise. This adapter is the Claude Code side. Everything protocol-related
 lives in the `sideband` executable (`just install` puts it in `~/.local/bin`);
 this file only says when to call it and what to do with the results.
 
@@ -11,8 +14,13 @@ Markdown, and use these exit codes: 0 ok,
 2 invalid input, 4 lock contention, 5 I/O failure, 6 timed out; 3 and 7 are
 retired. Bodies travel through
 `--body-file` or stdin, never as an argument. Every command resolves the
-repository from the current directory and the calling client from its shell
+project from the current directory and the calling client from its shell
 environment, so no command needs to be told which client it runs inside.
+
+Every agent has a name, unique in its project: `claude` or `codex` for a
+client that joined without one, otherwise the name it joined under. The
+client is not part of the name. JSON shows each agent as `<project>/<name>`,
+such as `sideband/codex`; within a project it is addressed by its name alone.
 
 ## Standing rules
 
@@ -41,7 +49,7 @@ described below.
 | --- | --- |
 | `help` | Print the table in this section and the one-line summary of each executable command from `sideband --help`, then stop. Do not activate. Remind the user that `! sideband <command>` runs any command directly with no model turn. |
 | `status` | Run `sideband doctor` and summarize it: every instance's session, pending counts, journal health, skill links. Do not activate. |
-| `as <name>` | Activate as the named instance `claude:<name>` instead of the unnamed `claude`, so a second Claude Code session can take part in the same discussion: everything under Activate applies, with `sideband join --resume --as <name>` in step 1. A name is a lowercase letter followed by up to 31 lowercase letters, digits, and hyphens. `as` alone, a name that is not valid, or anything after the name is a usage error: show the user the form `/sideband as <name>` and the name rule, and do not activate. |
+| `as <name>` | Activate under the name `<name>` instead of `claude`, so a second Claude Code session can take part in the same discussion: everything under Activate applies, with `sideband join --resume --as <name>` in step 1. A name is a lowercase letter followed by up to 31 lowercase letters, digits, and hyphens, and neither `all` nor `operator`. `as` alone, a name that is not valid, or anything after the name is a usage error: show the user the form `/sideband as <name>` and the name rule, and do not activate. |
 | `pending` | Run `sideband pending` and show the user what is open, in progress, and unanswered outgoing, then offer the same choices as at activation. |
 | `off` | If a listener is running, stop it (TaskStop on the Monitor). Otherwise explain that nothing runs in the background: entries for Claude are pushed into this conversation by whoever writes them. Either way the bookmark stays, so a later `/sideband` resumes from it. |
 | anything else | It is a message, and the hook has already recorded it as the user's own words, routed by its first token, so `/sideband @codex look at this` is already on its way to Codex; the hook note names the entry. Do not record it again. Act on it only if it was addressed to Claude. With no hook note, either Claude had not joined here yet and the hook held the message, or the hook did not run: activate, and only an `adopted` entry in the join output shows the message was sent. |
@@ -62,12 +70,12 @@ something said there.
 
 1. Join. The executable recognizes Claude Code from its shell environment
    and records this conversation, and the Claude Code process it runs in, as
-   the one holding its instance here: the unnamed `claude`, or `claude:<name>`
-   after `/sideband as <name>`. Whoever joins under an identifier last holds
-   it, so a restarted Claude simply joins again and nothing is refused. A
-   report with `replaced` means this join took the instance over from that
-   session: tell the user in one line, since a Claude Code session they
-   forgot may still be running there and no longer receives anything.
+   the one holding its name in this project: `claude`, or `<name>` after
+   `/sideband as <name>`. Whichever session joins under a name last holds it,
+   Claude Code or Codex, so a restarted Claude simply joins again. A report
+   with `replaced` means this join took the name over from that session:
+   tell the user in one line, since a session they forgot, of either client,
+   may still be running there and no longer receives anything.
    Plain `join` starts at the latest point; `--resume` picks up from where Claude last
    left off, so replies and other updates written for it since are shown.
    Use `--resume` unless the user says to start fresh.
@@ -86,7 +94,10 @@ something said there.
    prompt the hook recorded. No `adopted` means the hook had nothing held
    for this conversation, which is also what a hook that never ran looks
    like. A stderr line saying it was adopted but not delivered means the
-   entry exists and its push failed; report that with the id.
+   entry exists and its push failed; report that with the id. An `adopted`
+   entry with `unrouted` named a project nobody registered: it was recorded
+   here only so it is not lost, so report that failure to the user, and
+   neither act on the request nor send it anywhere yourself.
 
 2. The output is the first pending report. Its `open` list holds requests
    addressed to Claude that Claude has neither acknowledged nor answered.
@@ -109,7 +120,7 @@ something said there.
    First read its `claude skill` and `claude hook` lines. A skill that is
    `stale` or `missing`, or a hook that is `broken` or `missing`, will not
    work as this executable needs, so tell the user to run `sideband init` in
-   this repository and then `/sideband` again, and stop here; the lines under
+   this project and then `/sideband` again, and stop here; the lines under
    a broken hook say what is wrong. When `doctor`'s last line says `init` also
    replaces or removes custom Sideband handlers, pass that on with it, so the
    user can decide. A `custom` hook runs another command, such as a launcher,
@@ -123,9 +134,8 @@ something said there.
    appends an entry for this instance posts the complete envelope into this
    conversation over Claude Code's inbox socket, which starts a turn here
    when the conversation is idle and is read between tool calls when it is
-   busy. An entry for the unnamed `claude` also reaches a Claude Code session
-   that has not joined, as long as no instance's record names that session;
-   one for a named instance reaches only the session that joined as it. It
+   busy. An entry reaches only the session that joined under its name; one
+   for a name nobody has joined waits in the journal until someone does. It
    is the verdict of the files the executable can read, not proof that
    managed settings or `--settings` allow it; if pushes still show up as
    approval dialogs, tell the user. If a listener from an earlier
@@ -162,10 +172,12 @@ something said there.
 
 The prompt hook records every prompt the human types, before you see it, and
 says so in a hook note that names the entry's id. The executable resolves a
-leading directive: `@claude` and `@codex` reach the unnamed instances,
-`@claude:<name>` and `@codex:<name>` that named instance, and `@all` both
-unnamed instances and every joined named one. Anything else routes to this
-instance alone, and this instance's own turn is never redelivered. Use the
+leading directive: `@<name>` reaches that name in this project, such as
+`@codex` or `@opus`, whether or not anyone has joined under it;
+`<project>/@<name>` reaches that name in another registered project, such as
+`listenly/@opus`; and `@all` reaches everyone joined in this project.
+Anything else routes to this instance alone, and this instance's own turn is
+never redelivered. Use the
 noted id as `--caused-by` when the prompt leads you to delegate. Never record a prompt
 yourself, and never record a pushed envelope: the hook is the only thing that
 records prompts, and when it could not, reporting that is the whole recovery.
@@ -175,10 +187,13 @@ is something to tell the user before doing anything else, and that is all it
 asks of you: "could not confirm recording this prompt" means recording did
 not complete, and the prompt may or may not be in the discussion; "recorded
 this prompt as <id> but could not deliver it" means it is, but the push to
-its recipient failed; "not active in this session and N entries
-are waiting" means offer `/sideband`; "joined as Claude in this repository
-and delivers to this conversation", or as a named instance such as
-"Claude (fable)", is the session-start hook after a clear, saying that
+its recipient failed; "the route it asked for failed" means the prompt named
+a project nobody registered: it was recorded here only so it is not lost, so
+report that failure to the user, and neither act on the request nor send it
+anywhere yourself; "not active in this session and N entries
+are waiting" means offer `/sideband`; "joined as claude in project
+<project> and delivers to this conversation", or under another name such as
+`fable`, is the session-start hook after a clear, saying that
 instance followed you here, and needs nothing unless it counts waiting
 entries, in which case run `sideband pending`; "cannot tell which Claude
 instance this conversation continues" means nothing moved and this
@@ -212,8 +227,9 @@ lost these instructions can find them again.
 
 The envelope holds the complete entries, metadata and body. Handle each entry
 in `entries` directly, in order, without running `pending` first. For an
-entry addressed to this instance (`claude`, or `claude:<name>` when it joined
-under a name) and written by someone else:
+entry addressed to this instance (`<project>/claude`, or `<project>/<name>`
+when it joined under a name) and written by someone else, from this project
+or another:
 
   1. If `metadata.expects_reply` is true, acknowledge it first:
      `sideband append --type ack --reply-to <id>`. That is the journal's
@@ -328,9 +344,11 @@ sideband append --type ack --reply-to <id>
 `--caused-by` names the immediate communication that led to a delegation;
 `--reply-to` names the message being answered, and the answer goes to whoever
 wrote it unless you pass `--to` yourself; never add `operator` to it, since the
-user reads your own turn. A
-named instance of either client is addressed as it is named, `--to codex:review`
-or `--to claude:fable`, and `--to claude` reaches only the unnamed Claude; the
+user reads your own turn. An agent of this project is addressed by its name,
+`--to codex` or `--to fable`, and one of another project as
+`<project>/<name>`, `--to listenly/astra`; a project nobody registered is
+refused with exit 2 and nothing written. A reply to an entry from another
+project goes back there on its own. The
 author is always the calling instance. An exit 2 saying this session holds no
 Sideband instance here means this conversation lost its instance, to another
 session's join or to a restart nobody has rejoined: tell the user and offer

@@ -2,6 +2,7 @@ package com.moltenbits.sideband.push
 
 import com.moltenbits.sideband.TempRepo
 import com.moltenbits.sideband.home.SidebandHome
+import com.moltenbits.sideband.project.Projects
 import com.moltenbits.sideband.host.HostProcess
 import com.moltenbits.sideband.host.HostProcesses
 import com.moltenbits.sideband.install.Installer
@@ -31,9 +32,9 @@ import static java.nio.charset.StandardCharsets.UTF_8
 /** Runs the real Claude pusher against a fake Claude Code session registry and a fake inbox socket. */
 class ClaudeSocketPusherSpec extends Specification {
 
-    static final ParticipantId CLAUDE = ParticipantId.of(Role.CLAUDE)
-    static final ParticipantId CODEX = ParticipantId.of(Role.CODEX)
-    static final ParticipantId FABLE = ParticipantId.of(Role.CLAUDE, "fable")
+    static final ParticipantId CLAUDE = ParticipantId.of("repo", "claude")
+    static final ParticipantId CODEX = ParticipantId.of("repo", "codex")
+    static final ParticipantId FABLE = ParticipantId.of("repo", "fable")
 
     @Shared Path registry = Files.createTempDirectory("claude-sessions")
     /** A fake user home whose settings accept cross-session messages, so pushes are attempted. */
@@ -53,13 +54,21 @@ class ClaudeSocketPusherSpec extends Specification {
     /** This JVM, standing in for a running Claude Code process. */
     HostProcess self = context.getBean(HostProcesses).describe(ProcessHandle.current().pid()).get()
     SidebandHome home = context.getBean(SidebandHome)
+    Projects projects = context.getBean(Projects)
     Path repo = TempRepo.init()
-    Path state = Files.createDirectories(home.locate(repo))
+    Path state = Files.createTempDirectory("state")
     List<Path> sockets = []
     List<ServerSocketChannel> servers = []
 
     def setup() {
         Files.list(registry).each { Files.delete(it) }
+        projects.register(state, home.locate(repo), null)
+    }
+
+    /** Joins the session as the default Claude instance, so entries for it have somewhere to go. */
+    String claude(String sessionId) {
+        sessions.join(state, CLAUDE, Role.CLAUDE, sessionId)
+        sessionId
     }
 
     def cleanup() {
@@ -111,7 +120,7 @@ class ClaudeSocketPusherSpec extends Specification {
         given:
         Path socket = socketPath()
         def received = inbox(socket)
-        String sessionId = register(4242, repo, socket)
+        String sessionId = claude(register(4242, repo, socket))
         String text = "[Sideband message]\n{\"intent\":\"Sideband delivery\",\"entries\":[]}"
 
         when:
@@ -130,14 +139,14 @@ class ClaudeSocketPusherSpec extends Specification {
         frame.keySet() == ["type", "message"] as Set
         frame.type == "user"
         frame.message.role == "user"
-        frame.message.content == "<cross-session-message from-name=\"Codex\">\n" + text + "\n</cross-session-message>"
+        frame.message.content == "<cross-session-message from-name=\"codex\">\n" + text + "\n</cross-session-message>"
     }
 
     void "the frame names the entry's author, so Claude Code attributes the message to #from rather than to an anonymous session"() {
         given:
         Path socket = socketPath()
         def received = inbox(socket)
-        register(4243, repo, socket)
+        claude(register(4243, repo, socket))
 
         when:
         pusher.push(state, CLAUDE, new ParticipantId(from), "hi")
@@ -145,12 +154,16 @@ class ClaudeSocketPusherSpec extends Specification {
 
         then:
         frame.message.content == "<cross-session-message from-name=\"" + name + "\">\nhi\n</cross-session-message>"
+        name.length() <= ClaudeSocketPusher.FROM_NAME_LIMIT
 
         where:
-        from       | name
-        "codex"    | "Codex"
-        "operator" | "Operator"
-        "claude"   | "Claude"
+        from                                  | name
+        "repo/codex"                          | "codex"
+        "operator"                            | "Operator"
+        "repo/claude"                         | "claude"
+        "sideband/astra"                      | "sideband/@astra"
+        "${"p" * 32}/${"n" * 30}"             | "${"p" * 32}/@${"n" * 30}"
+        "${"p" * 32}/${"n" * 32}"             | "n" * 32
     }
 
     /**
@@ -167,7 +180,7 @@ class ClaudeSocketPusherSpec extends Specification {
         String envelope = "[Sideband message]\n" + mapper.writeValueAsString([intent: "Sideband delivery", entries: [[body: body]]])
         Path socket = socketPath()
         def received = inbox(socket)
-        register(4244, repo, socket)
+        claude(register(4244, repo, socket))
 
         when:
         pusher.push(state, CLAUDE, CODEX, envelope)
@@ -176,7 +189,7 @@ class ClaudeSocketPusherSpec extends Specification {
 
         then: "the tag is the exact form, named for the author"
         form.matches()
-        form.group(1) == "Codex"
+        form.group(1) == "codex"
 
         and: "the host's serializer would leave the inner text alone, so the host recognizes it"
         !HOST_WOULD_ESCAPE.matcher(form.group(2)).find()
@@ -207,23 +220,45 @@ class ClaudeSocketPusherSpec extends Specification {
         String envelope = "[Sideband message]\n" + mapper.writeValueAsString([entries: [[body: body]]])
         Path socket = socketPath()
         def received = inbox(socket)
-        register(4245, repo, socket)
+        claude(register(4245, repo, socket))
 
         when:
         pusher.push(state, CLAUDE, CODEX, envelope)
         String content = mapper.readValue(received.get(), Map).message.content
 
         then:
-        content == "<cross-session-message from-name=\"Codex\">\n" + envelope + "\n</cross-session-message>"
+        content == "<cross-session-message from-name=\"codex\">\n" + envelope + "\n</cross-session-message>"
     }
 
-    void "no registered session for this repository leaves the entry for backlog"() {
-        given: "a session in another repository, and one registered under a working directory that no longer exists"
-        register(1, TempRepo.init(), socketPath())
+    void "a recorded session registered outside the project leaves the entry for backlog"() {
+        given: "the record names a session working in another repository; another is under a directory that no longer exists"
+        claude(register(1, TempRepo.init(), socketPath()))
         register(2, repo.resolveSibling("gone"), socketPath())
 
         expect:
-        pusher.push(state, CLAUDE, CODEX, "hello") == new PushResult(CLAUDE, PushOutcome.NO_SESSION, null)
+        pusher.push(state, CLAUDE, CODEX, "hello") == new PushResult(CLAUDE, PushOutcome.NO_SESSION,
+                "no running Claude Code session is recorded for repo/claude")
+    }
+
+    void "a recipient in a project nobody registered has no session to push to"() {
+        expect:
+        pusher.push(state, ParticipantId.of("nowhere", "claude"), CODEX, "hello").outcome() == PushOutcome.NO_SESSION
+    }
+
+    void "the author is named as the recipient's project sees it"() {
+        given: "a Claude in another project, registered there"
+        Path other = TempRepo.named("listenly")
+        projects.register(state, home.locate(other), null)
+        ParticipantId elsewhere = ParticipantId.of("listenly", "claude")
+        Path socket = socketPath()
+        def received = inbox(socket)
+        sessions.join(state, elsewhere, Role.CLAUDE, register(4246, other, socket))
+
+        when:
+        pusher.push(state, elsewhere, CODEX, "hi")
+
+        then:
+        context.getBean(ObjectMapper).readValue(received.get(), Map).message.content.startsWith('<cross-session-message from-name="repo/@codex">')
     }
 
     void "a session running in a worktree of the repository is found, because it shares the state directory"() {
@@ -231,34 +266,27 @@ class ClaudeSocketPusherSpec extends Specification {
         Path worktree = TempRepo.addWorktree(repo, "feature")
         Path socket = socketPath()
         def received = inbox(socket)
-        register(7, worktree, socket)
+        claude(register(7, worktree, socket))
 
         expect:
         pusher.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.PUSHED
         received.get().contains('\\nhi\\n</cross-session-message>')
     }
 
-    void "a session whose socket is gone is skipped for the next newest, and reported when none accept"() {
-        given: "the newest registration is stale; an older one is live"
+    void "a recorded session whose socket is gone is reported, and the entry is not posted elsewhere"() {
+        given: "the record's registration is stale; another, unclaimed, is live"
         Path live = socketPath()
         def received = inbox(live)
-        register(11, repo, socketPath(), 2000L, "stale")
+        claude(register(11, repo, socketPath(), 2000L, "stale"))
         register(10, repo, live, 1000L, "alive")
 
-        expect:
-        with(pusher.push(state, CLAUDE, CODEX, "hi")) {
-            outcome() == PushOutcome.PUSHED
-            detail().contains("alive")
-        }
-        received.get().contains('\\nhi\\n</cross-session-message>')
-
-        when: "only stale registrations remain"
-        Files.delete(registry.resolve("10.json"))
+        when:
         PushResult failed = pusher.push(state, CLAUDE, CODEX, "hi")
 
         then:
         failed.outcome() == PushOutcome.FAILED
         failed.detail().contains("stale")
+        !received.isDone()
     }
 
     void "a registration that is not JSON, or lacks a socket, is ignored"() {
@@ -273,11 +301,11 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "nothing is posted when Claude Code would hold it: the listener delivers instead"() {
         given: "a registration whose socket nothing is bound to, so a connection attempt would show as a failure"
-        register(31, repo, socketPath())
+        claude(register(31, repo, socketPath()))
         Path silentHome = Files.createTempDirectory("claude-home-silent")
         Files.createDirectories(silentHome.resolve(".claude"))
         if (setting != null) Files.writeString(silentHome.resolve(".claude/settings.json"), '{"crossSessionInbound": "' + setting + '"}')
-        HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home,
+        HostPusher cautious = new ClaudeSocketPusher(registry.toString(), silentHome.toString(), home, projects,
                 context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         when:
@@ -298,7 +326,7 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "a repository can tighten the user's accept, and then nothing is posted either"() {
         given:
-        register(32, repo, socketPath())
+        claude(register(32, repo, socketPath()))
         Files.createDirectories(repo.resolve(".claude"))
         Files.writeString(repo.resolve(".claude/settings.local.json"), '{"crossSessionInbound": "refuse"}')
 
@@ -312,7 +340,7 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "an absent registry directory means no session"() {
         given:
-        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home,
+        HostPusher lone = new ClaudeSocketPusher(registry.resolve("missing").toString(), fakeHome.toString(), home, projects,
                 context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
 
         expect:
@@ -320,7 +348,7 @@ class ClaudeSocketPusherSpec extends Specification {
     }
     void "a frame over Claude Code's inbox cap is refused before any connection, counting the escaped form: #label"() {
         given: "a registration whose socket nothing is bound to: a connection attempt would fail with a different reason"
-        register(5, repo, socketPath())
+        claude(register(5, repo, socketPath()))
 
         when:
         PushResult result = pusher.push(state, CLAUDE, CODEX, text)
@@ -341,18 +369,18 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "the cap is exact: the largest frame that fits is posted whole, one more character is refused"() {
         given:
-        String empty = "<cross-session-message from-name=\"Codex\">\n\n</cross-session-message>"
+        String empty = "<cross-session-message from-name=\"codex\">\n\n</cross-session-message>"
         int overhead = context.getBean(ObjectMapper).writeValueAsString([type: "user", message: [role: "user", content: empty]]).length() + 1
         String largest = "w" * (ClaudeSocketPusher.FRAME_CAP - overhead)
         Path socket = socketPath()
         def received = inbox(socket)
-        register(9, repo, socket)
+        claude(register(9, repo, socket))
 
         expect:
         pusher.push(state, CLAUDE, CODEX, largest + "w").outcome() == PushOutcome.FAILED
         pusher.push(state, CLAUDE, CODEX, largest).outcome() == PushOutcome.PUSHED
         context.getBean(ObjectMapper).readValue(received.get(30, TimeUnit.SECONDS), Map).message.content
-                == "<cross-session-message from-name=\"Codex\">\n" + largest + "\n</cross-session-message>"
+                == "<cross-session-message from-name=\"codex\">\n" + largest + "\n</cross-session-message>"
     }
 
     @Timeout(20)
@@ -362,8 +390,8 @@ class ClaudeSocketPusherSpec extends Specification {
         ServerSocketChannel server = ServerSocketChannel.open(StandardProtocolFamily.UNIX)
         server.bind(UnixDomainSocketAddress.of(socket))
         servers << server
-        register(8, repo, socket)
-        HostPusher impatient = new ClaudeSocketPusher(registry.toString(), fakeHome.toString(), home,
+        claude(register(8, repo, socket))
+        HostPusher impatient = new ClaudeSocketPusher(registry.toString(), fakeHome.toString(), home, projects,
                 context.getBean(Installer), sessions, context.getBean(HostProcesses), context.getBean(ObjectMapper), Duration.ofSeconds(1))
         long started = System.nanoTime()
 
@@ -380,10 +408,10 @@ class ClaudeSocketPusherSpec extends Specification {
         given:
         Path live = socketPath()
         def received = inbox(live)
-        register(21, repo, Path.of("/tmp/placeholder.sock"), 2000L, "malformed")
+        String resumed = claude(register(21, repo, Path.of("/tmp/placeholder.sock"), 2000L, "malformed"))
         Files.writeString(registry.resolve("21.json"),
                 Files.readString(registry.resolve("21.json")).replace("/tmp/placeholder.sock", "/tmp/bad\\u0000name.sock"))
-        register(20, repo, live, 1000L, "alive")
+        register(20, repo, live, 1000L, "alive", resumed)
 
         expect:
         with(pusher.push(state, CLAUDE, CODEX, "hi")) {
@@ -403,7 +431,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Path newerSocket = socketPath()
         def newer = inbox(newerSocket)
         register(12, repo, newerSocket, 2000L)
-        sessions.join(state, FABLE, fableSession)
+        sessions.join(state, FABLE, Role.CLAUDE, fableSession)
 
         when:
         PushResult result = pusher.push(state, FABLE, CODEX, "for fable")
@@ -415,21 +443,25 @@ class ClaudeSocketPusherSpec extends Specification {
         !newer.isDone()
     }
 
-    void "a named instance is reached through its own record or not at all"() {
-        given: "registrations that no fable record names"
-        register(21, repo, socketPath(), 1000L)
+    void "an instance is reached through its own record or not at all, whatever its name"() {
+        given: "a live registration no record names"
+        Path freeSocket = socketPath()
+        def free = inbox(freeSocket)
+        register(21, repo, freeSocket, 1000L)
 
-        expect: "without a record"
+        expect: "without a record, neither a chosen name nor the client's own is pushed to"
         pusher.push(state, FABLE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+        pusher.push(state, CLAUDE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
+        !free.isDone()
 
         when: "with a record whose session is no longer registered"
-        sessions.join(state, FABLE, "gone-session")
+        sessions.join(state, FABLE, Role.CLAUDE, "gone-session")
 
         then:
         pusher.push(state, FABLE, CODEX, "hi").outcome() == PushOutcome.NO_SESSION
     }
 
-    void "the unnamed instance goes to its own registration first, even when a newer one exists"() {
+    void "an instance goes to its own registration, even when a newer one exists"() {
         given:
         Path ownSocket = socketPath()
         def own = inbox(ownSocket)
@@ -437,7 +469,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Path newerSocket = socketPath()
         def newer = inbox(newerSocket)
         register(32, repo, newerSocket, 2000L)
-        sessions.join(state, CLAUDE, ownSession)
+        sessions.join(state, CLAUDE, Role.CLAUDE, ownSession)
 
         when:
         PushResult result = pusher.push(state, CLAUDE, CODEX, "for claude")
@@ -448,44 +480,25 @@ class ClaudeSocketPusherSpec extends Specification {
         !newer.isDone()
     }
 
-    void "the unnamed instance falls back to an unclaimed registration when its own refuses, as after a crash and an unjoined restart"() {
+    void "an instance whose own registration refuses is not pushed into an unclaimed one, as after a crash and an unjoined restart"() {
         given: "the joined session's registration lingers with a socket nothing listens on"
-        String crashed = register(41, repo, socketPath(), 1000L)
-        sessions.join(state, CLAUDE, crashed)
+        claude(register(41, repo, socketPath(), 1000L))
         Path restartedSocket = socketPath()
         def restarted = inbox(restartedSocket)
-        String restartedSession = register(42, repo, restartedSocket, 2000L)
+        register(42, repo, restartedSocket, 2000L)
 
         when:
-        PushResult result = pusher.push(state, CLAUDE, CODEX, "still reached")
+        PushResult result = pusher.push(state, CLAUDE, CODEX, "waits")
 
         then:
-        result.outcome() == PushOutcome.PUSHED
-        result.session() == restartedSession
-        restarted.get(5, TimeUnit.SECONDS).contains("still reached")
-    }
-
-    void "the unnamed instance never falls back onto a registration another instance holds"() {
-        given:
-        String fableSession = register(51, repo, socketPath(), 2000L)
-        sessions.join(state, FABLE, fableSession)
-
-        expect: "with only fable's session running, an entry for the unnamed Claude waits"
-        pusher.push(state, CLAUDE, CODEX, "not for fable").outcome() == PushOutcome.NO_SESSION
-
-        when: "an unclaimed older session is running too"
-        Path freeSocket = socketPath()
-        def free = inbox(freeSocket)
-        String freeSession = register(52, repo, freeSocket, 1000L)
-
-        then:
-        pusher.push(state, CLAUDE, CODEX, "for the free one").session() == freeSession
-        free.get(5, TimeUnit.SECONDS).contains("for the free one")
+        result.outcome() == PushOutcome.FAILED
+        result.detail().contains("session-41")
+        !restarted.isDone()
     }
 
     void "right after a clear the record's process finds the registration under its new session"() {
         given: "fable's record still names the session before the clear; the registration already names the new one"
-        sessions.join(state, FABLE, "before-clear", self, false)
+        sessions.join(state, FABLE, Role.CLAUDE, "before-clear", self, false)
         Path socket = socketPath()
         def received = inbox(socket)
         String afterClear = register(self.pid(), repo, socket)
@@ -501,9 +514,9 @@ class ClaudeSocketPusherSpec extends Specification {
 
     void "a registration another record names by session is never taken by process"() {
         given: "fable's process now shows the unnamed instance's session, as after /resume inside one client"
-        sessions.join(state, FABLE, "fable-before", self, false)
+        sessions.join(state, FABLE, Role.CLAUDE, "fable-before", self, false)
         String claudeSession = register(self.pid(), repo, socketPath())
-        sessions.join(state, CLAUDE, claudeSession)
+        sessions.join(state, CLAUDE, Role.CLAUDE, claudeSession)
 
         expect:
         pusher.push(state, FABLE, CODEX, "not through claude's session").outcome() == PushOutcome.NO_SESSION
@@ -515,7 +528,7 @@ class ClaudeSocketPusherSpec extends Specification {
         def received = inbox(socket)
         String resumed = register(101, repo, socket, 1000L)
         register(102, repo, socketPath(), 2000L, "session-102", resumed)
-        sessions.join(state, recipient, resumed)
+        sessions.join(state, recipient, Role.CLAUDE, resumed)
 
         when:
         PushResult result = pusher.push(state, recipient, CODEX, "still reachable")
@@ -535,7 +548,7 @@ class ClaudeSocketPusherSpec extends Specification {
         Path socket = socketPath()
         def received = inbox(socket)
         String afterClear = register(self.pid(), repo, socket, 2000L)
-        sessions.join(state, recipient, beforeClear, self, false)
+        sessions.join(state, recipient, Role.CLAUDE, beforeClear, self, false)
 
         when:
         PushResult result = pusher.push(state, recipient, CODEX, "after the clear")

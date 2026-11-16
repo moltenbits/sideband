@@ -14,8 +14,8 @@ public interface HostPusher {
     Role role();
 
     /**
-     * @param stateDirectory the repository's Sideband state, from which the recipient is found
-     * @param recipient the instance of this pusher's role the entry is for
+     * @param stateDirectory the Sideband state, from which the recipient is found
+     * @param recipient the instance the entry is for, whose session record names this pusher's client
      * @param from the entry's author, for a host that can attribute a message to its sender
      * @return the outcome, {@link PushOutcome#PUSHED} when the host accepted the text,
      *         {@link PushOutcome#NO_SESSION} when no session of the instance could be found

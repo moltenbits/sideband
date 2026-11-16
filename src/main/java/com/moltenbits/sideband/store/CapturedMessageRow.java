@@ -9,6 +9,7 @@ import io.micronaut.data.annotation.MappedEntity;
 @MappedEntity("captured_messages")
 record CapturedMessageRow(
         @Id @GeneratedValue @Nullable Long id,
+        String project,
         String role,
         String sessionId,
         String messageId) {

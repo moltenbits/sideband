@@ -23,8 +23,12 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /** The journal as the {@code entries} table: one row per entry, the generated key as its position. */
 @Singleton
@@ -34,12 +38,14 @@ class SqliteJournal implements Journal {
 
     private final Database database;
     private final EntryRows rows;
+    private final EntryProjectRows memberships;
     private final Clock clock;
     private final MessageIds ids;
 
-    SqliteJournal(Database database, EntryRows rows, Clock clock, MessageIds ids) {
+    SqliteJournal(Database database, EntryRows rows, EntryProjectRows memberships, Clock clock, MessageIds ids) {
         this.database = database;
         this.rows = rows;
+        this.memberships = memberships;
         this.clock = clock;
         this.ids = ids;
     }
@@ -56,17 +62,29 @@ class SqliteJournal implements Journal {
                 OffsetDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS),
                 draft.from(), draft.via(), draft.to(), draft.type(), draft.route(),
                 draft.replyTo(), draft.causedBy(), draft.expectsReply(), draft.delivery());
-        return insert(rows, metadata, draft.body());
+        return insert(metadata, draft.body());
     }
 
-    /** Inserts one complete entry on the current connection and returns it with the position the store assigned. */
-    static Entry insert(EntryRows rows, EntryMetadata m, String body) {
+    /**
+     * Inserts one complete entry on the current connection, with a row for each project it
+     * involves, and returns it with the position the store assigned.
+     */
+    Entry insert(EntryMetadata m, String body) {
         EntryRow saved = rows.save(new EntryRow(null, m.id(), TIMESTAMP.format(m.createdAt()), m.from().value(),
                 m.via() == null ? null : m.via().value(),
                 m.to().stream().map(ParticipantId::value).collect(Collectors.joining(",")),
                 m.type().id(), m.route().id(), m.replyTo(), m.causedBy(), m.expectsReply(),
                 m.delivery().live().id(), m.delivery().backlog().id(), body));
+        projects(m).forEach(project -> memberships.save(new EntryProjectRow(null, project, saved.seq())));
         return new Entry(m, body, saved.seq());
+    }
+
+    /** Every project the entry's author, via, and recipients belong to, each once. */
+    static Set<String> projects(EntryMetadata m) {
+        return Stream.concat(Stream.of(m.from(), m.via()), m.to().stream())
+                .filter(Objects::nonNull)
+                .flatMap(participant -> participant.project().stream())
+                .collect(Collectors.toCollection(TreeSet::new));
     }
 
     @Override
@@ -79,15 +97,29 @@ class SqliteJournal implements Journal {
     }
 
     @Override
-    public Page readBefore(Path stateDirectory, long position, int limit) {
+    public Read readAfter(Path stateDirectory, String project, long position) {
+        return database.read(stateDirectory, Read.empty(position), () -> {
+            List<Entry> entries = entries(memberships.findSeqByProjectAndSeqGreaterThanOrderBySeq(project, position));
+            long end = entries.isEmpty() ? position : entries.getLast().seq();
+            return new Read(position, end, entries);
+        });
+    }
+
+    @Override
+    public Page readBefore(Path stateDirectory, String project, long position, int limit) {
         if (limit < 1) {
             throw new IllegalArgumentException("a page must hold at least one entry");
         }
         return database.read(stateDirectory, new Page(List.of(), false), () -> {
-            List<Entry> entries = rows.findBySeqLessThanOrderBySeqDesc(position, Pageable.from(0, limit)).stream()
-                    .map(SqliteJournal::entry).toList();
-            return new Page(entries, !entries.isEmpty() && rows.existsBySeqLessThan(entries.getLast().seq()));
+            List<Entry> entries = entries(memberships.findSeqByProjectAndSeqLessThanOrderBySeqDesc(project, position,
+                    Pageable.from(0, limit))).reversed();
+            return new Page(entries, !entries.isEmpty() && memberships.existsByProjectAndSeqLessThan(project, entries.getLast().seq()));
         });
+    }
+
+    /** The entries at {@code seqs}, oldest first, on the current connection. */
+    private List<Entry> entries(List<Long> seqs) {
+        return seqs.isEmpty() ? List.of() : rows.findBySeqInListOrderBySeq(seqs).stream().map(SqliteJournal::entry).toList();
     }
 
     @Override

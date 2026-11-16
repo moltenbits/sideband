@@ -48,7 +48,7 @@ class SqliteDeliveriesSpec extends Specification {
 
     void "each instance's deliveries are its own"() {
         given:
-        ParticipantId fable = ParticipantId.of(Role.CLAUDE, "fable")
+        ParticipantId fable = ParticipantId.of("repo", "fable")
         long seq = journal.append(dir, Fixtures.humanDraft("@all one", [Fixtures.CLAUDE, fable])).seq()
         deliveries.record(dir, seq, fable, "s1")
 

@@ -6,7 +6,9 @@ import com.moltenbits.sideband.journal.Journal
 import com.moltenbits.sideband.journal.MessageIds
 import com.moltenbits.sideband.journal.Page
 import com.moltenbits.sideband.journal.Read
+import com.moltenbits.sideband.protocol.Draft
 import com.moltenbits.sideband.protocol.MessageType
+import com.moltenbits.sideband.protocol.ParticipantId
 import io.micronaut.context.ApplicationContext
 import org.sqlite.SQLiteConfig
 import spock.lang.AutoCleanup
@@ -25,7 +27,8 @@ class SqliteJournalSpec extends Specification {
     @Shared @AutoCleanup ApplicationContext context = ApplicationContext.run()
 
     Closure<String> ids = Fixtures.sequentialIds()
-    Journal journal = new SqliteJournal(context.getBean(Database), context.getBean(EntryRows), Fixtures.FIXED_CLOCK, ids as MessageIds)
+    Journal journal = new SqliteJournal(context.getBean(Database), context.getBean(EntryRows), context.getBean(EntryProjectRows),
+            Fixtures.FIXED_CLOCK, ids as MessageIds)
     Path directory = Files.createTempDirectory("journal")
     Path database = directory.resolve(Store.FILE_NAME)
 
@@ -88,25 +91,79 @@ class SqliteJournalSpec extends Specification {
         page(1, 2) == [[], false]
         page(Long.MAX_VALUE, 5) == [[5L, 4L, 3L, 2L, 1L], false]
         page(Long.MAX_VALUE, Integer.MAX_VALUE) == [[5L, 4L, 3L, 2L, 1L], false]
-        journal.readBefore(directory, 3, 1).entries()*.body() == ["entry 2"]
+        journal.readBefore(directory, "repo", 3, 1).entries()*.body() == ["entry 2"]
     }
 
     void "a page must hold at least one entry"() {
         when:
-        journal.readBefore(directory, Long.MAX_VALUE, 0)
+        journal.readBefore(directory, "repo", Long.MAX_VALUE, 0)
 
         then:
         thrown(IllegalArgumentException)
     }
 
     private List page(long before, int limit) {
-        Page page = journal.readBefore(directory, before, limit)
+        Page page = journal.readBefore(directory, "repo", before, limit)
         [page.entries()*.seq(), page.older()]
+    }
+
+    // --- projects ---
+
+    static final ParticipantId ALPHA = ParticipantId.of("alpha", "astra")
+    static final ParticipantId BETA = ParticipantId.of("beta", "astra")
+    static final ParticipantId GAMMA = ParticipantId.of("gamma", "astra")
+
+    Entry say(ParticipantId from, List<ParticipantId> to, String body) {
+        journal.append(directory, Fixtures.agentDraft(from: from, to: to, type: MessageType.STATUS, causedBy: null,
+                expectsReply: false, body: body))
+    }
+
+    void "a project's reads see only the entries involving it, in order, across the gaps the others leave"() {
+        given:
+        say(ALPHA, [ParticipantId.OPERATOR], "a1")
+        say(BETA, [ParticipantId.OPERATOR], "b1")
+        say(BETA, [ParticipantId.OPERATOR], "b2")
+        say(ALPHA, [ParticipantId.OPERATOR], "a2")
+        say(GAMMA, [ParticipantId.OPERATOR], "g1")
+        say(ALPHA, [ParticipantId.OPERATOR], "a3")
+
+        expect:
+        journal.readAfter(directory, "alpha", 0).entries()*.body() == ["a1", "a2", "a3"]
+        journal.readAfter(directory, "alpha", 0).end() == 6
+        journal.readAfter(directory, "alpha", 1).entries()*.body() == ["a2", "a3"]
+        journal.readAfter(directory, "beta", 3) == Read.empty(3)
+        journal.readBefore(directory, "alpha", Long.MAX_VALUE, 2).entries()*.body() == ["a3", "a2"]
+        journal.readBefore(directory, "alpha", Long.MAX_VALUE, 2).older()
+        journal.readBefore(directory, "alpha", 4, 2).entries()*.body() == ["a1"]
+        !journal.readBefore(directory, "alpha", 4, 2).older()
+        !journal.readBefore(directory, "beta", Long.MAX_VALUE, 2).older()
+        journal.readAfter(directory, 0).entries().size() == 6
+    }
+
+    void "an entry across projects is read once by each project it involves, and by no other"() {
+        given:
+        Entry across = say(ALPHA, [BETA], "across")
+
+        expect:
+        journal.readAfter(directory, "alpha", 0).entries() == [across]
+        journal.readAfter(directory, "beta", 0).entries() == [across]
+        journal.readAfter(directory, "gamma", 0).entries() == []
+    }
+
+    void "the operator's words belong to the project they were typed in, and a captured turn to its author's"() {
+        given:
+        Entry prompt = journal.append(directory, Draft.humanRequest(ALPHA, [ALPHA], "typed in alpha"))
+        Entry turn = journal.append(directory, Draft.capturedTurn(BETA, null, "said in beta"))
+
+        expect:
+        journal.readAfter(directory, "alpha", 0).entries() == [prompt]
+        journal.readAfter(directory, "beta", 0).entries() == [turn]
     }
 
     void "a directory without a database reads as empty and finds nothing"() {
         expect:
-        journal.readBefore(directory, Long.MAX_VALUE, 20) == new Page([], false)
+        journal.readBefore(directory, "repo", Long.MAX_VALUE, 20) == new Page([], false)
+        journal.readAfter(directory, "repo", 0) == Read.empty(0)
         journal.readAfter(directory, 0) == Read.empty(0)
         journal.readAfter(directory, 7) == Read.empty(7)
         journal.find(directory, "019a").isEmpty()
@@ -230,7 +287,7 @@ class SqliteJournalSpec extends Specification {
         config.setTransactionMode(SQLiteConfig.TransactionMode.IMMEDIATE)
         def holder = config.createConnection("jdbc:sqlite:" + database)
         holder.autoCommit = false
-        holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('claude','x','2026-09-02T16:42:00-05:00',0,0,0,NULL,NULL)")
+        holder.createStatement().executeUpdate("INSERT INTO sessions VALUES ('repo/claude','claude','x','2026-09-02T16:42:00-05:00',0,0,0,NULL,NULL)")
         Duration patience = Duration.ofMillis(300)
         ApplicationContext impatient = ApplicationContext.run(["sideband.store.busy-timeout": "300ms"])
         Journal quick = impatient.getBean(Journal)
